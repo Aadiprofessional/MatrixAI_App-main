@@ -129,6 +129,68 @@ export const videoService = {
 
     return response.json();
   },
+  
+  /**
+   * Create a new video with an image URL
+   * @param {Object} params - The parameters for creating a video with an image
+   * @param {string} params.uid - The user ID
+   * @param {string} params.promptText - The prompt text for the video
+   * @param {string} params.imageUrl - The URL of the image to use in the video
+   * @param {string} [params.size='1280*720'] - The size of the video
+   * @returns {Promise<VideoCreationResponse>} The video creation response
+   */
+  createVideoWithImage: async (params) => {
+    const { uid, promptText, imageUrl, size = '1280*720' } = params;
+    
+    // Validate required parameters
+    if (!uid || !promptText || !imageUrl) {
+      console.error('Missing required parameters:', { uid: !!uid, promptText: !!promptText, imageUrl: !!imageUrl });
+      throw new Error('UID, promptText, and imageUrl are required');
+    }
+    
+    console.log('Creating video with image, parameters:', { 
+      uid, 
+      promptText, 
+      imageUrl,
+      size 
+    });
+    
+    try {
+      // Log the full URL being used
+      console.log('API endpoint:', `${API_BASE_URL}/api/video/createVideowithurl`);
+      
+      // Simplified approach - directly use the image URL without additional validation
+      // This matches the successful curl command approach
+      const response = await fetch(`${API_BASE_URL}/api/video/createVideowithurl`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          uid,
+          promptText,
+          image_url: imageUrl,
+        }),
+      });
+      
+      console.log('Request sent with image_url:', imageUrl);
+      console.log('API response status:', response.status);
+      
+      // Simple response handling without complex error parsing
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('API error response:', errorData, 'Status:', response.status);
+        throw new Error(errorData.message || errorData.error || 'Failed to create video with image');
+      }
+
+      const result = await response.json();
+      console.log('API success response:', result);
+      return result;
+    } catch (error) {
+      console.error('Error in createVideoWithImage:', error);
+      throw new Error('Video creation failed: ' + (error.message || 'Unknown error'));
+    }
+  },
 
   /**
    * Get the status of a video
@@ -244,5 +306,77 @@ export const videoService = {
     }
 
     return response.json();
+  },
+
+  /**
+   * Create a video with an image and poll until completion
+   * @param {Object} params - The parameters for creating a video with an image
+   * @param {string} params.uid - The user ID
+   * @param {string} params.promptText - The prompt text for the video
+   * @param {string} params.imageUrl - The URL of the image to use in the video
+   * @param {number} [params.pollInterval=1000] - Polling interval in milliseconds
+   * @param {Function} [params.onStatusUpdate] - Optional callback for status updates
+   * @returns {Promise<VideoCreationResponse>} The final video creation response
+   */
+  createVideoWithImageAndPoll: async (params) => {
+    const { uid, promptText, imageUrl, pollInterval = 1000, onStatusUpdate } = params;
+    
+    // First create the video
+    const createResponse = await videoService.createVideoWithImage({
+      uid,
+      promptText,
+      imageUrl
+    });
+    
+    // Extract videoId from the response
+    const { videoId } = createResponse;
+    
+    if (!videoId) {
+      throw new Error('No videoId returned from video creation');
+    }
+    
+    // If there's already a videoUrl in the response, return it immediately
+    if (createResponse.videoUrl && createResponse.taskStatus === 'SUCCEEDED') {
+      return createResponse;
+    }
+    
+    // Function to poll for status
+    const pollForStatus = () => {
+      return new Promise((resolve, reject) => {
+        const checkStatus = async () => {
+          try {
+            const statusResponse = await videoService.getVideoStatus({ uid, videoId });
+            
+            // Call the status update callback if provided
+            if (onStatusUpdate && typeof onStatusUpdate === 'function') {
+              onStatusUpdate(statusResponse);
+            }
+            
+            // Check if video is ready
+            if (statusResponse.taskStatus === 'SUCCEEDED' && statusResponse.videoUrl) {
+              resolve(statusResponse);
+              return;
+            }
+            
+            // Check if video failed
+            if (statusResponse.taskStatus === 'FAILED') {
+              reject(new Error(statusResponse.error || 'Video generation failed'));
+              return;
+            }
+            
+            // Continue polling
+            setTimeout(checkStatus, pollInterval);
+          } catch (error) {
+            reject(error);
+          }
+        };
+        
+        // Start polling
+        checkStatus();
+      });
+    };
+    
+    // Start polling and return the final result
+    return pollForStatus();
   }
 };

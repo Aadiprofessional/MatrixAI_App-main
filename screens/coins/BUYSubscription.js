@@ -192,16 +192,22 @@ const BUYSubscription = ({ navigation, route }) => {
     const formattedStartDate = startDate.toISOString();
     const formattedEndDate = endDate.toISOString();
     
-    // Navigate to Antom payment screen with necessary details
-    navigation.navigate('AntomPaymentScreen', {
-      uid: uid,
-      plan: plan,
-      planDetails: planDetails,
-      finalPrice: finalPrice,
-      discount: discount,
-      appliedCoupon: appliedCoupon,
+    // Prepare order data for payment screen
+    const orderData = {
+      type: 'subscription',
+      planId: plan,
+      name: planDetails.title,
+      amount: parseFloat(originalPrice),
+      currency: 'HKD',
+      couponDiscount: discount > 0 ? (parseFloat(originalPrice) - parseFloat(finalPrice)) : 0,
+      couponCode: appliedCoupon ? appliedCoupon.coupon_name : null,
       startDate: formattedStartDate,
       endDate: formattedEndDate,
+    };
+    
+    // Navigate to Antom payment screen with order data
+    navigation.navigate('AntomPaymentScreen', {
+      orderData: orderData
     });
   };
 

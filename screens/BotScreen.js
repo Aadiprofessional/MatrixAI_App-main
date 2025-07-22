@@ -1690,13 +1690,11 @@ const persistEvent = (event) => {
       // Use MathJaxSvg to render the formula properly
       return (
         <View key={`latex-formula-${index}`} style={styles.displayMathContainer}>
-          <MathJaxSvg
-            fontSize={18}
-            color={colors.botText}
-            fontCache={true}
-          >
-            {mathJaxFormula}
-          </MathJaxSvg>
+          <MathView
+            math={cleanFormula}
+            style={[styles.mathView, { color: colors.botText }]}
+            resizeMode="cover"
+          />
         </View>
       );
     };
@@ -2189,14 +2187,12 @@ const persistEvent = (event) => {
                           if (/[\w\d]+\^[\w\d]+/.test(part)) {
                             const mathContent = formatMathToLatex(part);
                             return (
-                              <MathJaxSvg
+                              <MathView
                                 key={`inline-math-${index}-${i}`}
-                                fontSize={16}
-                                color={isBot ? colors.botText : '#fff'}
-                                fontCache={true}
-                              >
-                                {`$$${mathContent}$$`}
-                              </MathJaxSvg>
+                                math={mathContent}
+                                style={[styles.mathView, { color: isBot ? colors.botText : '#fff', fontSize: 16 }]}
+                                resizeMode="cover"
+                              />
                             );
                           } else if (part) {
                             return (
@@ -3282,13 +3278,11 @@ const persistEvent = (event) => {
       const mathContent = formatMathToLatex(line.text.replace(/^\[|\]$/g, ''));
       return (
         <View key={`math-bracket-${index}`} style={[styles.mathContainer, {paddingVertical: 10}]}>
-          <MathJaxSvg
-            fontSize={18}
-            color={isBot ? colors.botText : '#fff'}
-            fontCache={true}
-          >
-            {`$$${mathContent}$$`}
-          </MathJaxSvg>
+          <MathView
+            math={mathContent}
+            style={[styles.mathView, { color: isBot ? colors.botText : '#fff' }]}
+            resizeMode="cover"
+          />
         </View>
       );
     }
@@ -3298,13 +3292,11 @@ const persistEvent = (event) => {
       const mathContent = formatMathToLatex(line.text.replace(/^\[|\]$/g, ''));
       return (
         <View key={`math-expression-${index}`} style={[styles.mathContainer, {paddingVertical: 10}]}>
-          <MathJaxSvg
-            fontSize={18}
-            color={isBot ? colors.botText : '#fff'}
-            fontCache={true}
-          >
-            {`$$${mathContent}$$`}
-          </MathJaxSvg>
+          <MathView
+            math={mathContent}
+            style={[styles.mathView, { color: isBot ? colors.botText : '#fff' }]}
+            resizeMode="cover"
+          />
         </View>
       );
     }
@@ -3316,9 +3308,11 @@ const persistEvent = (event) => {
          line.text.includes('\\') || line.text.includes('_'))) {
       return (
         <View key={`equation-${index}`} style={styles.mathContainer}>
-          <Text style={[styles.messageText, { color: isBot ? colors.botText : '#fff' }]}>
-            {formatMathToLatex(line.text)}
-          </Text>
+          <MathView
+            math={formatMathToLatex(line.text)}
+            style={[styles.mathView, { color: isBot ? colors.botText : '#fff' }]}
+            resizeMode="cover"
+          />
         </View>
       );
     }
@@ -3327,9 +3321,11 @@ const persistEvent = (event) => {
     if (/[a-z]'\(x\)/.test(line.text) || /f'\(x\)/.test(line.text) || /g'\(x\)/.test(line.text) || /h'\(x\)/.test(line.text)) {
       return (
         <View key={`derivative-${index}`} style={styles.mathContainer}>
-          <Text style={[styles.messageText, { color: isBot ? colors.botText : '#fff' }]}>
-            {formatMathToLatex(line.text)}
-          </Text>
+          <MathView
+            math={formatMathToLatex(line.text)}
+            style={[styles.mathView, { color: isBot ? colors.botText : '#fff' }]}
+            resizeMode="cover"
+          />
         </View>
       );
     }
@@ -3349,13 +3345,11 @@ const persistEvent = (event) => {
                 const mathContent = formatMathToLatex(part);
                 return (
                   <View key={`math-part-${index}-${partIndex}`} style={styles.inlineMathContainer}>
-                    <MathJaxSvg
-                      fontSize={16}
-                      color={isBot ? colors.botText : '#fff'}
-                      fontCache={true}
-                    >
-                      {`$$${mathContent}$$`}
-                    </MathJaxSvg>
+                    <MathView
+                      math={mathContent}
+                      style={[styles.mathView, { color: isBot ? colors.botText : '#fff', fontSize: 16 }]}
+                      resizeMode="cover"
+                    />
                   </View>
                 );
               } else {
@@ -3377,13 +3371,11 @@ const persistEvent = (event) => {
       const mathContent = formatMathToLatex(line.text);
       return (
         <View key={`math-notation-${index}`} style={styles.mathContainer}>
-          <MathJaxSvg
-            fontSize={18}
-            color={isBot ? colors.botText : '#fff'}
-            fontCache={true}
-          >
-            {`$$${mathContent}$$`}
-          </MathJaxSvg>
+          <MathView
+            math={mathContent}
+            style={[styles.mathView, { color: isBot ? colors.botText : '#fff' }]}
+            resizeMode="cover"
+          />
         </View>
       );
     }
@@ -3402,13 +3394,11 @@ const persistEvent = (event) => {
       const mathContent = formatMathToLatex(line.text);
       return (
         <View key={`equation-${index}`} style={styles.mathContainer}>
-          <MathJaxSvg
-            fontSize={18}
-            color={isBot ? colors.botText : '#fff'}
-            fontCache={true}
-          >
-            {`$$${mathContent}$$`}
-          </MathJaxSvg>
+          <MathView
+            math={mathContent}
+            style={[styles.mathView, { color: isBot ? colors.botText : '#fff' }]}
+            resizeMode="cover"
+          />
         </View>
       );
     }
@@ -3462,13 +3452,11 @@ const persistEvent = (event) => {
             } else if (part.type === 'inline-math') {
               return (
                 <View key={`inline-math-${index}-${partIndex}`} style={styles.inlineMathContainer}>
-                  <MathJaxSvg
-                    fontSize={18}
-                    color={isBot ? colors.botText : '#fff'}
-                    fontCache={true}
-                  >
-                    {`$$${part.content}$$`}
-                  </MathJaxSvg>
+                  <MathView
+                    math={part.content}
+                    style={[styles.mathView, { color: isBot ? colors.botText : '#fff' }]}
+                    resizeMode="cover"
+                  />
                 </View>
               );
             }
@@ -3487,13 +3475,11 @@ const persistEvent = (event) => {
       
       return (
         <View key={`function-notation-${index}`} style={styles.mathContainer}>
-          <MathJaxSvg
-            fontSize={18}
-            color={isBot ? colors.botText : '#fff'}
-            fontCache={true}
-          >
-            {`$$${latexFormula}$$`}
-          </MathJaxSvg>
+          <MathView
+            math={latexFormula}
+            style={[styles.mathView, { color: isBot ? colors.botText : '#fff' }]}
+            resizeMode="cover"
+          />
         </View>
       );
     }
@@ -3545,13 +3531,11 @@ const persistEvent = (event) => {
               } else if (part.type === 'inline-math') {
                 return (
                   <View key={`inline-math-${index}-${partIndex}`} style={styles.inlineMathContainer}>
-                    <MathJaxSvg
-                      fontSize={16}
-                      color={isBot ? colors.botText : '#fff'}
-                      fontCache={true}
-                    >
-                      {`$$${part.content}$$`}
-                    </MathJaxSvg>
+                    <MathView
+                      math={part.content}
+                      style={[styles.mathView, { color: isBot ? colors.botText : '#fff', fontSize: 16 }]}
+                      resizeMode="cover"
+                    />
                   </View>
                 );
               }
@@ -3572,13 +3556,11 @@ const persistEvent = (event) => {
       
       return (
         <View key={`math-line-${index}`} style={styles.mathContainer}>
-          <MathJaxSvg
-            fontSize={18}
-            color={isBot ? colors.botText : '#fff'}
-            fontCache={true}
-          >
-            {`$$${mathText}$$`}
-          </MathJaxSvg>
+          <MathView
+            math={mathText}
+            style={[styles.mathView, { color: isBot ? colors.botText : '#fff' }]}
+            resizeMode="cover"
+          />
         </View>
       );
     }
@@ -3601,13 +3583,11 @@ const persistEvent = (event) => {
       
       return (
         <View key={`pythagorean-${index}`} style={styles.mathContainer}>
-          <MathJaxSvg
-            fontSize={18}
-            color={isBot ? colors.botText : '#fff'}
-            fontCache={true}
-          >
-            {`$$${latexFormula}$$`}
-          </MathJaxSvg>
+          <MathView
+            math={latexFormula}
+            style={[styles.mathView, { color: isBot ? colors.botText : '#fff' }]}
+            resizeMode="cover"
+          />
         </View>
       );
     }
@@ -3622,13 +3602,11 @@ const persistEvent = (event) => {
       
       return (
         <View key={`sqrt-result-${index}`} style={styles.mathContainer}>
-          <MathJaxSvg
-            fontSize={18}
-            color={isBot ? colors.botText : '#fff'}
-            fontCache={true}
-          >
-            {`$$${latexFormula}$$`}
-          </MathJaxSvg>
+          <MathView
+            math={latexFormula}
+            style={[styles.mathView, { color: isBot ? colors.botText : '#fff' }]}
+            resizeMode="cover"
+          />
         </View>
       );
     }
@@ -3637,13 +3615,11 @@ const persistEvent = (event) => {
     if (/\\frac\{.*\}\{.*\}/.test(line.text) || line.text.includes('\\over')) {
       return (
         <View key={`fraction-formula-${index}`} style={styles.mathContainer}>
-          <MathJaxSvg
-            fontSize={18}
-            color={isBot ? colors.botText : '#fff'}
-            fontCache={true}
-          >
-            {`$$${line.text}$$`}
-          </MathJaxSvg>
+          <MathView
+            math={line.text}
+            style={[styles.mathView, { color: isBot ? colors.botText : '#fff' }]}
+            resizeMode="cover"
+          />
         </View>
       );
     }
@@ -3675,11 +3651,11 @@ const persistEvent = (event) => {
           
           elements.push(
             <View key={`math-part-${index}-${i}`} style={styles.mathContainer}>
-              <Text
+              <MathView
+                math={latexExpression}
                 style={[styles.mathView, { color: isBot ? colors.botText : '#fff' }]}
-              >
-                {latexExpression}
-              </Text>
+                resizeMode="cover"
+              />
             </View>
           );
         }
@@ -3699,11 +3675,11 @@ const persistEvent = (event) => {
       
       return (
         <View key={`full-math-${index}`} style={styles.mathContainer}>
-          <Text
+          <MathView
+            math={latexFormula}
             style={[styles.mathView, { color: isBot ? colors.botText : '#fff' }]}
-          >
-            {latexFormula}
-          </Text>
+            resizeMode="cover"
+          />
         </View>
       );
     }

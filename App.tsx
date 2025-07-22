@@ -71,13 +71,12 @@ import OrderHistoryScreen from './screens/OrderHistoryScreen.js';
 import HelpScreen from './screens/HelpScreen.js';
 import AddonScreen from './screens/coins/AddonScreen.js';
 import FeedbackScreen from './screens/FeedbackScreen.js';
-import PaymentScreen from './screens/coins/PaymentScreen.js';
-import AirwallexPaymentScreen from './screens/coins/AirwallexPaymentScreen.js';
-import AntomPaymentScreen from './screens/coins/AntomPaymentScreen.js';
+
+
 import PaymentSuccessScreen from './screens/coins/PaymentSuccess.js';
-import StripeProvider from './components/StripeProvider';
-import AirwallexProvider from './components/AirwallexProvider';
-import AntomProvider from './components/AntomProvider';
+import AntomPaymentScreen from './screens/coins/AntomPaymentScreen';
+import PaymentWebView from './screens/coins/PaymentWebView';
+
 
 // Import the LanguageProvider
 import { LanguageProvider } from './context/LanguageContext';
@@ -201,9 +200,7 @@ const App = () => {
                         <LanguageProvider>
                         <ModalProvider>
                             <ProStatusProvider>
-                            <StripeProvider>
-                            <AirwallexProvider>
-                            <AntomProvider>
+                          
                             <NavigationContainer>
                                 <Stack.Navigator>
                                     {/* Onboarding Screen */}
@@ -390,11 +387,7 @@ const App = () => {
                                         component={SuccessScreen} 
                                         options={{ headerShown: false }} 
                                     />
-                                    <Stack.Screen 
-                                        name="PaymentSuccessScreen" 
-                                        component={PaymentSuccessScreen} 
-                                        options={{ headerShown: false }} 
-                                    />
+                                 
                                    
                                     <Stack.Screen 
                                         name="ReferralScreen" 
@@ -456,20 +449,22 @@ const App = () => {
                                         options={{ headerShown: false }} 
                                     />
                                     <Stack.Screen 
-                                        name="PaymentScreen" 
-                                        component={PaymentScreen} 
-                                        options={{ headerShown: false }} 
-                                    />
-                                    <Stack.Screen 
-                                        name="AirwallexPaymentScreen" 
-                                        component={AirwallexPaymentScreen} 
-                                        options={{ headerShown: false }} 
-                                    />
-                                    <Stack.Screen 
                                         name="AntomPaymentScreen" 
                                         component={AntomPaymentScreen} 
                                         options={{ headerShown: false }} 
                                     />
+                                    <Stack.Screen 
+                                        name="PaymentWebView" 
+                                        component={PaymentWebView} 
+                                        options={{ headerShown: false }} 
+                                    />
+                                    <Stack.Screen 
+                                        name="PaymentSuccessScreen" 
+                                        component={PaymentSuccessScreen} 
+                                        options={{ headerShown: false }} 
+                                    />
+                                  
+                                 
                                     <Stack.Screen 
                                         name="CustomerSupportScreen" 
                                         component={CustomerSupportScreen} 
@@ -521,9 +516,7 @@ const App = () => {
                                    
                                 </Stack.Navigator>
                             </NavigationContainer>
-                            </AntomProvider>
-                            </AirwallexProvider>
-                            </StripeProvider>
+                           
                             </ProStatusProvider>
                         </ModalProvider>
                         </LanguageProvider>

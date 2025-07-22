@@ -10,13 +10,18 @@ import {
   Easing,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   Dimensions,
   FlatList,
   ActivityIndicator,
   Alert,
-  Modal,
+  ToastAndroid,
   PermissionsAndroid,
+  Modal
 } from 'react-native';
+import { launchImageLibrary } from 'react-native-image-picker';
+import { supabase } from '../supabaseClient';
+import RNFS from 'react-native-fs';
 import LottieView from 'lottie-react-native';
 import { VIDEO_SERVICE_UID } from '@env';
 import { useNavigation } from '@react-navigation/native';
@@ -25,7 +30,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useCoinsSubscription } from '../hooks/useCoinsSubscription';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import RNFS from 'react-native-fs';
+
 import Share from 'react-native-share';
 import Toast from 'react-native-toast-message';
 import { PERMISSIONS, request, RESULTS } from 'react-native-permissions';
@@ -44,6 +49,9 @@ const VideoGenerateScreen = () => {
   const [transcription, setTranscription] = useState(
     t('startWritingToGenerateVideos')
   );
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [uploadedImageUrl, setUploadedImageUrl] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
   
   // Initialize animated values with useRef to prevent re-creation on re-renders
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -237,7 +245,189 @@ const VideoGenerateScreen = () => {
   const handleSend = () => {
     if (userText.trim().length > 0) {
       setIsFinished(true); // Show buttons after sending the input
+      setSelectedImage(null); // Hide the attached image when send button is pressed
+      // Keep the uploadedImageUrl for API call but hide the UI
     }
+  };
+  
+  const handleAttachImage = async () => {
+    const options = {
+      mediaType: 'photo',
+      quality: 0.7, // Reduced quality to decrease file size
+      includeBase64: true,
+      maxWidth: 1280, // Limit image width
+      maxHeight: 720, // Limit image height
+    };
+
+    try {
+      const result = await launchImageLibrary(options);
+      if (result.assets && result.assets[0]) {
+        const asset = result.assets[0];
+        // Store the entire asset object instead of just the URI
+        setSelectedImage(asset);
+        
+        // Log detailed information about the selected image
+        console.log('Selected image file:', asset.fileName, asset.type, asset.fileSize);
+        
+        // Check if the image is in HEIC format and warn the user
+        const fileExt = asset.uri.substring(asset.uri.lastIndexOf('.') + 1).toLowerCase();
+        if (fileExt === 'heic' || fileExt === 'heif') {
+          console.log('HEIC image detected, will convert to JPEG');
+          // We'll continue with upload but inform the user
+          Toast.show({
+            type: 'info',
+            text1: 'Converting image format',
+            text2: 'HEIC images will be converted to JPEG for better compatibility',
+            position: 'bottom',
+            visibilityTime: 4000,
+          });
+        }
+        
+        // Check if the image is too large (over 5MB)
+        if (asset.fileSize > 5 * 1024 * 1024) {
+          console.log('Large image detected:', asset.fileSize, 'bytes');
+          Toast.show({
+            type: 'warning',
+            text1: 'Large image detected',
+            text2: 'Large images may take longer to process',
+            position: 'bottom',
+            visibilityTime: 4000,
+          });
+        }
+        
+        uploadImageToSupabase(asset);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error.message || error);
+      Alert.alert('Error', 'Failed to pick image: ' + (error.message || 'Unknown error'));
+    }
+  };
+  
+  const uploadImageToSupabase = async (asset) => {
+    try {
+      setIsUploading(true);
+      
+      // Get file extension from uri
+      const fileExt = asset.uri.substring(asset.uri.lastIndexOf('.') + 1).toLowerCase();
+      
+      // Check if the image is in HEIC format and needs conversion
+      let imageUri = asset.uri;
+      let contentType = asset.type || 'image/jpeg';
+      let finalFileExt = fileExt;
+      
+      // For iOS, we need to handle the file:// protocol
+      if (Platform.OS === 'ios' && !imageUri.startsWith('file://')) {
+        imageUri = `file://${imageUri}`;
+      }
+      
+      // Convert HEIC images to JPEG format
+      if (fileExt === 'heic' || fileExt === 'heif') {
+        console.log('Converting HEIC image to JPEG format...');
+        try {
+          // Import the image resizer library
+          const ImageResizer = require('@bam.tech/react-native-image-resizer').default;
+          
+          // Resize and convert the image to JPEG
+          const response = await ImageResizer.createResizedImage(
+            imageUri,
+            1280, // width
+            720,  // height
+            'JPEG', // format
+            80,    // quality
+            0,     // rotation
+            null,  // outputPath
+            false  // keepMeta
+          );
+          
+          // Update the image URI and content type
+          imageUri = response.uri;
+          contentType = 'image/jpeg';
+          finalFileExt = 'jpg';
+          console.log('HEIC image converted to JPEG:', response.uri);
+        } catch (conversionError) {
+          console.error('Error converting HEIC image:', conversionError);
+          throw new Error('Failed to convert HEIC image to JPEG format. Please try a different image.');
+        }
+      }
+      
+      // Create file name with correct extension
+      const filePath = `user-uploads/${Date.now()}.${finalFileExt}`;
+      
+      // Read the file as base64
+      const fileContent = await RNFS.readFile(imageUri, 'base64');
+      
+      // Function to decode base64 to array buffer
+      const decodeBase64 = (base64) => {
+        // React Native doesn't have atob, so we need to implement it
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+        let str = base64.replace(/=+$/, '');
+        let output = '';
+        
+        if (str.length % 4 === 1) {
+          throw new Error("'atob' failed: The string to be decoded is not correctly encoded.");
+        }
+        
+        for (let bc = 0, bs = 0, buffer, i = 0; buffer = str.charAt(i++); ~buffer && (bs = bc % 4 ? bs * 64 + buffer : buffer, bc++ % 4) ? output += String.fromCharCode(255 & bs >> (-2 * bc & 6)) : 0) {
+          buffer = chars.indexOf(buffer);
+        }
+        
+        const byteCharacters = output;
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        return new Uint8Array(byteNumbers);
+      };
+      
+      const arrayBuffer = decodeBase64(fileContent);
+      
+      // Upload to Supabase storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('user-uploads')
+        .upload(filePath, arrayBuffer, {
+          contentType: contentType,
+          cacheControl: '3600'
+        });
+      
+      console.log('Uploaded file with content type:', contentType);
+
+      if (uploadError) throw uploadError;
+
+      // Get the public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('user-uploads')
+        .getPublicUrl(filePath);
+
+      console.log('Upload successful, public URL:', publicUrl);
+      setUploadedImageUrl(publicUrl);
+    } catch (error) {
+      console.error('Error uploading image:', error.message || error);
+      
+      // Provide more specific error messages based on the error type
+      if (error.message && error.message.includes('HEIC')) {
+        Alert.alert(
+          'Image Format Error', 
+          'HEIC image format could not be processed. The image has been converted to JPEG but still failed. Please try a different image.'
+        );
+      } else if (error.message && error.message.includes('timed out')) {
+        Alert.alert(
+          'Upload Timeout', 
+          'The image upload timed out. This may be due to a large file size or slow connection. Please try a smaller image or check your connection.'
+        );
+      } else {
+        Alert.alert('Error', 'Failed to upload image: ' + (error.message || 'Unknown error'));
+      }
+      
+      setSelectedImage(null);
+      setUploadedImageUrl(null);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+  
+  const handleRemoveAttachedImage = () => {
+    setSelectedImage(null);
+    setUploadedImageUrl(null);
   };
 
   const handleTryAgain = () => {
@@ -249,13 +439,63 @@ const VideoGenerateScreen = () => {
   };
 
   const handleGenerate = (existingPrompt) => {
-    // Check if user has enough coins (5) for Video Generate
+    // Check if user has enough coins (25) for Video Generate
     if (coinCount >= 25) {
       // If an existing prompt was provided, use it for navigation
       const promptToUse = existingPrompt || userText;
       // Clone the message to avoid passing a synthetic event
       const messageToPass = (promptToUse || transcription) + "";
-      navigation.navigate('CreateVideoScreen', { message: messageToPass });
+      
+      // Validate the image URL if one exists
+      let imageUrlToPass = null;
+      let hasValidImage = false;
+      
+      if (uploadedImageUrl) {
+        if (typeof uploadedImageUrl === 'string' && uploadedImageUrl.trim()) {
+          imageUrlToPass = uploadedImageUrl.trim();
+          hasValidImage = true;
+          
+          // Check if the URL contains 'heic' which might cause issues
+          if (imageUrlToPass.toLowerCase().includes('.heic')) {
+            console.warn('HEIC image URL detected in final URL:', imageUrlToPass);
+            // We'll still try to use it since we should have converted it earlier
+          }
+          
+          // Validate that the URL is properly formed
+          try {
+            new URL(imageUrlToPass);
+          } catch (error) {
+            console.error('Invalid image URL format:', error);
+            Toast.show({
+              type: 'error',
+              text1: 'Invalid Image URL',
+              text2: 'The image URL format is invalid. Please try attaching the image again.',
+              position: 'bottom',
+            });
+            return; // Don't proceed with invalid URL
+          }
+        } else {
+          console.error('Invalid uploadedImageUrl:', uploadedImageUrl);
+          Toast.show({
+            type: 'error',
+            text1: 'Image Error',
+            text2: 'There was a problem with the attached image. Please try again.',
+            position: 'bottom',
+          });
+          return; // Don't proceed with invalid image
+        }
+      }
+      
+      console.log('Generating video with:', {
+        message: messageToPass,
+        imageUrl: imageUrlToPass,
+        hasImage: hasValidImage
+      });
+      
+      navigation.navigate('CreateVideoScreen', { 
+        message: messageToPass,
+        imageUrl: imageUrlToPass // Pass the validated image URL if available
+      });
     } else {
       setRequiredCoins(25);
       setLowBalanceModalVisible(true);
@@ -857,30 +1097,62 @@ const VideoGenerateScreen = () => {
         keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 10}
       >
         {!isFinished && (
-          <View style={styles.textInputContainer}>
-            <TextInput
-              style={styles.textInput}
-              placeholder={t('typeYourVideoPromptHere')}
-              placeholderTextColor="#999999"
-              value={userText}
-              onChangeText={(text) => {
-                setUserText(text); // Update input
-                setTranscription(text || t('startWritingToGenerateVideos'));
-              }}
-            />
-            <TouchableOpacity 
-              style={styles.sendButton} 
-              onPress={() => {
-                // Call handleSend with no arguments, but ensure we're not passing a synthetic event
-                handleSend();
-              }}
-            >
-              <Image
-                source={require('../assets/send2.png')}
-                style={[styles.sendIcon, {tintColor: '#FFFFFF'}]}
+          <>
+            {selectedImage && (
+              <View style={styles.attachedImageContainer}>
+                {isUploading && (
+                  <View style={styles.uploadingOverlay}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={styles.uploadingText}>{t('uploadingImage')}...</Text>
+                  </View>
+                )}
+                <Image 
+                  source={{ uri: typeof selectedImage === 'string' ? selectedImage : selectedImage.uri }} 
+                  style={styles.attachedImage} 
+                  resizeMode="cover"
+                />
+                <TouchableOpacity 
+                  style={styles.removeImageButton}
+                  onPress={() => {
+                    setSelectedImage(null);
+                    setUploadedImageUrl(null);
+                  }}
+                >
+                  <MaterialIcons name="close" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            )}
+            <View style={styles.textInputContainer}>
+              <TextInput
+                style={styles.textInput}
+                placeholder={t('typeYourVideoPromptHere')}
+                placeholderTextColor="#999999"
+                value={userText}
+                onChangeText={(text) => {
+                  setUserText(text); // Update input
+                  setTranscription(text || t('startWritingToGenerateVideos'));
+                }}
               />
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity 
+                style={styles.attachButton}
+                onPress={handleAttachImage}
+              >
+                <MaterialIcons name="attach-file" size={24} color="#999999" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.sendButton} 
+                onPress={() => {
+                  // Call handleSend with no arguments, but ensure we're not passing a synthetic event
+                  handleSend();
+                }}
+              >
+                <Image
+                  source={require('../assets/send2.png')}
+                  style={[styles.sendIcon, {tintColor: '#FFFFFF'}]}
+                />
+              </TouchableOpacity>
+            </View>
+          </>
         )}
       </KeyboardAvoidingView>
 
@@ -1183,9 +1455,52 @@ const VideoGenerateScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingTop: 50,
-    paddingHorizontal: 20,
+    backgroundColor: '#121212',
+  },
+  attachedImageContainer: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    height: 150,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  attachedImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  uploadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  uploadingText: {
+    color: '#FFFFFF',
+    marginTop: 10,
+    fontSize: 14,
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 15,
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  attachButton: {
+    padding: 10,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   header: {
@@ -1194,6 +1509,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: '100%',
     paddingRight: 10,
+    paddingTop: 50,
+    paddingHorizontal: 20,
   },
   headerTitle:{
     fontSize: 20,

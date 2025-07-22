@@ -44,7 +44,7 @@ const CreateVideoScreen = ({ route, navigation }) => {
   const { getThemeColors } = useTheme();
   const colors = getThemeColors();
   const { t } = useLanguage();
-  const { message } = route.params; // Extract text from params
+  const { message, imageUrl } = route.params; // Extract text and image URL from params
   const [videoUrl, setVideoUrl] = useState(null); // Store the generated video URL
   const [loading, setLoading] = useState(true); // Track loading state
   const [modalVisible, setModalVisible] = useState(false); // Modal visibility state
@@ -178,11 +178,31 @@ const CreateVideoScreen = ({ route, navigation }) => {
       // Use a working UID instead of the user's UID
       const workingUid = VIDEO_SERVICE_UID || '0a147ebe-af99-481b-bcaf-ae70c9aeb8d8';
       
-      // Make API request to create new video using videoService
-      const result = await videoService.createVideo({
-        uid: workingUid,
-        promptText: message
-      });
+      let result;
+      
+      // Check if an image URL was provided
+      if (imageUrl) {
+        console.log('Creating video with image URL:', imageUrl);
+        // Validate the image URL
+        if (!imageUrl || typeof imageUrl !== 'string' || !imageUrl.trim()) {
+          console.error('Invalid image URL:', imageUrl);
+          throw new Error('Invalid image URL provided');
+        }
+        
+        // Make API request to create new video with image using videoService
+        result = await videoService.createVideoWithImage({
+          uid: workingUid,
+          promptText: message,
+          imageUrl: imageUrl.trim()
+        });
+      } else {
+        console.log('Creating video without image');
+        // Make API request to create new video using videoService
+        result = await videoService.createVideo({
+          uid: workingUid,
+          promptText: message
+        });
+      }
       
       if (result.videoId) {
         setVideoId(result.videoId);
@@ -199,7 +219,25 @@ const CreateVideoScreen = ({ route, navigation }) => {
       console.error("Error initiating video generation:", error);
       setLoading(false);
       setShowSkeleton(false);
-      Alert.alert(t('error'), t('somethingWentWrong'));
+      
+      // Provide more specific error messages based on the error
+      if (error.message.includes('UID, promptText, and imageUrl are required')) {
+        Alert.alert(t('error'), 'Missing required information: User ID, prompt text, or image URL');
+      } else if (error.message.includes('Invalid image URL')) {
+        Alert.alert(t('error'), 'The image URL is invalid. Please try uploading a different image.');
+      } else if (error.message.includes('timed out') || error.message.includes('timeout')) {
+        Alert.alert(t('error'), 'The image processing timed out. Please try a smaller image or a different format (JPEG/PNG recommended).');
+      } else if (error.message.includes('failed to load') || error.message.includes('image failed')) {
+        Alert.alert(t('error'), 'Failed to load the image. The image may be inaccessible or in an unsupported format.');
+      } else if (error.message.includes('HEIC') || error.message.includes('heic') || error.message.includes('heif')) {
+        Alert.alert(t('error'), 'HEIC/HEIF image format is not supported. Please use JPEG or PNG format instead.');
+      } else if (error.message.includes('Server error')) {
+        Alert.alert(t('error'), 'Server error occurred. Please try again later.');
+      } else if (error.message.includes('Video creation failed')) {
+        Alert.alert(t('error'), 'Failed to create video. Please check your internet connection and try again.');
+      } else {
+        Alert.alert(t('error'), t('somethingWentWrong') + '\n\n' + error.message);
+      }
     }
   };
 
@@ -244,7 +282,22 @@ const CreateVideoScreen = ({ route, navigation }) => {
           clearInterval(pollInterval);
           setLoading(false);
           setShowSkeleton(false);
-          Alert.alert(t('error'), t('videoGenerationFailed'));
+          
+          // Check if there's a specific error message in the result
+          if (result.errorMessage) {
+            console.error('Video generation failed with error:', result.errorMessage);
+            
+            // Provide more specific error messages based on the error
+            if (result.errorMessage.includes('image') && result.errorMessage.includes('failed')) {
+              Alert.alert(t('error'), 'The image could not be processed. Please try a different image format (JPEG/PNG recommended).');
+            } else if (result.errorMessage.includes('timed out') || result.errorMessage.includes('timeout')) {
+              Alert.alert(t('error'), 'The video generation timed out. This may be due to server load or issues with the image.');
+            } else {
+              Alert.alert(t('error'), `${t('videoGenerationFailed')}: ${result.errorMessage}`);
+            }
+          } else {
+            Alert.alert(t('error'), t('videoGenerationFailed'));
+          }
         }
         // Continue polling if status is still PENDING or PROCESSING
       } catch (error) {
@@ -529,19 +582,33 @@ const CreateVideoScreen = ({ route, navigation }) => {
 
   const renderSkeleton = () => (
     <View style={styles.videoContainer}>
-      <View style={[styles.videoSkeleton, {backgroundColor: colors.border}]}>
-        <Animated.View
-          style={[
-            styles.shimmerOverlay,
-            {
-              transform: [{ translateX: shimmerTranslate }],
-            },
-          ]}
-        />
-        <View style={styles.playButtonSkeleton}>
-          <MaterialIcons name="play-circle-filled" size={60} color={colors.text} />
+      {imageUrl ? (
+        <View style={[styles.videoSkeleton, {backgroundColor: colors.border}]}>
+          <Image 
+            source={{ uri: imageUrl }} 
+            style={styles.attachedImage} 
+            resizeMode="contain"
+          />
+          <View style={styles.imageOverlay}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.processingText}>Processing image...</Text>
+          </View>
         </View>
-      </View>
+      ) : (
+        <View style={[styles.videoSkeleton, {backgroundColor: colors.border}]}>
+          <Animated.View
+            style={[
+              styles.shimmerOverlay,
+              {
+                transform: [{ translateX: shimmerTranslate }],
+              },
+            ]}
+          />
+          <View style={styles.playButtonSkeleton}>
+            <MaterialIcons name="play-circle-filled" size={60} color={colors.text} />
+          </View>
+        </View>
+      )}
     </View>
   );
 
@@ -762,6 +829,28 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#121212',
+  },
+  attachedImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 14,
+  },
+  imageOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderRadius: 14,
+  },
+  processingText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
+    marginTop: 12,
   },
   scrollContent: {
     flexGrow: 1,

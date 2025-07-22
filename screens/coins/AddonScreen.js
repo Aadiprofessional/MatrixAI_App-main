@@ -10,10 +10,19 @@ const AddonScreen = ({ navigation }) => {
   const coinCount = useCoinsSubscription(uid);
 
   const handleBuyNow = () => {
-    navigation.navigate('BUYSubscription', {
-      uid: uid,
-      plan: 'Addon',
-      price: '$50 HKD'
+    // Prepare order data for payment screen
+    const orderData = {
+      type: 'addon',
+      addonId: 'addon_550_coins',
+      name: 'Addon Pack - 550 Coins',
+      amount: 50,
+      currency: 'HKD',
+      quantity: 1
+    };
+    
+    // Navigate directly to payment screen
+    navigation.navigate('AntomPaymentScreen', {
+      orderData: orderData
     });
   };
 
@@ -231,4 +240,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default AddonScreen; 
+export default AddonScreen;

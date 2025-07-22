@@ -1,588 +1,237 @@
 import React, { useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
-  ScrollView, 
-  ActivityIndicator, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Image,
+  ActivityIndicator,
   Alert,
   SafeAreaView,
-  Dimensions,
-  TextInput,
-  Platform,
-  Image
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import FontAwesome from 'react-native-vector-icons/FontAwesome';
-import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import { useAntom } from '../../components/AntomProvider';
-import { 
-  createPayment, 
-  processCardPayment, 
-  processWalletPayment,
-  getPaymentStatus,
-  confirmSubscriptionPurchase,
-  confirmAddonPurchase,
-  testConnection
-} from '../../utils/antomApi';
+import Icon from 'react-native-vector-icons/Ionicons';
+import LinearGradient from 'react-native-linear-gradient';
+import { useAuthUser } from '../../hooks/useAuthUser';
+import paymentService from '../../services/paymentService';
 
-const { width } = Dimensions.get('window');
+const AntomPaymentScreen = ({ route, navigation }) => {
+  const { orderData } = route.params;
+  const [paymentMethods, setPaymentMethods] = useState([]);
+  const [selectedMethod, setSelectedMethod] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [processingPayment, setProcessingPayment] = useState(false);
+  const { session } = useAuthUser();
 
-const AntomPaymentScreen = () => {
-  const navigation = useNavigation();
-  const route = useRoute();
-  const { t } = useTranslation();
-  const { 
-    uid, 
-    plan, 
-    planDetails, 
-    finalPrice, 
-    discount, 
-    appliedCoupon, 
-    startDate: serializedStartDate, 
-    endDate: serializedEndDate,
-    addonId
-  } = route.params || {};
-
-  // Parse the serialized dates back to Date objects if they exist
-  const startDate = serializedStartDate ? new Date(serializedStartDate) : null;
-  const endDate = serializedEndDate ? new Date(serializedEndDate) : null;
-
-  // Antom context for initialization
-  const { initialized, initializing, error: antomError, initializeAntom } = useAntom();
-
-  // Payment state
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('card');
-  const [processing, setProcessing] = useState(false);
-  const [paymentError, setPaymentError] = useState(null);
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
-  const [paymentRequestId, setPaymentRequestId] = useState(null);
-  const [paymentUrl, setPaymentUrl] = useState(null);
-  
-  // Card details state
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardExpiry, setCardExpiry] = useState('');
-  const [cardCVC, setCardCVC] = useState('');
-  const [cardHolderName, setCardHolderName] = useState('');
-  const [cardValid, setCardValid] = useState(false);
-
-  // Initialize Antom on component mount
   useEffect(() => {
-    const initPaymentSystem = async () => {
-      try {
-        if (!initialized) {
-          console.log('Initializing Antom payment system...');
-          const result = await initializeAntom();
-          
-          if (!result.success) {
-            console.error('Failed to initialize Antom:', result.error || 'Unknown error');
-            setPaymentError(result.error || 'Failed to initialize payment system');
-          } else {
-            console.log('Antom initialized successfully');
-          }
-        }
-      } catch (err) {
-        console.error('Error initializing Antom:', err);
-        setPaymentError(t('failedToProcessPayment'));
-      }
-    };
+    fetchPaymentMethods();
+  }, []);
 
-    initPaymentSystem();
-  }, [initialized, initializeAntom]);
-
-  // Payment methods
-  const paymentMethods = [
-    { id: 'card', name: 'Visa/Mastercard', icon: 'credit-card', iconType: 'FontAwesome' },
-    { id: 'ALIPAY_HK', name: 'Alipay HK', icon: 'credit-card', iconType: 'custom' },
-    { id: 'ALIPAY_CN', name: 'Alipay China', icon: 'credit-card', iconType: 'custom' },
-  ];
-
-  // Card validation functions
-  const validateCardNumber = (cardNumber) => {
-    // Remove spaces and special characters
-    const cleanedCardNumber = cardNumber.replace(/\D/g, '');
-    return cleanedCardNumber.length >= 13 && cleanedCardNumber.length <= 19;
-  };
-
-  const validateCardExpiry = (expiry) => {
-    // Check MM/YY format
-    const regex = /^(0[1-9]|1[0-2])\/([0-9]{2})$/;
-    if (!regex.test(expiry)) return false;
-
-    // Extract month and year
-    const [month, year] = expiry.split('/');
-    const currentYear = new Date().getFullYear() % 100; // Get last 2 digits
-    const currentMonth = new Date().getMonth() + 1; // January is 0
-    
-    const expiryYear = parseInt(year, 10);
-    const expiryMonth = parseInt(month, 10);
-
-    // Check if card is expired
-    if (expiryYear < currentYear) return false;
-    if (expiryYear === currentYear && expiryMonth < currentMonth) return false;
-    
-    return true;
-  };
-
-  const validateCVC = (cvc) => {
-    // CVC should be 3 or 4 digits
-    return /^[0-9]{3,4}$/.test(cvc);
-  };
-
-  const handleSelectPaymentMethod = (methodId) => {
-    setSelectedPaymentMethod(methodId);
-  };
-
-  // Format card number with spaces (e.g., 4242 4242 4242 4242)
-  const formatCardNumber = (text) => {
-    const cleanedText = text.replace(/\D/g, '');
-    let formatted = '';
-    
-    for (let i = 0; i < cleanedText.length; i++) {
-      if (i > 0 && i % 4 === 0) {
-        formatted += ' ';
-      }
-      formatted += cleanedText[i];
-    }
-    
-    return formatted;
-  };
-
-  // Format expiry date (MM/YY)
-  const formatExpiry = (text) => {
-    const cleanedText = text.replace(/\D/g, '');
-    
-    if (cleanedText.length <= 2) {
-      return cleanedText;
-    } else {
-      return `${cleanedText.slice(0, 2)}/${cleanedText.slice(2, 4)}`;
-    }
-  };
-
-  const handleCardNumberChange = (text) => {
-    const formatted = formatCardNumber(text);
-    setCardNumber(formatted.slice(0, 19)); // Limit to 19 chars including spaces
-  };
-
-  const handleExpiryChange = (text) => {
-    const formatted = formatExpiry(text);
-    setCardExpiry(formatted.slice(0, 5)); // MM/YY format (5 chars)
-  };
-
-  const handleCVCChange = (text) => {
-    setCardCVC(text.replace(/\D/g, '').slice(0, 4)); // Limit to 4 digits
-  };
-
-  const validateAllCardFields = () => {
-    const isCardNumberValid = validateCardNumber(cardNumber);
-    const isExpiryValid = validateCardExpiry(cardExpiry);
-    const isCVCValid = validateCVC(cardCVC);
-    const isNameValid = cardHolderName.trim().length > 0;
-    
-    const isValid = isCardNumberValid && isExpiryValid && isCVCValid && isNameValid;
-    setCardValid(isValid);
-    return isValid;
-  };
-
-  // Handle card payment
-  const handleCardPayment = async () => {
+  const fetchPaymentMethods = async () => {
     try {
-      setProcessing(true);
-      setPaymentError(null);
-      console.log('Starting Antom card payment process');
-
-      // Validate card details first
-      if (!validateAllCardFields()) {
-        throw new Error('Please check your card details and try again');
-      }
-
-      // Ensure finalPrice is a valid number
-      const cleanPrice = String(finalPrice || "0").replace(/[^0-9.]/g, '');
-      const numericPrice = parseFloat(cleanPrice);
+      setLoading(true);
+      const response = await paymentService.getPaymentMethods(session);
       
-      if (isNaN(numericPrice) || numericPrice <= 0) {
-        throw new Error('Invalid price amount');
-      }
-
-      // Step 1: Create payment request
-      const paymentData = {
-        planId: plan,
-        addonId: addonId,
-        amount: numericPrice,
-        currency: 'HKD', // Using HKD currency
-        paymentMethodType: 'CARD',
-        orderDescription: addonId ? 'Addon Purchase' : 'Subscription Plan',
-        redirectUrl: Platform.OS === 'web' ? window.location.origin + '/payment/success' : null
-      };
-
-      console.log('Creating payment with data:', paymentData);
-      const paymentResponse = await createPayment(paymentData);
-      console.log('Payment creation response:', paymentResponse);
-
-      if (!paymentResponse || !paymentResponse.paymentRequestId) {
-        throw new Error('Failed to create payment request');
-      }
-
-      // Save payment request ID
-      setPaymentRequestId(paymentResponse.paymentRequestId);
-
-      // Step 2: Process card payment
-      const cardDetails = {
-        cardNumber: cardNumber.replace(/\s/g, ''),
-        cardExpiry,
-        cardCVC,
-        cardHolderName
-      };
-
-      console.log('Processing card payment for request:', paymentResponse.paymentRequestId);
-      const processResponse = await processCardPayment(paymentResponse.paymentRequestId, cardDetails);
-      console.log('Card payment process response:', processResponse);
-
-      // Step 3: Check payment status
-      const statusResponse = await getPaymentStatus(paymentResponse.paymentRequestId);
-      console.log('Payment status response:', statusResponse);
-
-      if (statusResponse.data.status === 'completed') {
-        // Step 4: Confirm subscription or addon purchase
-        if (plan) {
-          await confirmSubscriptionPurchase(uid, plan, numericPrice, paymentResponse.paymentRequestId);
-        } else if (addonId) {
-          await confirmAddonPurchase(uid, addonId, numericPrice, paymentResponse.paymentRequestId);
-        }
-
-        setPaymentSuccess(true);
-        Alert.alert(
-          'Payment Successful', 
-          'Your payment has been processed successfully.',
-          [{ text: 'OK', onPress: () => navigation.goBack() }]
-        );
-      } else if (statusResponse.data.status === 'pending') {
-        Alert.alert(
-          'Payment Processing', 
-          'Your payment is being processed. We will notify you once it is complete.',
-          [{ text: 'OK', onPress: () => navigation.goBack() }]
-        );
-      } else {
-        throw new Error(`Payment failed: ${statusResponse.data.resultCode || 'Unknown error'}`);
-      }
-    } catch (err) {
-      console.error('Card payment error:', err);
-      setPaymentError(err.message || 'Payment processing failed. Please try again.');
-      Alert.alert(t('paymentFailed'), err.message || t('paymentProcessingFailed'));
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  // Handle wallet payments (GCASH, MAYA, etc.)
-  const handleWalletPayment = async (methodId, methodName) => {
-    try {
-      setProcessing(true);
-      setPaymentError(null);
-      console.log(`Starting ${methodName} payment with Antom`);
-      
-      // Ensure finalPrice is a valid number
-      const cleanPrice = String(finalPrice || "0").replace(/[^0-9.]/g, '');
-      const numericPrice = parseFloat(cleanPrice);
-      
-      if (isNaN(numericPrice) || numericPrice <= 0) {
-        throw new Error('Invalid price amount');
-      }
-
-      // Step 1: Create payment request
-      const paymentData = {
-        planId: plan,
-        addonId: addonId,
-        amount: numericPrice,
-        currency: 'HKD', // Using HKD currency
-        paymentMethodType: methodId,
-        orderDescription: addonId ? 'Addon Purchase' : 'Subscription Plan',
-        redirectUrl: Platform.OS === 'web' ? window.location.origin + '/payment/success' : null
-      };
-
-      console.log('Creating payment with data:', paymentData);
-      const paymentResponse = await createPayment(paymentData);
-      console.log('Payment creation response:', paymentResponse);
-
-      if (!paymentResponse || !paymentResponse.paymentRequestId) {
-        throw new Error('Failed to create payment request');
-      }
-
-      // Save payment request ID and payment URL
-      setPaymentRequestId(paymentResponse.paymentRequestId);
-      setPaymentUrl(paymentResponse.paymentUrl);
-
-      // For mobile, we need to open the payment URL in a browser
-      if (Platform.OS !== 'web' && paymentResponse.paymentUrl) {
-        // Use Linking to open the URL in a browser
-        const Linking = require('react-native').Linking;
-        await Linking.openURL(paymentResponse.paymentUrl);
+      if (response.success) {
+        // Filter for enabled payment methods
+        const enabledMethods = response.data.filter(method => method.enabled);
+        setPaymentMethods(enabledMethods);
         
-        // Show instructions to the user
-        Alert.alert(
-          t('completePayment', { method: methodName }), 
-          t('completePaymentInBrowser'),
-          [{ text: t('ok') }]
-        );
-      } else if (Platform.OS === 'web' && paymentResponse.redirectUrl) {
-        // For web, redirect to the payment URL
-        window.location.href = paymentResponse.redirectUrl;
+        // Auto-select the first payment method if available
+        if (enabledMethods.length > 0) {
+          setSelectedMethod(enabledMethods[0]);
+        }
       } else {
-        throw new Error('No payment URL provided');
+        Alert.alert('Error', 'Failed to load payment methods');
       }
-    } catch (err) {
-      console.error(`${methodId} payment error:`, err);
-      setPaymentError(err.message || 'Payment processing failed. Please try again.');
-      Alert.alert('Payment Failed', err.message || 'Payment processing failed. Please try again.');
+    } catch (error) {
+      console.error('Error fetching payment methods:', error);
+      Alert.alert('Error', 'Failed to load payment methods');
     } finally {
-      setProcessing(false);
+      setLoading(false);
     }
   };
 
-  const handlePayNow = () => {
-    if (!selectedPaymentMethod) {
-      Alert.alert(t('paymentMethodRequired'), t('pleaseSelectPaymentMethod'));
+  const handlePaymentMethodSelect = (method) => {
+    setSelectedMethod(method);
+  };
+
+  const handlePaymentComplete = (status) => {
+    if (status === 'completed') {
+      navigation.navigate('PaymentSuccessScreen', { orderData });
+    } else {
+      Alert.alert(
+        'Payment Failed',
+        'Your payment could not be processed. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  const handleProceedToPayment = async () => {
+    if (!selectedMethod) {
+      Alert.alert('Error', 'Please select a payment method');
       return;
     }
 
-    // Process payment based on selected method
-    if (selectedPaymentMethod === 'card') {
-      if (!validateAllCardFields()) {
-        Alert.alert(t('invalidCardDetails'), t('pleaseCheckCardInfo'));
-        return;
-      }
+    try {
+      setProcessingPayment(true);
       
-      handleCardPayment();
-      return;
-    }
-
-    // Handle wallet payments
-    const method = paymentMethods.find(m => m.id === selectedPaymentMethod);
-    if (method) {
-      handleWalletPayment(selectedPaymentMethod, method.name);
-    } else {
-      Alert.alert(t('invalidPaymentMethod'), t('paymentMethodNotSupported'));
-    }
-  };
-
-  const renderPaymentMethodIcon = (method) => {
-    if (method.iconType === 'FontAwesome') {
-      return <FontAwesome name={method.icon} size={30} color="#2274F0" />;
-    } else if (method.iconType === 'MaterialIcons') {
-      return <MaterialIcons name={method.icon} size={30} color="#2274F0" />;
-    } else if (method.iconType === 'custom') {
-      // For custom icons, use FontAwesome as fallback
-      switch (method.id) {
-        case 'ALIPAY_HK':
-          return <FontAwesome name="credit-card" size={30} color="#2274F0" />;
-        case 'ALIPAY_CN':
-          return <FontAwesome name="credit-card" size={30} color="#2274F0" />;
-        default:
-          return <FontAwesome name="credit-card" size={30} color="#2274F0" />;
+      // Determine if this is a subscription or addon payment
+      let paymentResponse;
+      
+      if (orderData.type === 'subscription') {
+        paymentResponse = await paymentService.createSubscriptionPayment(
+          orderData.planId,
+          selectedMethod.paymentMethodType,
+          orderData.couponCode,
+          session
+        );
+      } else if (orderData.type === 'addon') {
+        paymentResponse = await paymentService.createAddonPayment(
+          orderData.addonId,
+          orderData.quantity,
+          selectedMethod.paymentMethodType,
+          session
+        );
+      } else {
+        // Regular payment
+        paymentResponse = await paymentService.createPayment(
+          orderData.amount,
+          orderData.currency,
+          selectedMethod.paymentMethodType,
+          orderData.productId,
+          session
+        );
       }
-    } else {
-      return <FontAwesome name="credit-card" size={30} color="#2274F0" />;
+
+      if (paymentResponse.success) {
+        const { paymentUrl, paymentRequestId } = paymentResponse.data;
+        
+        // Navigate to the payment webview
+        navigation.navigate('PaymentWebView', {
+          paymentUrl,
+          paymentRequestId,
+          onPaymentComplete: handlePaymentComplete,
+        });
+      } else {
+        Alert.alert('Error', paymentResponse.message || 'Failed to initiate payment');
+      }
+    } catch (error) {
+      console.error('Error processing payment:', error);
+      Alert.alert('Error', 'Failed to process payment. Please try again.');
+    } finally {
+      setProcessingPayment(false);
     }
   };
 
-  const renderCardInputForm = () => {
-    if (selectedPaymentMethod !== 'card') return null;
+  const renderPaymentMethod = (method) => {
+    const isSelected = selectedMethod && selectedMethod.paymentMethodType === method.paymentMethodType;
     
     return (
-      <View style={styles.cardInputContainer}>
-        <Text style={styles.cardInputLabel}>{t('enterCardDetails')}</Text>
-        
-        <View style={styles.cardInputField}>
-          <Text style={styles.cardInputFieldLabel}>{t('cardHolderName')}</Text>
-          <TextInput
-            style={styles.cardHolderInput}
-            placeholder={t('enterNameOnCard')}
-            value={cardHolderName}
-            onChangeText={setCardHolderName}
-            autoCapitalize="words"
+      <TouchableOpacity
+        key={method.paymentMethodType}
+        style={[styles.paymentMethodItem, isSelected && styles.selectedPaymentMethod]}
+        onPress={() => handlePaymentMethodSelect(method)}
+      >
+        <View style={styles.paymentMethodContent}>
+          <Image 
+            source={{ uri: method.logoUrl || 'https://via.placeholder.com/40' }} 
+            style={styles.paymentMethodLogo} 
+            defaultSource={require('../../assets/images/payment-placeholder.png')}
           />
+          <View style={styles.paymentMethodDetails}>
+            <Text style={styles.paymentMethodName}>{method.name}</Text>
+            <Text style={styles.paymentMethodDescription}>{method.description || 'Pay with ' + method.name}</Text>
+          </View>
+        </View>
+        <View style={styles.radioButton}>
+          {isSelected && <View style={styles.radioButtonInner} />}
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderOrderSummary = () => {
+    return (
+      <View style={styles.orderSummaryContainer}>
+        <Text style={styles.sectionTitle}>Order Summary</Text>
+        <View style={styles.orderItem}>
+          <Text style={styles.orderItemName}>{orderData.name || 'Product'}</Text>
+          <Text style={styles.orderItemPrice}>
+            {orderData.currency} {orderData.amount.toFixed(2)}
+          </Text>
         </View>
         
-        <View style={styles.cardInputField}>
-          <Text style={styles.cardInputFieldLabel}>{t('cardNumber')}</Text>
-          <TextInput
-            style={styles.cardNumberInput}
-            placeholder="4242 4242 4242 4242"
-            value={cardNumber}
-            onChangeText={handleCardNumberChange}
-            keyboardType="number-pad"
-            maxLength={19} // 16 digits + 3 spaces
-          />
-        </View>
+        {orderData.couponDiscount > 0 && (
+          <View style={styles.orderItem}>
+            <Text style={styles.discountText}>Coupon Discount</Text>
+            <Text style={styles.discountAmount}>-{orderData.currency} {orderData.couponDiscount.toFixed(2)}</Text>
+          </View>
+        )}
         
-        <View style={styles.cardDetailsRow}>
-          <View style={[styles.cardInputField, { flex: 1, marginRight: 10 }]}>
-            <Text style={styles.cardInputFieldLabel}>{t('expiryDate')}</Text>
-            <TextInput
-              style={styles.cardExpiryInput}
-              placeholder={t('mmYY')}
-              value={cardExpiry}
-              onChangeText={handleExpiryChange}
-              keyboardType="number-pad"
-              maxLength={5} // MM/YY format
-            />
-          </View>
-          
-          <View style={[styles.cardInputField, { flex: 1 }]}>
-            <Text style={styles.cardInputFieldLabel}>{t('cvc')}</Text>
-            <TextInput
-              style={styles.cardCVCInput}
-              placeholder="123"
-              value={cardCVC}
-              onChangeText={handleCVCChange}
-              keyboardType="number-pad"
-              maxLength={4}
-              secureTextEntry
-            />
-          </View>
+        <View style={styles.divider} />
+        
+        <View style={styles.orderTotal}>
+          <Text style={styles.orderTotalText}>Total</Text>
+          <Text style={styles.orderTotalAmount}>
+            {orderData.currency} {(orderData.amount - (orderData.couponDiscount || 0)).toFixed(2)}
+          </Text>
         </View>
       </View>
     );
   };
 
-  // Test connection to Antom API (for debugging)
-  const testAntomConnection = async () => {
-    try {
-      console.log('Testing Antom connection...');
-      setProcessing(true);
-      
-      const result = await testConnection();
-      
-      if (result.success) {
-        Alert.alert(
-          'Connection Test Successful ✅', 
-          `${result.message}\n\nEnvironment: ${result.environment}`,
-          [{ text: 'OK' }]
-        );
-      } else {
-        Alert.alert(
-          'Connection Test Failed ❌', 
-          `${result.message}\n\nPlease check your API configuration.`,
-          [{ text: 'OK' }]
-        );
-      }
-    } catch (err) {
-      Alert.alert(
-        'Connection Test Error', 
-        `Failed to test connection: ${err.message}`,
-        [{ text: 'OK' }]
-      );
-    } finally {
-      setProcessing(false);
-    }
-  };
-
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <FontAwesome name="arrow-left" size={20} color="#333" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Payment</Text>
-          <View style={{ width: 40 }} />
-        </View>
+      <LinearGradient
+        colors={['#2274F0', '#7C88FF']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.header}
+      >
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Icon name="arrow-back" size={24} color="#FFF" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Payment</Text>
+        <View style={{ width: 24 }} />
+      </LinearGradient>
+
+      <ScrollView style={styles.content}>
+        {renderOrderSummary()}
         
-        {/* Order Summary */}
-        <View style={styles.orderSummary}>
-          <Text style={styles.orderSummaryTitle}>Order Summary</Text>
-          
-          <View style={styles.orderDetail}>
-            <Text style={styles.orderDetailLabel}>
-              {addonId ? 'Addon' : 'Plan'}:
-            </Text>
-            <Text style={styles.orderDetailValue}>
-              {planDetails?.name || 'Selected Plan'}
-            </Text>
-          </View>
-          
-          {discount > 0 && (
-            <View style={styles.orderDetail}>
-              <Text style={styles.orderDetailLabel}>Discount:</Text>
-              <Text style={styles.orderDetailValue}>-${discount.toFixed(2)}</Text>
-            </View>
-          )}
-          
-          <View style={styles.orderDetail}>
-            <Text style={styles.orderDetailLabel}>Total:</Text>
-            <Text style={styles.orderDetailValue}>${parseFloat(finalPrice).toFixed(2)}</Text>
-          </View>
-          
-          {startDate && endDate && (
-            <View style={styles.orderDetail}>
-              <Text style={styles.orderDetailLabel}>Period:</Text>
-              <Text style={styles.orderDetailValue}>
-                {startDate.toLocaleDateString()} - {endDate.toLocaleDateString()}
-              </Text>
-            </View>
-          )}
-        </View>
-        
-        {/* Payment Methods */}
         <View style={styles.paymentMethodsContainer}>
-          <Text style={styles.paymentMethodsTitle}>Select Payment Method</Text>
+          <Text style={styles.sectionTitle}>Select Payment Method</Text>
           
-          <View style={styles.paymentMethods}>
-            {paymentMethods.map((method) => (
-              <TouchableOpacity
-                key={method.id}
-                style={[
-                  styles.paymentMethodItem,
-                  selectedPaymentMethod === method.id && styles.selectedPaymentMethod
-                ]}
-                onPress={() => handleSelectPaymentMethod(method.id)}
-              >
-                <View style={styles.paymentMethodIcon}>
-                  {renderPaymentMethodIcon(method)}
-                </View>
-                <Text style={styles.paymentMethodName}>{method.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-        
-        {/* Card Input Form */}
-        {renderCardInputForm()}
-        
-        {/* Error Message */}
-        {(paymentError || antomError) && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{paymentError || antomError}</Text>
-          </View>
-        )}
-        
-        {/* Pay Button */}
-        <TouchableOpacity
-          style={[styles.payButton, (processing || initializing) && styles.payButtonDisabled]}
-          onPress={handlePayNow}
-          disabled={processing || initializing}
-        >
-          {processing || initializing ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#2274F0" />
+              <Text style={styles.loadingText}>Loading payment methods...</Text>
+            </View>
+          ) : paymentMethods.length > 0 ? (
+            paymentMethods.map(method => renderPaymentMethod(method))
           ) : (
-            <Text style={styles.payButtonText}>{t('payNow')}</Text>
+            <View style={styles.noMethodsContainer}>
+              <Icon name="alert-circle-outline" size={48} color="#999" />
+              <Text style={styles.noMethodsText}>No payment methods available</Text>
+            </View>
+          )}
+        </View>
+      </ScrollView>
+
+      <View style={styles.footer}>
+        <TouchableOpacity 
+          style={[styles.payButton, (!selectedMethod || processingPayment) && styles.disabledButton]}
+          onPress={handleProceedToPayment}
+          disabled={!selectedMethod || processingPayment}
+        >
+          {processingPayment ? (
+            <ActivityIndicator size="small" color="#FFF" />
+          ) : (
+            <Text style={styles.payButtonText}>Proceed to Payment</Text>
           )}
         </TouchableOpacity>
-        
-        {/* Debug Button - Only in development */}
-        {__DEV__ && (
-          <TouchableOpacity
-            style={styles.debugButton}
-            onPress={testAntomConnection}
-            disabled={processing}
-          >
-            <Text style={styles.debugButtonText}>Test Connection</Text>
-          </TouchableOpacity>
-        )}
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 };
@@ -592,193 +241,191 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8F9FA',
   },
-  scrollContent: {
-    padding: 20,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
   },
   backButton: {
-    padding: 10,
+    padding: 8,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#FFF',
   },
-  orderSummary: {
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  orderSummaryContainer: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 20,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
   },
-  orderSummaryTitle: {
+  sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 15,
+    marginBottom: 16,
     color: '#333',
   },
-  orderDetail: {
+  orderItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: 8,
   },
-  orderDetailLabel: {
+  orderItemName: {
     fontSize: 16,
-    color: '#666',
+    color: '#333',
   },
-  orderDetailValue: {
+  orderItemPrice: {
     fontSize: 16,
     fontWeight: '500',
     color: '#333',
   },
+  discountText: {
+    fontSize: 16,
+    color: '#4CAF50',
+  },
+  discountAmount: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#4CAF50',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#E0E0E0',
+    marginVertical: 12,
+  },
+  orderTotal: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  orderTotalText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  orderTotalAmount: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2274F0',
+  },
   paymentMethodsContainer: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 20,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
   },
-  paymentMethodsTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 15,
-    color: '#333',
-  },
-  paymentMethods: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
   paymentMethodItem: {
-    width: (width - 60) / 2,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
-    padding: 15,
-    marginBottom: 10,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     borderWidth: 1,
     borderColor: '#E0E0E0',
+    borderRadius: 8,
+    marginBottom: 12,
   },
   selectedPaymentMethod: {
     borderColor: '#2274F0',
-    backgroundColor: '#F0F7FF',
+    backgroundColor: 'rgba(34, 116, 240, 0.05)',
   },
-  paymentMethodIcon: {
-    marginBottom: 10,
+  paymentMethodContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  paymentMethodLogo: {
+    width: 40,
+    height: 40,
+    borderRadius: 4,
+    marginRight: 12,
+  },
+  paymentMethodDetails: {
+    flex: 1,
   },
   paymentMethodName: {
-    fontSize: 14,
-    color: '#333',
-    textAlign: 'center',
-  },
-  cardInputContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  cardInputLabel: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 15,
+    fontSize: 16,
+    fontWeight: '500',
     color: '#333',
   },
-  cardInputField: {
-    marginBottom: 15,
-  },
-  cardInputFieldLabel: {
+  paymentMethodDescription: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 5,
+    marginTop: 2,
   },
-  cardHolderInput: {
-    backgroundColor: '#F8F9FA',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    padding: 12,
+  radioButton: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#2274F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radioButtonInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#2274F0',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  loadingText: {
+    marginTop: 12,
     fontSize: 16,
+    color: '#666',
   },
-  cardNumberInput: {
-    backgroundColor: '#F8F9FA',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    padding: 12,
+  noMethodsContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  noMethodsText: {
+    marginTop: 12,
     fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
   },
-  cardDetailsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  cardExpiryInput: {
-    backgroundColor: '#F8F9FA',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-  },
-  cardCVCInput: {
-    backgroundColor: '#F8F9FA',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-  },
-  errorContainer: {
-    backgroundColor: '#FFEBEE',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 20,
-  },
-  errorText: {
-    color: '#D32F2F',
-    fontSize: 14,
+  footer: {
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
   },
   payButton: {
     backgroundColor: '#2274F0',
     borderRadius: 8,
-    padding: 15,
+    paddingVertical: 16,
     alignItems: 'center',
-    marginBottom: 20,
+    justifyContent: 'center',
   },
-  payButtonDisabled: {
-    backgroundColor: '#A0C0E8',
+  disabledButton: {
+    backgroundColor: '#A0A0A0',
   },
   payButtonText: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
-  },
-  debugButton: {
-    backgroundColor: '#E0E0E0',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-  },
-  debugButtonText: {
-    color: '#333',
-    fontSize: 14,
   },
 });
 
