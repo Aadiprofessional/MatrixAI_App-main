@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, ActivityIndicator, Linking } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, ActivityIndicator, Linking, Platform } from 'react-native';
 import { supabase } from '../supabaseClient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
@@ -7,8 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { setupAuthLinking, handleGoogleSignIn } from '../utils/linkingConfig';
 import { debugGoogleAuth } from '../utils/googleAuthDebug';
 import { useTheme } from '../context/ThemeContext';
+import Toast from 'react-native-toast-message';
 
-// Generate a nonce at app startup
+// Generate a nonce for security purposes
 const generateNonce = (length = 32) => {
   const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let result = '';
@@ -18,113 +19,586 @@ const generateNonce = (length = 32) => {
   return result;
 };
 
+
 const LoginScreen = ({ navigation }) => {
   const [isLoading, setIsLoading] = useState(false);
   const { getThemeColors } = useTheme();
   const colors = getThemeColors();
 
+  // Set up deep linking for auth callbacks and configure Google Sign-In when component mounts
   useEffect(() => {
-    // Configure Google Sign-In only once when component mounts
-    GoogleSignin.configure({
-      webClientId: '1046714115920-vk3nng2cli9ggeo7cdg9jd87g1620bbk.apps.googleusercontent.com',
-      iosClientId: '1046714115920-vk3nng2cli9ggeo7cdg9jd87g1620bbk.apps.googleusercontent.com',
-      offlineAccess: true,
-      scopes: ['profile', 'email']
-    });
-
-    // Set up deep link handler for auth callbacks
-    const unsubscribe = setupAuthLinking(navigation);
+    // Configure Google Sign-In only for iOS
+    if (Platform.OS === 'ios') {
+      GoogleSignin.configure({
+        iosClientId: '1046714115920-65tdshvb39klvm651lr25sb4r1620gm3.apps.googleusercontent.com',
+        webClientId: '1046714115920-65tdshvb39klvm651lr25sb4r1620gm3.apps.googleusercontent.com',
+        scopes: ['profile', 'email'],
+        offlineAccess: true,
+      });
+    }
     
-    return unsubscribe;
+    const unsubscribe = setupAuthLinking(navigation);
+    return () => {
+      unsubscribe();
+    };
   }, [navigation]);
 
-  // Helper function to decode JWT token
-  const decodeJWT = (token) => {
-    try {
-      const base64Url = token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => 
-        '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
-      ).join(''));
-      return JSON.parse(jsonPayload);
-    } catch (error) {
-      console.error('Error decoding JWT:', error);
-      return null;
-    }
-  };
-
+  // Handle Google login
   const handleGoogleLogin = async () => {
     try {
       setIsLoading(true);
-      console.log('Starting Google Sign-In process...');
-      
-      // Use direct OAuth flow with Supabase callback
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: 'https://ddtgdhehxhgarkonvpfq.supabase.co/auth/v1/callback',
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
-          }
-        }
-      });
-      
-      if (error) throw error;
-      
-      console.log('Google auth URL:', data?.url);
-      
-      // Open the URL to start the OAuth flow
-      if (data?.url) {
-        await Linking.openURL(data.url);
+      console.log('=== GOOGLE LOGIN FLOW START ===');
+      console.log('Starting Google login process...');
+      console.log('Platform:', Platform.OS);
+      // Check if Google Sign-In is configured
+      try {
+        const isSignedIn = await GoogleSignin.isSignedIn();
+        console.log('Is user already signed in with Google?', isSignedIn);
+      } catch (configError) {
+        console.log('Error checking Google Sign-In configuration:', configError);
       }
       
+      // For iOS, use the native GoogleSignin SDK
+      if (Platform.OS === 'ios') {
+        try {
+          // Check if user is already signed in with Google
+          await GoogleSignin.hasPlayServices();
+          console.log('Google Play Services available');
+          
+          const userInfo = await GoogleSignin.signIn();
+          console.log('Google Sign-In successful, user info received:', JSON.stringify(userInfo, null, 2));
+          
+          // Extract the ID token from the userInfo object
+          console.log('Extracting ID token from userInfo structure...');
+          
+          // Log the structure of userInfo to understand where the token is located
+          console.log('userInfo structure keys:', Object.keys(userInfo));
+          
+          // Try different paths to extract the token
+          let idToken = null;
+          
+          if (userInfo?.idToken) {
+            idToken = userInfo.idToken;
+            console.log('ID token found directly in userInfo.idToken');
+          } else if (userInfo?.data?.idToken) {
+            idToken = userInfo.data.idToken;
+            console.log('ID token found in userInfo.data.idToken');
+          } else {
+            // Try to find the token in the response structure
+            console.log('Searching for ID token in response structure...');
+            
+            // Check if we have a token in the response
+            if (typeof userInfo === 'object' && userInfo !== null) {
+              // Recursively search for a property that looks like an ID token
+              const findIdToken = (obj, path = '') => {
+                if (!obj || typeof obj !== 'object') return null;
+                
+                for (const key in obj) {
+                  const currentPath = path ? `${path}.${key}` : key;
+                  
+                  // Check if this property looks like a JWT token
+                  if (
+                    typeof obj[key] === 'string' && 
+                    obj[key].length > 100 && 
+                    obj[key].split('.').length === 3 && 
+                    (key.toLowerCase().includes('token') || key.toLowerCase().includes('id'))
+                  ) {
+                    console.log(`Found potential ID token at path: ${currentPath}`);
+                    return obj[key];
+                  }
+                  
+                  // Recursively search nested objects
+                  if (typeof obj[key] === 'object' && obj[key] !== null) {
+                    const result = findIdToken(obj[key], currentPath);
+                    if (result) return result;
+                  }
+                }
+                
+                return null;
+              };
+              
+              idToken = findIdToken(userInfo);
+            }
+          }
+          
+          if (idToken) {
+            console.log('Got Google ID token, authenticating with Supabase...');
+            console.log('ID token type:', typeof idToken);
+            console.log('ID token length:', idToken.length);
+            console.log('ID token first 10 chars:', idToken.substring(0, 10) + '...');
+            const nonce = generateNonce();
+            console.log('Generated nonce for security');
+            
+            const { data, error } = await supabase.auth.signInWithIdToken({
+              provider: 'google',
+              token: idToken,
+              nonce: nonce,
+            });
+            
+            console.log('Supabase signInWithIdToken called with token:', idToken.substring(0, 10) + '...');
+            
+            if (error) {
+              console.error('Supabase ID token auth error:', error);
+              console.error('Full error object:', JSON.stringify(error, null, 2));
+              throw error;
+            }
+            
+            // Handle successful sign-in
+            if (data?.user) {
+              console.log('Successfully signed in with Google ID token');
+              console.log('User ID:', data.user.id);
+              console.log('User email:', data.user.email);
+              console.log('User metadata:', JSON.stringify(data.user.user_metadata, null, 2));
+              console.log('Session:', data.session ? 'Valid session' : 'No session');
+              
+              // Store session and user data
+              try {
+                await AsyncStorage.setItem('supabase-session', JSON.stringify(data.session));
+                await AsyncStorage.setItem('uid', data.user.id);
+                await AsyncStorage.setItem('userLoggedIn', 'true');
+                await AsyncStorage.setItem('user', JSON.stringify(data.user));
+                console.log('User data stored in AsyncStorage successfully');
+              } catch (storageError) {
+                console.error('Error storing session data:', storageError);
+              }
+              
+              // Check if user exists in users table
+              console.log('Checking if user exists in database...');
+              try {
+                // Use maybeSingle instead of single to avoid the error when no rows are returned
+                const { data: userData, error: userError } = await supabase
+                  .from('users')
+                  .select('*')
+                  .eq('uid', data.user.id)
+                  .maybeSingle();
+                
+                if (userError) {
+                  console.error('Error checking user existence:', userError.message);
+                  console.error('Full user error object:', JSON.stringify(userError, null, 2));
+                }
+                
+                if (!userData) {
+                  console.log('User does not exist in database, checking if email exists');
+                  // User doesn't exist by UID, but might exist by email
+                  const userInfo = {
+                    uid: data.user.id,
+                    id: data.user.id,
+                    email: data.user.email,
+                    name: data.user.user_metadata?.full_name || data.user.user_metadata?.name || '',
+                    dp_url: data.user.user_metadata?.picture || '',
+                    phone: data.user.phone || ''
+                  };
+                  
+                  // First check if a user with this email already exists
+                  const { data: existingUserByEmail, error: emailCheckError } = await supabase
+                    .from('users')
+                    .select('*')
+                    .eq('email', data.user.email)
+                    .maybeSingle();
+                  
+                  if (emailCheckError) {
+                    console.error('Error checking email existence:', emailCheckError);
+                  }
+                  
+                  if (existingUserByEmail) {
+                    console.log('User with this email already exists, skipping UID update due to foreign key constraints');
+                    console.log('Existing user data:', JSON.stringify(existingUserByEmail, null, 2));
+                    
+                    // Don't try to update UID as it causes foreign key constraint issues
+                    // Just navigate to Home since the user exists
+                    
+                    // Store the session data in AsyncStorage
+                    try {
+                      await AsyncStorage.setItem('uid', data.user.id);
+                      await AsyncStorage.setItem('userLoggedIn', 'true');
+                      console.log('Session data stored in AsyncStorage');
+                    } catch (storageError) {
+                      console.error('Error storing session data:', storageError);
+                    }
+                    
+                    // Navigate to Home screen
+                    setTimeout(() => {
+                      navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'Home' }],
+                      });
+                    }, 500);
+                    return;
+                  }
+                  
+                  // Generate a random referral code
+                  const generateReferralCode = () => {
+                    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                    let result = '';
+                    for (let i = 0; i < 6; i++) {
+                      result += chars.charAt(Math.floor(Math.random() * chars.length));
+                    }
+                    return result;
+                  };
+                  
+                  // Create user in the database directly
+                  const newReferralCode = generateReferralCode();
+                  const newUserData = {
+                    uid: data.user.id,
+                    name: userInfo.name,
+                    email: userInfo.email,
+                    age: 0, // Default value
+                    gender: 'Not specified', // Default value
+                    preferred_language: 'English', // Default value
+                    referral_code: newReferralCode,
+                    user_coins: 0,
+                    invited_members: [],
+                    referred_by: null,
+                    dp_url: userInfo.avatar_url
+                  };
+                  
+                  console.log('Creating new user in database:', JSON.stringify(newUserData, null, 2));
+                  
+                  // Try to insert the user
+                  const { error: insertError } = await supabase
+                    .from('users')
+                    .insert([newUserData]);
+                  
+                  if (insertError) {
+                    console.error('Error creating user in database:', insertError);
+                    // If insert fails, try upsert as fallback
+                    const { error: upsertError } = await supabase
+                      .from('users')
+                      .upsert([newUserData], { onConflict: 'uid' });
+                      
+                    if (upsertError) {
+                      console.error('Error upserting user in database:', upsertError);
+                      // If both fail, navigate to SignUpDetails as fallback
+                      console.log('Navigating to SignUpDetails with user info as fallback');
+                      navigation.navigate('SignUpDetails', { userInfo });
+                      return;
+                    }
+                  }
+                  
+                  // User created successfully, navigate to Home
+                  console.log('New user created successfully, navigating to Home');
+                  setTimeout(() => {
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'Home' }],
+                    });
+                  }, 500);
+                  return;
+                }
+                
+                // User exists, go to main screen
+                console.log('User exists in database, navigating to Home screen');
+                console.log('User data from database:', JSON.stringify(userData, null, 2));
+                
+                // Add a slight delay before navigation to ensure all async operations complete
+                console.log('Setting timeout for navigation...');
+                setTimeout(() => {
+                  console.log('Executing navigation.reset to Home...');
+                  navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'Home' }],
+                  });
+                  console.log('Navigation.reset executed');
+                }, 500);
+              } catch (dbError) {
+                console.error('Database operation error:', dbError);
+                showError('Failed to check user in database');
+              }
+            } else {
+              console.log('No user data returned from Supabase');
+              console.log('Full Supabase response:', JSON.stringify(data, null, 2));
+            }
+          } else {
+            console.log('No ID token found in Google Sign-In response');
+            console.log('Full userInfo object:', JSON.stringify(userInfo, null, 2));
+            
+            // Try to extract user info for debugging
+            const user = userInfo?.user || userInfo?.data?.user;
+            if (user) {
+              console.log('User info extracted from response:', JSON.stringify(user, null, 2));
+              console.log('User email:', user.email);
+              console.log('User ID:', user.id);
+              console.log('User name:', user.name);
+            }
+            
+            // Check if we have enough user information to proceed with OAuth flow
+            if (user && user.email) {
+              console.log('We have user email but no ID token, falling back to OAuth flow');
+              throw new Error('No ID token found in Google Sign-In response, but user info is available');
+            } else {
+              console.log('No user information available, cannot proceed');
+              throw new Error('Google Sign-In failed: No ID token or user information available');
+            }
+          }
+        } catch (googleError) {
+          console.error('Native Google Sign-In error:', googleError);
+          console.error('Error details:', JSON.stringify(googleError, null, 2));
+          
+          // Determine if this is a recoverable error that should trigger OAuth fallback
+          const errorMessage = googleError.message || '';
+          const isRecoverableError = (
+            errorMessage.includes('No ID token') || 
+            errorMessage.includes('cancelled') || 
+            errorMessage.includes('network') ||
+            errorMessage.includes('failed')
+          );
+          
+          if (isRecoverableError) {
+            // Fall back to OAuth flow if native sign-in fails with a recoverable error
+            console.log('Falling back to OAuth flow due to recoverable error:', errorMessage);
+            await handleGoogleSignIn(setIsLoading, showError);
+          } else {
+            // For non-recoverable errors, just show the error
+            console.error('Non-recoverable Google Sign-In error:', errorMessage);
+            throw new Error(`Google Sign-In failed: ${errorMessage}`);
+          }
+        }
+      } else {
+        // For other platforms, use the OAuth flow
+        console.log('Using OAuth flow for non-iOS platform');
+        await handleGoogleSignIn(setIsLoading, showError);
+      }
     } catch (error) {
-      console.error('Detailed error:', error);
-      Alert.alert('Error', `Failed to login with Google: ${error.message}`);
+      console.error('Google login error:', error);
+      console.error('Full error details:', JSON.stringify(error, null, 2));
+      showError(error.message);
+    } finally {
+      console.log('=== GOOGLE LOGIN FLOW END ===');
+      setIsLoading(false);
+    }
+  };
+
+  // Handle Apple login
+  const handleSocialLogin = async (provider) => {
+    try {
+      setIsLoading(true);
+      
+      if (provider === 'apple') {
+        // Import appleAuth dynamically to avoid issues on Android
+        const { appleAuth } = require('@invertase/react-native-apple-authentication');
+        
+        // Check if Apple Authentication is available on this device
+        if (!appleAuth.isSupported) {
+          Toast.show({
+            type: 'info',
+            text1: 'Info',
+            text2: 'Apple login is not available on this device',
+            position: 'bottom'
+          });
+          return;
+        }
+        
+        console.log('Starting Apple authentication...');
+        
+        // Perform the Apple authentication request
+        const appleAuthRequestResponse = await appleAuth.performRequest({
+          requestedOperation: appleAuth.Operation.LOGIN,
+          requestedScopes: [appleAuth.Scope.EMAIL, appleAuth.Scope.FULL_NAME],
+        });
+        
+        // Get the identity token from the response
+        const { identityToken } = appleAuthRequestResponse;
+        
+        if (!identityToken) {
+          throw new Error('No identity token returned from Apple');
+        }
+        
+        console.log('Got Apple identity token, authenticating with Supabase...');
+        
+        // Sign in with Supabase using the identity token
+        const { data, error } = await supabase.auth.signInWithIdToken({
+          provider: 'apple',
+          token: identityToken,
+        });
+        
+        if (error) throw error;
+        
+        // Handle successful sign-in
+        if (data?.user) {
+          console.log('Successfully signed in with Apple');
+          
+          // Store session and user data
+          await AsyncStorage.setItem('supabase-session', JSON.stringify(data.session));
+          await AsyncStorage.setItem('uid', data.user.id);
+          await AsyncStorage.setItem('userLoggedIn', 'true');
+          await AsyncStorage.setItem('user', JSON.stringify(data.user));
+          
+          Toast.show({
+            type: 'success',
+            text1: 'Success',
+            text2: 'Login successful!',
+            position: 'bottom'
+          });
+          
+          // Check if user exists in users table
+          console.log('Checking if user exists in database...');
+          try {
+            // Use maybeSingle instead of single to avoid the error when no rows are returned
+            const { data: userData, error: userError } = await supabase
+              .from('users')
+              .select('*')
+              .eq('uid', data.user.id)
+              .maybeSingle();
+            
+            if (userError) {
+              console.error('Error checking user existence:', userError.message);
+            }
+            
+            if (!userData) {
+              console.log('User does not exist in database, checking if email exists');
+              // User doesn't exist by UID, but might exist by email
+              const userInfo = {
+                uid: data.user.id,
+                id: data.user.id,
+                email: data.user.email,
+                name: data.user.user_metadata?.full_name || data.user.user_metadata?.name || '',
+                dp_url: data.user.user_metadata?.picture || '',
+                phone: data.user.phone || ''
+              };
+              
+              // First check if a user with this email already exists
+              const { data: existingUserByEmail, error: emailCheckError } = await supabase
+                .from('users')
+                .select('*')
+                .eq('email', data.user.email)
+                .maybeSingle();
+              
+              if (emailCheckError) {
+                console.error('Error checking email existence:', emailCheckError);
+              }
+              
+              if (existingUserByEmail) {
+                console.log('User exists by email, skipping UID update');
+                // User exists by email, navigate to Home
+                setTimeout(() => {
+                  navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'Home' }],
+                  });
+                }, 500);
+              } else {
+                console.log('Creating new user data...');
+                // Generate a referral code
+                const referralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+                
+                // Create new user data
+                const { data: newUser, error: insertError } = await supabase
+                  .from('users')
+                  .insert({
+                    ...userInfo,
+                    referral_code: referralCode,
+                    created_at: new Date().toISOString(),
+                  })
+                  .select()
+                  .single();
+                
+                if (insertError) {
+                  console.error('Error inserting new user:', insertError);
+                  // Try upsert as a fallback
+                  const { data: upsertUser, error: upsertError } = await supabase
+                    .from('users')
+                    .upsert({
+                      ...userInfo,
+                      referral_code: referralCode,
+                      created_at: new Date().toISOString(),
+                    })
+                    .select()
+                    .single();
+                  
+                  if (upsertError) {
+                    console.error('Error upserting user:', upsertError);
+                    throw upsertError;
+                  }
+                  
+                  console.log('User upserted successfully:', upsertUser);
+                } else {
+                  console.log('User inserted successfully:', newUser);
+                }
+                
+                // Navigate to Home screen
+                setTimeout(() => {
+                  navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'Home' }],
+                  });
+                }, 500);
+              }
+            } else {
+              console.log('User exists in database, navigating to Home');
+              // User exists, navigate to Home
+              setTimeout(() => {
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Home' }],
+                });
+              }, 500);
+            }
+          } catch (dbError) {
+            console.error('Database operation error:', dbError);
+            showError('Failed to check user in database');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Social login error:', error);
+      showError(error.message || 'Failed to login with social provider');
     } finally {
       setIsLoading(false);
     }
   };
+
+  // Helper function to show errors
+  const showError = (message) => {
+    console.error('Authentication error:', message);
+    Toast.show({
+      type: 'error',
+      text1: 'Authentication Error',
+      text2: message || 'An error occurred during authentication',
+      position: 'bottom'
+    });
+  };
   
-  // Debug helper for Google OAuth
+  // Debug Google Sign-In (kept for reference but not used in UI)
   const debugGoogleSignIn = async () => {
-    try {
-      const result = await debugGoogleAuth();
-      console.log('Debug result:', result);
-      
-      if (result.success) {
-        // Create a message with validation information
-        let message = `Redirect URI:\n${result.redirectUri}\n\n`;
-        message += `Client ID:\n${result.clientId}\n\n`;
+    if (Platform.OS === 'ios') {
+      try {
+        // Check if Google Sign-In is configured properly
+        const isSignedIn = await GoogleSignin.isSignedIn();
+        console.log('Is user signed in with Google?', isSignedIn);
         
-        if (result.validation) {
-          message += 'VALIDATION:\n';
-          message += `• ${result.validation.issues.join('\n• ')}\n\n`;
-          
-          if (result.validation.suggestions && result.validation.suggestions.length) {
-            message += 'SUGGESTED URIS TO TRY:\n';
-            message += `• ${result.validation.suggestions.join('\n• ')}`;
-          }
+        if (isSignedIn) {
+          // Sign out first to test fresh sign-in
+          await GoogleSignin.signOut();
+          console.log('Signed out from Google');
         }
         
+        // Test the native Google Sign-In
+        await GoogleSignin.hasPlayServices();
+        const userInfo = await GoogleSignin.signIn();
+        console.log('Google Sign-In successful:', userInfo);
+        
         Alert.alert(
-          'Debug Info (Copy to fix in Google Cloud)',
-          message,
+          'Native Google Sign-In Success',
+          JSON.stringify(userInfo, null, 2),
           [{ text: 'OK' }]
         );
-      } else {
-        Alert.alert('Debug Error', result.error || 'Unknown error');
+      } catch (error) {
+        console.error('Native Google Sign-In debug error:', error);
+        Alert.alert(
+          'Native Google Sign-In Error',
+          error.toString(),
+          [{ text: 'OK' }]
+        );
       }
-    } catch (error) {
-      console.error('Error in debugGoogleSignIn:', error);
-      Alert.alert('Debug Error', error.message);
+    } else {
+      // Fall back to OAuth debug for non-iOS platforms
+      const result = await debugGoogleAuth();
+      Alert.alert(
+        'Google Auth Debug',
+        JSON.stringify(result, null, 2),
+        [{ text: 'OK' }]
+      );
     }
-  };
-
-  // Social Login
-  const handleSocialLogin = async (provider) => {
-    Alert.alert('Coming Soon', 'This login method will be available soon!');
   };
 
   // Phone OTP Login
@@ -136,7 +610,7 @@ const LoginScreen = ({ navigation }) => {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Logo Image */}
       <Image
-        source={require('../assets/logo.png')} // Replace with your logo path
+        source={require('../assets/logo7.png')} // Replace with your logo path
         style={styles.logo}
       />
 
@@ -161,19 +635,12 @@ const LoginScreen = ({ navigation }) => {
         )}
       </TouchableOpacity>
       
-      {/* Debug button - only shown in development */}
-      {__DEV__ && (
-        <TouchableOpacity
-          style={[styles.socialButton, { marginTop: 5, backgroundColor: '#f0f0f0' }]}
-          onPress={debugGoogleSignIn}
-        >
-          <Text style={[styles.buttonText, { color: '#333' }]}>Debug Google Sign-In</Text>
-        </TouchableOpacity>
-      )}
+      {/* Debug button removed */}
 
       <TouchableOpacity
-        style={styles.socialButton}
+        style={[styles.socialButton, isLoading && styles.disabledButton]}
         onPress={() => handleSocialLogin('apple')}
+        disabled={isLoading}
       >
         <Image source={require('../assets/apple.png')} style={styles.icon} />
         <Text style={styles.buttonText}>Continue with Apple</Text>

@@ -77,6 +77,7 @@ const ImageGenerateScreen = () => {
   const [fullScreenModalVisible, setFullScreenModalVisible] = useState(false);
   const [fullScreenImageUrl, setFullScreenImageUrl] = useState('');
   const [fullScreenImageId, setFullScreenImageId] = useState('');
+  const [fullScreenPromptText, setFullScreenPromptText] = useState('');
   
   // Run animations on mount
   useEffect(() => {
@@ -471,9 +472,10 @@ const ImageGenerateScreen = () => {
     }
   };
 
-  const handleImagePress = (imageUrl, imageId) => {
+  const handleImagePress = (imageUrl, imageId, promptText) => {
     setFullScreenImageUrl(imageUrl);
     setFullScreenImageId(imageId);
+    setFullScreenPromptText(promptText || '');
     setFullScreenModalVisible(true);
   };
 
@@ -481,6 +483,7 @@ const ImageGenerateScreen = () => {
     setFullScreenModalVisible(false);
     setFullScreenImageUrl('');
     setFullScreenImageId('');
+    setFullScreenPromptText('');
   };
 
   const renderHistoryItem = ({ item }) => (
@@ -783,6 +786,13 @@ const ImageGenerateScreen = () => {
                 resizeMode="contain"
               />
             </View>
+            
+            {/* Display prompt text */}
+            {fullScreenPromptText ? (
+              <View style={styles.fullScreenPromptContainer}>
+                <Text style={styles.fullScreenPromptText}>{fullScreenPromptText}</Text>
+              </View>
+            ) : null}
             
             {/* Action buttons */}
             <View style={styles.fullScreenActions}>
@@ -1285,6 +1295,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     marginLeft: 8,
+  },
+  fullScreenPromptContainer: {
+    padding: 15,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginBottom: 20,
+  },
+  fullScreenPromptText: {
+    color: '#fff',
+    fontSize: 14,
+    textAlign: 'center',
   },
   historyImageContainer: {
     borderRadius: 8,

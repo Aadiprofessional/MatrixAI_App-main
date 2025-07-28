@@ -3,6 +3,7 @@ import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
 import AVFoundation
+import GoogleSignIn
 
 @main
 class AppDelegate: RCTAppDelegate {
@@ -41,5 +42,16 @@ class AppDelegate: RCTAppDelegate {
     } catch {
       print("[AudioSession] Error configuring audio session: \(error.localizedDescription)")
     }
+  }
+  
+  // Handle URL scheme callbacks for Google Sign-In
+  override func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
+    // Handle Google Sign-In callback
+    if GIDSignIn.sharedInstance.handle(url) {
+      return true
+    }
+    
+    // Handle other URL schemes or default to React Native's URL handling
+    return super.application(app, open: url, options: options)
   }
 }

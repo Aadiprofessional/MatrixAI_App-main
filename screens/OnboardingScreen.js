@@ -14,24 +14,20 @@ const OnboardingScreen = ({ navigation,onFinish }) => {
     const slides = [
         {
             title: "Welcome to Matrix AI",
-            description: "Unlimited audio files (up to 500 hours)",
+           
             image: require('../assets/matrix.png'),
         },
         {
             title: "Generate with 150 Languages, AI Voices",
-            description: "Unlimited audio files (up to 500 hours)",
+          
             image: require('../assets/OnBoard/2.png'),
         },
         {
             title: "Generate Video, Image With AI",
-            description: "Unlimited audio files (up to 500 hours)",
+        
             image: require('../assets/OnBoard/3.png'),
         },
-        {
-            title: "Generate Document, And Buy on AI Shop",
-            description: "Unlimited Document files (up to 500 hours)",
-            image: require('../assets/OnBoard/4.png'),
-        },
+       
     ];
 
     const handleNext = () => {
@@ -66,7 +62,7 @@ const OnboardingScreen = ({ navigation,onFinish }) => {
                             <Image source={slide.image} style={styles.image} />
                         </View>
                         <Text style={[styles.title, { color: colors.text }]}>{slide.title}</Text>
-                        <Text style={[styles.description, { color: colors.border }]}>{slide.description}</Text>
+
                     </View>
                 ))}
             </ScrollView>

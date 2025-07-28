@@ -612,11 +612,28 @@ const persistEvent = (event) => {
             
             console.log('Uploading compressed image to path:', filePath);
             
+            // Determine proper MIME type based on file extension
+            let mimeType = imageType;
+            if (!mimeType) {
+              const fileExt = fileExtension.toLowerCase();
+              if (fileExt === 'jpg' || fileExt === 'jpeg') {
+                mimeType = 'image/jpeg';
+              } else if (fileExt === 'png') {
+                mimeType = 'image/png';
+              } else if (fileExt === 'gif') {
+                mimeType = 'image/gif';
+              } else if (fileExt === 'webp') {
+                mimeType = 'image/webp';
+              } else {
+                mimeType = 'image/jpeg'; // Default to JPEG
+              }
+            }
+            
             // Upload image to Supabase storage
             const { data: uploadData, error: uploadError } = await supabase.storage
               .from('user-uploads')
               .upload(filePath, decode(fileContent), {
-                contentType: imageType || 'image/jpeg',
+                contentType: mimeType,
                 upsert: false
               });
 
@@ -3129,15 +3146,34 @@ const persistEvent = (event) => {
       if (response.assets && response.assets.length > 0) {
         const { uri, type, fileName } = response.assets[0];
         
+        // Determine proper MIME type based on file extension
+        let mimeType = type;
+        if (!mimeType) {
+          const fileExt = uri.substring(uri.lastIndexOf('.') + 1).toLowerCase();
+          if (fileExt === 'jpg' || fileExt === 'jpeg') {
+            mimeType = 'image/jpeg';
+          } else if (fileExt === 'png') {
+            mimeType = 'image/png';
+          } else if (fileExt === 'gif') {
+            mimeType = 'image/gif';
+          } else if (fileExt === 'webp') {
+            mimeType = 'image/webp';
+          } else if (fileExt === 'heic' || fileExt === 'heif') {
+            mimeType = 'image/jpeg'; // HEIC should be converted to JPEG
+          } else {
+            mimeType = 'image/jpeg'; // Default to JPEG
+          }
+        }
+        
         console.log('Selected image details:', {
           uri: uri,
-          type: type || 'image/jpeg',
+          type: mimeType,
           fileName: fileName || `image_${Date.now()}.jpg`
         });
         
         // Set the selected image
         setSelectedImage(uri);
-        setImageType(type || 'image/jpeg');
+        setImageType(mimeType);
         setImageFileName(fileName || `image_${Date.now()}.jpg`);
       }
     } catch (error) {

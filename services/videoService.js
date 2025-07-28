@@ -1,115 +1,189 @@
+// Video Service Interfaces
 /**
- * @typedef {Object} VideoCreationResponse
- * @property {string} message
- * @property {string} videoId
- * @property {string} [taskId]
- * @property {string} taskStatus - Server returns taskStatus for the initial status
- * @property {string} [status] - Keep this for backward compatibility
- * @property {string} [requestId]
- * @property {number} [coinsDeducted]
- * @property {string} [videoUrl] - URL of the video if already generated
- * @property {string} [submitTime] - Time when the video generation was submitted
- * @property {string} [endTime] - Time when the video generation was completed
- * @property {string} [origPrompt] - Original prompt text
- * @property {string} [actualPrompt] - Actual prompt used for generation
+ * @typedef {Object} VideoGenerationResponse
+ * @property {string} message - Response message
+ * @property {string} videoId - ID of the generated video
+ * @property {string} status - Status of the video generation
+ * @property {string} [videoUrl] - URL of the generated video
+ * @property {string} [taskId] - ID of the generation task
+ * @property {string} [error] - Error message if any
  */
 
 /**
- * @typedef {Object} VideoStatusResponse
- * @property {string} message
- * @property {string} [videoId]
- * @property {string} [status]
- * @property {string} [taskStatus] - Server returns taskStatus for video generation status
- * @property {string} [videoUrl]
- * @property {string} [error]
- * @property {string} [submitTime]
- * @property {string} [endTime]
- * @property {string} [origPrompt]
- * @property {string} [actualPrompt]
- * @property {string} [promptText] - The prompt text used for the video
- * @property {string} [createdAt] - Timestamp when the video was created
+ * @typedef {Object} VideoGenerationWithNegativePromptResponse
+ * @property {string} message - Response message
+ * @property {string} videoId - ID of the generated video
+ * @property {string} status - Status of the video generation
+ * @property {string} [videoUrl] - URL of the generated video
+ * @property {string} [taskId] - ID of the generation task
+ * @property {string} [error] - Error message if any
+ * @property {string} [negative_prompt] - Negative prompt used for generation
  */
 
 /**
- * @typedef {Object} VideoItem
- * @property {string} video_id
- * @property {string} prompt_text
- * @property {string} size
- * @property {string} task_status
- * @property {string} [video_url]
- * @property {string} created_at
- * @property {string} [task_id]
- * @property {string} [api_type]
+ * @typedef {Object} VideoHistoryResponseItem
+ * @property {string} video_id - ID of the video
+ * @property {string} prompt_text - Prompt text used for generation
+ * @property {string} [video_url] - URL of the generated video
+ * @property {string} status - Status of the video generation
+ * @property {string} created_at - Creation timestamp
+ * @property {string} [task_id] - ID of the generation task
+ * @property {string} [template] - Template used for generation
+ * @property {string} [image_url] - URL of the image used
+ * @property {string} [size] - Size of the video
+ * @property {string} [error_message] - Error message if any
  */
 
 /**
- * @typedef {Object} VideoListResponse
- * @property {string} message
- * @property {VideoItem[]} videos
- * @property {number} totalCount
+ * @typedef {Object} PaginationInfo
+ * @property {number} totalItems - Total number of items
+ * @property {number} totalPages - Total number of pages
+ * @property {number} currentPage - Current page number
+ * @property {number} itemsPerPage - Number of items per page
+ * @property {boolean} hasNextPage - Whether there is a next page
+ * @property {boolean} hasPreviousPage - Whether there is a previous page
  */
 
 /**
- * @typedef {Object} VideoSummary
- * @property {number} total
- * @property {number} ready
- * @property {number} processing
- * @property {number} failed
- * @property {number} unknown
- */
-
-/**
- * @typedef {Object} EnhancedVideoItem
- * @property {string} videoId
- * @property {string} promptText
- * @property {string} size
- * @property {string} taskId
- * @property {string} taskStatus
- * @property {string} statusDisplay
- * @property {boolean} isReady
- * @property {boolean} hasVideo
- * @property {string} [videoUrl]
- * @property {string} createdAt
- * @property {string} ageDisplay
- * @property {string} apiType
- * @property {string} [requestId]
- * @property {string} [submitTime]
- * @property {string} [scheduledTime]
- * @property {string} [endTime]
- * @property {string} [origPrompt]
- * @property {string} [actualPrompt]
- * @property {number} [coinsDeducted]
- * @property {string} [error]
- */
-
-
-/**
- * @typedef {Object} EnhancedVideoListResponse
- * @property {string} message
- * @property {string} uid
- * @property {VideoSummary} summary
- * @property {EnhancedVideoItem[]} videos
- * @property {number} totalCount
+ * @typedef {Object} VideoHistoryResponse
+ * @property {string} message - Response message
+ * @property {VideoHistoryResponseItem[]} videos - Array of video history items
+ * @property {number} [totalItems] - Total number of items
+ * @property {number} [currentPage] - Current page number
+ * @property {number} [itemsPerPage] - Number of items per page
+ * @property {number} [totalPages] - Total number of pages
+ * @property {PaginationInfo} [pagination] - Pagination information
  */
 
 /**
  * @typedef {Object} VideoRemoveResponse
- * @property {string} message
+ * @property {string} message - Response message
  */
 
-const API_BASE_URL = 'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run';
+const API_BASE_URL = 'http://192.168.1.36:3002';
 
+/**
+ * Helper function to convert React Native image object to FormData
+ * @param {Object} imageFile - Image file object from react-native-image-picker
+ * @returns {Promise<string>} The processed image URI
+ */
+const prepareImageForUpload = async (imageFile) => {
+  try {
+    // Check if the image is in HEIC format and convert if needed
+    let processedImageUri = imageFile.uri;
+    const isHeic = imageFile.type === 'image/heic' || 
+                  imageFile.uri.toLowerCase().endsWith('.heic') || 
+                  imageFile.uri.toLowerCase().endsWith('.heif');
+    
+    if (isHeic) {
+      console.log('HEIC format detected, converting to JPEG...');
+      // Use react-native-image-resizer for conversion
+      const ImageResizer = require('@bam.tech/react-native-image-resizer').default;
+      
+      const response = await ImageResizer.createResizedImage(
+        imageFile.uri,
+        1280, // width
+        720,  // height
+        'JPEG', // format
+        80,    // quality
+        0,     // rotation
+        null,  // outputPath
+        false  // keepMeta
+      );
+      
+      processedImageUri = response.uri;
+      console.log('HEIC image converted to JPEG:', processedImageUri);
+    }
+    
+    // Check if the image needs to be compressed
+    if (imageFile.fileSize > 5 * 1024 * 1024) {
+      console.log('Image is larger than 5MB, compressing...');
+      
+      // Use react-native-image-resizer for compression
+      const ImageResizer = require('@bam.tech/react-native-image-resizer').default;
+      
+      // Start with high quality and reduce if needed
+      let quality = 80;
+      let compressedUri = processedImageUri;
+      
+      while (quality >= 30) {
+        const response = await ImageResizer.createResizedImage(
+          processedImageUri,
+          1280, // width
+          720,  // height
+          'JPEG', // format
+          quality, // quality
+          0,     // rotation
+          null,  // outputPath
+          false  // keepMeta
+        );
+        
+        // Get file stats to check size
+        const RNFS = require('react-native-fs');
+        const fileStats = await RNFS.stat(response.uri);
+        
+        if (fileStats.size <= 5 * 1024 * 1024) {
+          compressedUri = response.uri;
+          console.log(`Compressed image to ${(fileStats.size / (1024 * 1024)).toFixed(2)}MB with quality ${quality}`);
+          break;
+        }
+        
+        // Reduce quality and try again
+        quality -= 10;
+        compressedUri = response.uri;
+      }
+      
+      processedImageUri = compressedUri;
+    }
+    
+    return processedImageUri;
+  } catch (error) {
+    console.error('Error preparing image for upload:', error);
+    throw error;
+  }
+};
+
+// Export the videoService object
 export const videoService = {
   /**
-   * Create a new video
-   * @param {Object} params - The parameters for creating a video
-   * @param {string} params.uid - The user ID
-   * @param {string} params.promptText - The prompt text for the video
-   * @param {string} [params.size='1280*720'] - The size of the video
-   * @returns {Promise<VideoCreationResponse>} The video creation response
+   * Create video with negative prompt
+   * @param {Object} params - The parameters for video creation
+   * @param {string} params.uid - User ID
+   * @param {string} params.promptText - Text prompt for video generation
+   * @param {string} params.negativePrompt - Negative prompt to exclude certain elements
+   * @param {string} [params.size='720P'] - Video size/resolution
+   * @returns {Promise<VideoGenerationWithNegativePromptResponse>} The video generation response
    */
-  createVideo: async (params) => {
-    const { uid, promptText, size = '1280*720' } = params;
+  createVideoWithNegativePrompt: async ({ uid, promptText, negativePrompt, size = '720P' }) => {
+    const response = await fetch(`${API_BASE_URL}/api/video/createVideo`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        uid,
+        promptText,
+        negative_prompt: negativePrompt,
+        size
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || errorData.error || 'Failed to generate video with negative prompt');
+    }
+
+    return response.json();
+  },
+  /**
+   * Create video with text prompt only
+   * @param {Object} params - The parameters for video creation
+   * @param {string} params.uid - User ID
+   * @param {string} params.promptText - Text prompt for video generation
+   * @param {string} [params.size='720P'] - Video size/resolution
+   * @returns {Promise<VideoGenerationResponse>} The video generation response
+   */
+  createVideo: async ({ uid, promptText, size = '720P' }) => {
     const response = await fetch(`${API_BASE_URL}/api/video/createVideo`, {
       method: 'POST',
       headers: {
@@ -119,88 +193,192 @@ export const videoService = {
         uid,
         promptText,
         size
-      }),
+      })
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || errorData.error || 'Failed to create video');
+      throw new Error(errorData.message || errorData.error || 'Failed to generate video');
     }
 
     return response.json();
   },
   
   /**
-   * Create a new video with an image URL
-   * @param {Object} params - The parameters for creating a video with an image
-   * @param {string} params.uid - The user ID
-   * @param {string} params.promptText - The prompt text for the video
-   * @param {string} params.imageUrl - The URL of the image to use in the video
-   * @param {string} [params.size='1280*720'] - The size of the video
-   * @returns {Promise<VideoCreationResponse>} The video creation response
+   * Create video with image file
+   * @param {Object} params - The parameters for video creation
+   * @param {string} params.uid - User ID
+   * @param {string} params.promptText - Text prompt for video generation
+   * @param {Object} params.imageFile - Image file object from react-native-image-picker
+   * @param {string} [params.template] - Template to use for video generation
+   * @param {string} [params.negativePrompt] - Negative prompt to exclude certain elements
+   * @param {string} [params.size='720P'] - Video size/resolution
+   * @returns {Promise<VideoGenerationResponse>} The video generation response
    */
-  createVideoWithImage: async (params) => {
-    const { uid, promptText, imageUrl, size = '1280*720' } = params;
-    
-    // Validate required parameters
-    if (!uid || !promptText || !imageUrl) {
-      console.error('Missing required parameters:', { uid: !!uid, promptText: !!promptText, imageUrl: !!imageUrl });
-      throw new Error('UID, promptText, and imageUrl are required');
-    }
-    
-    console.log('Creating video with image, parameters:', { 
-      uid, 
-      promptText, 
-      imageUrl,
-      size 
-    });
-    
+  createVideoWithImage: async ({ uid, promptText, imageFile, template, negativePrompt, size = '720P' }) => {
     try {
-      // Log the full URL being used
-      console.log('API endpoint:', `${API_BASE_URL}/api/video/createVideowithurl`);
-      
-      // Simplified approach - directly use the image URL without additional validation
-      // This matches the successful curl command approach
-      const response = await fetch(`${API_BASE_URL}/api/video/createVideowithurl`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          uid,
-          promptText,
-          image_url: imageUrl,
-        }),
-      });
-      
-      console.log('Request sent with image_url:', imageUrl);
-      console.log('API response status:', response.status);
-      
-      // Simple response handling without complex error parsing
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('API error response:', errorData, 'Status:', response.status);
-        throw new Error(errorData.message || errorData.error || 'Failed to create video with image');
+      // If we have an image file object from react-native-image-picker
+      if (imageFile) {
+        console.log('Processing image file for upload:', imageFile);
+        console.log('Image file details:', JSON.stringify({
+          uri: imageFile.uri,
+          fileName: imageFile.fileName || 'unnamed file',
+          type: imageFile.type,
+          fileSize: imageFile.fileSize
+        }));
+        
+        // Process the image (convert HEIC and compress if needed)
+        const processedImageUri = await prepareImageForUpload(imageFile);
+        console.log('Processed image URI:', processedImageUri);
+        
+        // Create form data for the API request
+        const formData = new FormData();
+        formData.append('uid', uid);
+        
+        // Add the processed image to form data
+        const filename = processedImageUri.split('/').pop();
+        const match = /\.(\w+)$/i.exec(filename);
+        let type = 'image/jpeg'; // Default to JPEG
+        
+        if (match) {
+          const extension = match[1].toLowerCase();
+          if (extension === 'jpg' || extension === 'jpeg') {
+            type = 'image/jpeg';
+          } else if (extension === 'png') {
+            type = 'image/png';
+          } else if (extension === 'gif') {
+            type = 'image/gif';
+          } else if (extension === 'webp') {
+            type = 'image/webp';
+          } else if (extension === 'heic' || extension === 'heif') {
+            // HEIC should have been converted to JPEG by prepareImageForUpload
+            type = 'image/jpeg';
+          } else {
+            // For any other extension, try to use it or default to JPEG
+            type = `image/${extension}`;
+          }
+        }
+        
+        console.log('Image file type determined:', type);
+        
+        formData.append('image', {
+          uri: processedImageUri,
+          name: filename,
+          type: type
+        });
+        
+        if (template) {
+          formData.append('template', template);
+          console.log('Added template to form data:', template);
+        }
+        
+        if (negativePrompt) {
+          formData.append('negative_prompt', negativePrompt);
+        }
+        
+        if (promptText) {
+          formData.append('promptText', promptText);
+          console.log('Added promptText to form data:', promptText);
+        }
+        
+        if (size) {
+          formData.append('size', size);
+        }
+        
+        console.log('Sending form data with image to API');
+        
+        const response = await fetch(`${API_BASE_URL}/api/video/createVideo`, {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+        
+        console.log('API response status:', response.status);
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          console.error('API error:', errorData);
+          throw new Error(errorData.message || errorData.error || 'Failed to generate video from image');
+        }
+        
+        const result = await response.json();
+        console.log('API success response:', result);
+        return result;
+      } 
+      // If we have an image URL instead of a file
+      else if (arguments[0].imageUrl) {
+        console.log('Using imageUrl instead of imageFile');
+        const { imageUrl, ...rest } = arguments[0];
+        return videoService.createVideoWithUrl({ ...rest, imageUrl });
+      } else {
+        console.error('Missing required image data');
+        throw new Error('Either imageFile or imageUrl is required');
       }
-
-      const result = await response.json();
-      console.log('API success response:', result);
-      return result;
     } catch (error) {
       console.error('Error in createVideoWithImage:', error);
-      throw new Error('Video creation failed: ' + (error.message || 'Unknown error'));
+      throw error;
     }
   },
 
   /**
-   * Get the status of a video
-   * @param {Object} params - The parameters for getting video status
-   * @param {string} params.uid - The user ID
-   * @param {string} params.videoId - The video ID
-   * @returns {Promise<VideoStatusResponse>} The video status response
+   * Create video with image URL
+   * @param {Object} params - The parameters for video creation
+   * @param {string} params.uid - User ID
+   * @param {string} params.promptText - Text prompt for video generation
+   * @param {string} params.imageUrl - URL of the image to use
+   * @param {string} [params.negativePrompt] - Negative prompt to exclude certain elements
+   * @param {string} [params.template] - Template to use for video generation
+   * @param {string} [params.size='720P'] - Video size/resolution
+   * @returns {Promise<VideoGenerationResponse>} The video generation response
    */
-  getVideoStatus: async (params) => {
-    const { uid, videoId } = params;
+  createVideoWithUrl: async ({ uid, promptText, imageUrl, negativePrompt, template, size = '720P' }) => {
+    try {
+      // Create request body
+      const requestBody = {
+        uid,
+        promptText,
+        imageUrl,
+        size
+      };
+      
+      if (template) {
+        requestBody.template = template;
+      }
+      
+      if (negativePrompt) {
+        requestBody.negative_prompt = negativePrompt;
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/api/video/createVideo`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || 'Failed to generate video from image URL');
+      }
+      
+      return response.json();
+    } catch (error) {
+      console.error('Error in createVideoWithUrl:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get video status
+   * @param {Object} params - The parameters for status check
+   * @param {string} params.uid - User ID
+   * @param {string} params.videoId - ID of the video to check
+   * @returns {Promise<VideoGenerationResponse>} The video status response
+   */
+  getVideoStatus: async ({ uid, videoId }) => {
     const response = await fetch(`${API_BASE_URL}/api/video/getVideoStatus`, {
       method: 'POST',
       headers: {
@@ -209,7 +387,7 @@ export const videoService = {
       body: JSON.stringify({
         uid,
         videoId
-      }),
+      })
     });
 
     if (!response.ok) {
@@ -221,74 +399,107 @@ export const videoService = {
   },
 
   /**
-   * Get all videos (simple POST method)
-   * @param {Object} params - The parameters for getting all videos
-   * @param {string} params.uid - The user ID
-   * @returns {Promise<VideoListResponse>} The video list response
+   * Get all videos for a user
+   * @param {Object} params - The parameters for fetching videos
+   * @param {string} params.uid - User ID
+   * @param {number} [params.page=1] - Page number for pagination
+   * @param {number} [params.itemsPerPage=10] - Number of items per page
+   * @returns {Promise<VideoHistoryResponse>} The video history response
    */
-  getAllVideos: async (params) => {
-    const { uid } = params;
-    const response = await fetch(`${API_BASE_URL}/api/video/getAllVideos`, {
+  getAllVideos: async ({ uid, page = 1, itemsPerPage = 10 }) => {
+    const response = await fetch(`${API_BASE_URL}/api/video/getVideoHistory`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        uid
-      }),
+        uid,
+        page,
+        itemsPerPage
+      })
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || errorData.error || 'Failed to get videos');
+      throw new Error(errorData.message || errorData.error || 'Failed to fetch video history');
     }
 
     return response.json();
-  },
-
-  /**
-   * Get all videos (enhanced with GET endpoint)
-   * @param {Object} params - The parameters for getting enhanced videos
-   * @param {string} params.uid - The user ID
-   * @returns {Promise<EnhancedVideoListResponse>} The enhanced video list response
-   */
-  getAllVideosEnhanced: async (params) => {
-    // This is the same as getAllVideosSimple, as the API examples show this is the enhanced version
-    return videoService.getAllVideosSimple(params);
   },
   
   /**
-   * Get all videos (simple GET endpoint)
-   * @param {Object} params - The parameters for getting all videos
-   * @param {string} params.uid - The user ID
-   * @returns {Promise<VideoListResponse>} The video list response
+   * Enhanced version of getAllVideos with additional processing
+   * @param {Object} params - The parameters for fetching videos
+   * @param {string} params.uid - User ID
+   * @param {number} [params.page=1] - Page number for pagination
+   * @param {number} [params.itemsPerPage=10] - Number of items per page
+   * @returns {Promise<VideoHistoryResponse>} The enhanced video history response with normalized data
    */
-  getAllVideosSimple: async (params) => {
-    const { uid } = params;
-    const response = await fetch(`${API_BASE_URL}/api/video/${encodeURIComponent(uid)}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || errorData.error || 'Failed to get videos');
+  getAllVideosEnhanced: async ({ uid, page = 1, itemsPerPage = 10 }) => {
+    try {
+      const result = await videoService.getAllVideos({ uid, page, itemsPerPage });
+      
+      // Process videos to add additional fields and normalize data
+      if (result.videos && Array.isArray(result.videos)) {
+        result.videos = result.videos.map(video => {
+          // Calculate age display
+          const createdAt = new Date(video.created_at);
+          const now = new Date();
+          const diffMs = now - createdAt;
+          const diffMins = Math.floor(diffMs / (1000 * 60));
+          const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+          const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+          
+          let ageDisplay = 'Just now';
+          if (diffMins > 1 && diffMins < 60) {
+            ageDisplay = `${diffMins} minutes ago`;
+          } else if (diffHours >= 1 && diffHours < 24) {
+            ageDisplay = `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+          } else if (diffDays >= 1) {
+            ageDisplay = `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+          }
+          
+          // Normalize status display
+          let statusDisplay = 'Processing';
+          let isReady = false;
+          
+          if (video.status === 'SUCCEEDED' || video.status === 'completed') {
+            statusDisplay = 'Ready';
+            isReady = true;
+          } else if (video.status === 'FAILED' || video.status === 'failed') {
+            statusDisplay = 'Failed';
+          } else if (video.status === 'PROCESSING' || video.status === 'processing') {
+            statusDisplay = 'Processing';
+          }
+          
+          return {
+            ...video,
+            videoId: video.video_id,
+            promptText: video.prompt_text,
+            videoUrl: video.video_url,
+            taskStatus: video.status,
+            ageDisplay,
+            statusDisplay,
+            isReady
+          };
+        });
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Error in getAllVideosEnhanced:', error);
+      throw error;
     }
-
-    return response.json();
   },
 
   /**
    * Remove a video
-   * @param {Object} params - The parameters for removing a video
-   * @param {string} params.uid - The user ID
-   * @param {string} params.videoId - The video ID
+   * @param {Object} params - The parameters for video removal
+   * @param {string} params.uid - User ID
+   * @param {string} params.videoId - ID of the video to remove
    * @returns {Promise<VideoRemoveResponse>} The video removal response
    */
-  removeVideo: async (params) => {
-    const { uid, videoId } = params;
+  removeVideo: async ({ uid, videoId }) => {
     const response = await fetch(`${API_BASE_URL}/api/video/removeVideo`, {
       method: 'POST',
       headers: {
@@ -297,7 +508,7 @@ export const videoService = {
       body: JSON.stringify({
         uid,
         videoId
-      }),
+      })
     });
 
     if (!response.ok) {
@@ -306,77 +517,8 @@ export const videoService = {
     }
 
     return response.json();
-  },
-
-  /**
-   * Create a video with an image and poll until completion
-   * @param {Object} params - The parameters for creating a video with an image
-   * @param {string} params.uid - The user ID
-   * @param {string} params.promptText - The prompt text for the video
-   * @param {string} params.imageUrl - The URL of the image to use in the video
-   * @param {number} [params.pollInterval=1000] - Polling interval in milliseconds
-   * @param {Function} [params.onStatusUpdate] - Optional callback for status updates
-   * @returns {Promise<VideoCreationResponse>} The final video creation response
-   */
-  createVideoWithImageAndPoll: async (params) => {
-    const { uid, promptText, imageUrl, pollInterval = 1000, onStatusUpdate } = params;
-    
-    // First create the video
-    const createResponse = await videoService.createVideoWithImage({
-      uid,
-      promptText,
-      imageUrl
-    });
-    
-    // Extract videoId from the response
-    const { videoId } = createResponse;
-    
-    if (!videoId) {
-      throw new Error('No videoId returned from video creation');
-    }
-    
-    // If there's already a videoUrl in the response, return it immediately
-    if (createResponse.videoUrl && createResponse.taskStatus === 'SUCCEEDED') {
-      return createResponse;
-    }
-    
-    // Function to poll for status
-    const pollForStatus = () => {
-      return new Promise((resolve, reject) => {
-        const checkStatus = async () => {
-          try {
-            const statusResponse = await videoService.getVideoStatus({ uid, videoId });
-            
-            // Call the status update callback if provided
-            if (onStatusUpdate && typeof onStatusUpdate === 'function') {
-              onStatusUpdate(statusResponse);
-            }
-            
-            // Check if video is ready
-            if (statusResponse.taskStatus === 'SUCCEEDED' && statusResponse.videoUrl) {
-              resolve(statusResponse);
-              return;
-            }
-            
-            // Check if video failed
-            if (statusResponse.taskStatus === 'FAILED') {
-              reject(new Error(statusResponse.error || 'Video generation failed'));
-              return;
-            }
-            
-            // Continue polling
-            setTimeout(checkStatus, pollInterval);
-          } catch (error) {
-            reject(error);
-          }
-        };
-        
-        // Start polling
-        checkStatus();
-      });
-    };
-    
-    // Start polling and return the final result
-    return pollForStatus();
   }
 };
+
+// Add default export
+export default videoService;

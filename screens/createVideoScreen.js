@@ -44,13 +44,12 @@ const CreateVideoScreen = ({ route, navigation }) => {
   const { getThemeColors } = useTheme();
   const colors = getThemeColors();
   const { t } = useLanguage();
-  const { message, imageUrl } = route.params; // Extract text and image URL from params
+  const { message, imageUrl, imageFile, template } = route.params; // Extract parameters from route (added imageFile)
   const [videoUrl, setVideoUrl] = useState(null); // Store the generated video URL
+  const [videoId, setVideoId] = useState(null); // Store the generated video ID
   const [loading, setLoading] = useState(true); // Track loading state
   const [modalVisible, setModalVisible] = useState(false); // Modal visibility state
   const [showSkeleton, setShowSkeleton] = useState(true); // Control skeleton visibility
-  const [videoId, setVideoId] = useState(null);
-  const [taskStatus, setTaskStatus] = useState('PENDING');
   const [isPlaying, setIsPlaying] = useState(false);
   const [downloadingVideo, setDownloadingVideo] = useState(false);
   const [playCount, setPlayCount] = useState(0);
@@ -79,8 +78,8 @@ const CreateVideoScreen = ({ route, navigation }) => {
       setPlayCount(0);
       setShowSkeleton(true);
       setLoading(true);
-      setTaskStatus('PENDING');
       setIsPlaying(false);
+      setDownloadingVideo(false);
       
       // Clear any previous video first
       clearStoredVideo();
@@ -94,6 +93,10 @@ const CreateVideoScreen = ({ route, navigation }) => {
         setVideoId(null);
         setModalVisible(false);
         setPlayCount(0);
+        setShowSkeleton(false);
+        setLoading(false);
+        setIsPlaying(false);
+        setDownloadingVideo(false);
         // Clear stored video
         clearStoredVideo();
       };
@@ -175,13 +178,45 @@ const CreateVideoScreen = ({ route, navigation }) => {
       videoOpacity.setValue(0);
       videoScale.setValue(0.95);
       
-      // Use a working UID instead of the user's UID
-      const workingUid = VIDEO_SERVICE_UID || '0a147ebe-af99-481b-bcaf-ae70c9aeb8d8';
+      // Use the user's actual UID from AuthContext
       
       let result;
       
-      // Check if an image URL was provided
-      if (imageUrl) {
+      // Check if an image file was provided
+      if (imageFile) {
+        console.log('Creating video with image file:', imageFile);
+        console.log('Image file details:', JSON.stringify({
+          uri: imageFile.uri,
+          fileName: imageFile.fileName || 'unnamed file',
+          type: imageFile.type,
+          fileSize: imageFile.fileSize
+        }));
+        
+        // Prepare parameters for video creation with image file
+        const videoParams = {
+          uid: uid,
+          promptText: message,
+          imageFile: imageFile // Pass the image file directly
+        };
+        
+        // Add template if provided
+        if (template) {
+          console.log('Using template:', template);
+          videoParams.template = template;
+        }
+        
+        console.log('Calling videoService.createVideoWithImage with params:', {
+          uid: videoParams.uid,
+          promptText: videoParams.promptText,
+          hasImageFile: !!videoParams.imageFile,
+          template: videoParams.template
+        });
+        
+        // Make API request to create new video with image using videoService
+        result = await videoService.createVideoWithImage(videoParams);
+      } 
+      // Check if an image URL was provided (fallback for backward compatibility)
+      else if (imageUrl) {
         console.log('Creating video with image URL:', imageUrl);
         // Validate the image URL
         if (!imageUrl || typeof imageUrl !== 'string' || !imageUrl.trim()) {
@@ -189,34 +224,69 @@ const CreateVideoScreen = ({ route, navigation }) => {
           throw new Error('Invalid image URL provided');
         }
         
-        // Make API request to create new video with image using videoService
-        result = await videoService.createVideoWithImage({
-          uid: workingUid,
+        // Prepare parameters for video creation
+        const videoParams = {
+          uid: uid,
           promptText: message,
           imageUrl: imageUrl.trim()
-        });
+        };
+        
+        // Add template if provided
+        if (template) {
+          console.log('Using template:', template);
+          videoParams.template = template;
+        }
+        
+        console.log('Calling videoService.createVideoWithImage with imageUrl');
+        
+        // Make API request to create new video with image using videoService
+        result = await videoService.createVideoWithImage(videoParams);
       } else {
         console.log('Creating video without image');
         // Make API request to create new video using videoService
         result = await videoService.createVideo({
-          uid: workingUid,
+          uid: uid,
           promptText: message
         });
       }
       
-      if (result.videoId) {
-        setVideoId(result.videoId);
-        setTaskStatus(result.taskStatus);
+      if (result && (result.videoUrl || result.videoId)) {
+        // Set video URL if available
+        if (result.videoUrl) {
+          setVideoUrl(result.videoUrl);
+        }
         
-        // Start polling for video status
-        startPolling(result.videoId);
+        // Set video ID if available
+        if (result.videoId) {
+          setVideoId(result.videoId);
+        }
+        
+        // Store video data
+        const videoData = {
+          url: result.videoUrl || null,
+          id: result.videoId || null,
+          prompt: message,
+          createdAt: new Date().toISOString()
+        };
+        await AsyncStorage.setItem("generatedVideo", JSON.stringify(videoData));
+        
+        // Show skeleton for 1 second before revealing the video
+        setTimeout(() => {
+          setShowSkeleton(false);
+          setLoading(false);
+          fadeInVideo();
+          // Auto-play the video if URL is available
+          if (result.videoUrl) {
+            setIsPlaying(true);
+          }
+        }, 1000);
       } else {
         setLoading(false);
         setShowSkeleton(false);
-        Alert.alert(t('error'), t('failedToInitiateVideoGeneration'));
+        Alert.alert(t('error'), t('failedToGenerateVideo'));
       }
     } catch (error) {
-      console.error("Error initiating video generation:", error);
+      console.error("Error generating video:", error);
       setLoading(false);
       setShowSkeleton(false);
       
@@ -241,85 +311,6 @@ const CreateVideoScreen = ({ route, navigation }) => {
     }
   };
 
-  // Function to poll video status every 2 seconds
-  const startPolling = (videoId) => {
-    const pollInterval = setInterval(async () => {
-      try {
-        // Use a working UID instead of the user's UID
-        const workingUid = VIDEO_SERVICE_UID || '0a147ebe-af99-481b-bcaf-ae70c9aeb8d8';
-        
-        // Use videoService to check video status
-        const result = await videoService.getVideoStatus({
-          uid: workingUid,
-          videoId: videoId
-        });
-        
-        setTaskStatus(result.taskStatus);
-        
-        if (result.taskStatus === 'SUCCEEDED' && result.videoUrl) {
-          // Video is ready
-          clearInterval(pollInterval);
-          setVideoUrl(result.videoUrl);
-          
-          // Store video data
-          const videoData = {
-            url: result.videoUrl,
-            prompt: message,
-            createdAt: new Date().toISOString()
-          };
-          await AsyncStorage.setItem("generatedVideo", JSON.stringify(videoData));
-          
-          // Show skeleton for 1 second before revealing the video
-          setTimeout(() => {
-            setShowSkeleton(false);
-            setLoading(false);
-            fadeInVideo();
-            // Auto-play the video
-            setIsPlaying(true);
-          }, 1000);
-        } else if (result.taskStatus === 'FAILED') {
-          // Video generation failed
-          clearInterval(pollInterval);
-          setLoading(false);
-          setShowSkeleton(false);
-          
-          // Check if there's a specific error message in the result
-          if (result.errorMessage) {
-            console.error('Video generation failed with error:', result.errorMessage);
-            
-            // Provide more specific error messages based on the error
-            if (result.errorMessage.includes('image') && result.errorMessage.includes('failed')) {
-              Alert.alert(t('error'), 'The image could not be processed. Please try a different image format (JPEG/PNG recommended).');
-            } else if (result.errorMessage.includes('timed out') || result.errorMessage.includes('timeout')) {
-              Alert.alert(t('error'), 'The video generation timed out. This may be due to server load or issues with the image.');
-            } else {
-              Alert.alert(t('error'), `${t('videoGenerationFailed')}: ${result.errorMessage}`);
-            }
-          } else {
-            Alert.alert(t('error'), t('videoGenerationFailed'));
-          }
-        }
-        // Continue polling if status is still PENDING or PROCESSING
-      } catch (error) {
-        console.error("Error checking video status:", error);
-        clearInterval(pollInterval);
-        setLoading(false);
-        setShowSkeleton(false);
-        Alert.alert(t('error'), t('failedToCheckVideoStatus'));
-      }
-    }, 2000); // Poll every 2 seconds
-
-    // Clear interval after 5 minutes to prevent infinite polling
-    setTimeout(() => {
-      clearInterval(pollInterval);
-      if (loading) {
-        setLoading(false);
-        setShowSkeleton(false);
-        Alert.alert(t('timeout'), t('videoGenerationTimeout'));
-      }
-    }, 300000); // 5 minutes timeout
-  };
-
   const fadeInVideo = () => {
     Animated.parallel([
       Animated.timing(videoOpacity, {
@@ -337,7 +328,6 @@ const CreateVideoScreen = ({ route, navigation }) => {
 
   const handleTryAgain = () => {
     setVideoUrl(null);
-    setVideoId(null);
     setPlayCount(0);
     // Reset animations
     videoOpacity.setValue(0);

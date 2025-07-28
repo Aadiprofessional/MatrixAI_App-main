@@ -31,6 +31,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import Share from 'react-native-share';
 import Clipboard from '@react-native-clipboard/clipboard';
 import axios from 'axios';
+import { useAuthUser } from '../hooks/useAuthUser';
 
 const { width, height } = Dimensions.get('window');
 const scale = Math.min(width / 375, height / 812); // Base scale on iPhone X dimensions for consistency
@@ -49,6 +50,7 @@ const HumaniseTextScreen = () => {
   const colors = getThemeColors();
   const { t } = useLanguage();
   const navigation = useNavigation();
+  const { uid: userData } = useAuthUser();
   
   // State variables
   const [inputText, setInputText] = useState('');
@@ -56,7 +58,6 @@ const HumaniseTextScreen = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
-  const [selectedTone, setSelectedTone] = useState('casual');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   
@@ -77,14 +78,6 @@ const HumaniseTextScreen = () => {
     { id: '2', originalText: 'I cannot attend the conference.', humanisedText: 'Unfortunately, I won\'t be able to make it to the conference this time around.', date: '1 day ago', tone: 'formal' },
   ]);
   
-  // Tones
-  const tones = [
-    { id: 'casual', name: 'Casual', icon: 'coffee' },
-    { id: 'formal', name: 'Formal', icon: 'tie' },
-    { id: 'friendly', name: 'Friendly', icon: 'emoticon-happy-outline' },
-    { id: 'professional', name: 'Professional', icon: 'briefcase-outline' },
-  ];
-
   // Add refs for ScrollView and input container
   const scrollViewRef = useRef(null);
   const inputContainerRef = useRef(null);
@@ -229,99 +222,81 @@ const HumaniseTextScreen = () => {
     
     setIsProcessing(true);
     
-    // Create a detailed prompt for humanising the text based on the selected tone
-    let humanisePrompt;
-    
-    switch(selectedTone) {
-      case 'casual':
-        humanisePrompt = `Rewrite the following text in a casual, conversational tone as if you're talking to a friend. Make it sound natural and human-written, avoiding any AI-like patterns: "${inputText}"`;
-        break;
-      case 'formal':
-        humanisePrompt = `Rewrite the following text in a formal, professional tone suitable for business or academic contexts. Keep it human-sounding while maintaining professionalism: "${inputText}"`;
-        break;
-      case 'friendly':
-        humanisePrompt = `Rewrite the following text in a friendly, warm tone. Add some personality and make it sound like it was written by a human, not AI. You can include emojis where appropriate: "${inputText}"`;
-        break;
-      case 'professional':
-        humanisePrompt = `Rewrite the following text in a professional tone suitable for work environments. Make it sound human-written while maintaining clarity and professionalism: "${inputText}"`;
-        break;
-      default:
-        humanisePrompt = `Rewrite the following text to sound more human and less like AI-generated text: "${inputText}"`;
-    }
-    
-    // Make API call to matrix-server
-    axios.post('https://ddtgdhehxhgarkonvpfq.supabase.co/functions/v1/createContent', {
-      prompt: humanisePrompt
-    }, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
-    .then(response => {
-      // Extract the response
-      const result = response.data.output.text.trim();
+    try { 
+      // Create request payload with all settings 
+      const requestPayload = { 
+        uid: userData?.uid, // Use default UID if not available 
+        prompt: inputText, 
+        ai_detector: 'gpt-detector', 
+        tone: 'neutral', 
+        level: 'medium' 
+      }; 
       
-      setOutputText(result);
-      setIsFinished(true);
-      
-      // Add to history
-      const newHistoryItem = {
-        id: Date.now().toString(),
-        originalText: inputText,
-        humanisedText: result,
-        tone: selectedTone,
-        date: 'Just now'
-      };
-      
-      setHistoryItems([newHistoryItem, ...historyItems]);
-      
-      // Animate result appearance
-      Animated.parallel([
-        Animated.timing(resultOpacity, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(resultTranslateY, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true,
-        })
-      ]).start();
-    })
-    .catch(error => {
-      console.error('Error humanising text:', error);
-      Alert.alert(t('error'), t('failedToHumaniseText'));
-      
-      // Fallback to simple transformation if API fails
+      // Make API request to the new humanization API 
+      axios.post( 
+        'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/humanize/createHumanization', 
+        requestPayload, 
+        { 
+          headers: { 
+            'Content-Type': 'application/json' 
+          } 
+        } 
+      )
+      .then(response => {
+        // Extract the response
+        const result = response.data.humanization.humanized_text.trim();
+        
+        setOutputText(result);
+        setIsFinished(true);
+        
+        // Add to history
+        const newHistoryItem = {
+          id: response.data.humanization.id || Date.now().toString(),
+          originalText: inputText,
+          humanisedText: result,
+          date: 'Just now'
+        };
+        
+        setHistoryItems([newHistoryItem, ...historyItems]);
+        
+        // Animate result appearance
+        Animated.parallel([
+          Animated.timing(resultOpacity, {
+            toValue: 1,
+            duration: 500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(resultTranslateY, {
+            toValue: 0,
+            duration: 500,
+            useNativeDriver: true,
+          })
+        ]).start();
+
+        // Fetch updated history
+        fetchUserHumanizations();
+      })
+      .catch(error => {
+        console.error('Error humanising text:', error);
+        Alert.alert(t('error'), t('failedToHumaniseText'));
+        
+        // Fallback to simple transformation if API fails
+        handleFallbackHumanisation();
+      })
+      .finally(() => {
+        setIsProcessing(false);
+      });
+    } catch (error) {
+      console.error('Error in humanization process:', error);
       handleFallbackHumanisation();
-    })
-    .finally(() => {
       setIsProcessing(false);
-    });
+    }
   };
   
   // Fallback function for text humanisation if API fails
   const handleFallbackHumanisation = () => {
-    // Example transformation based on tone
-    let result = '';
-    
-    switch(selectedTone) {
-      case 'casual':
-        result = `Hey, just wanted to let you know that ${inputText.toLowerCase()}`;
-        break;
-      case 'formal':
-        result = `I would like to inform you that ${inputText}`;
-        break;
-      case 'friendly':
-        result = `Hi there! ${inputText} Hope that helps! 😊`;
-        break;
-      case 'professional':
-        result = `I'm reaching out regarding ${inputText}. Please let me know if you require any clarification.`;
-        break;
-      default:
-        result = inputText;
-    }
+    // Simple transformation for fallback
+    const result = `I would like to inform you that ${inputText}`;
     
     setOutputText(result);
     setIsFinished(true);
@@ -331,7 +306,6 @@ const HumaniseTextScreen = () => {
       id: Date.now().toString(),
       originalText: inputText,
       humanisedText: result,
-      tone: selectedTone,
       date: 'Just now'
     };
     
@@ -387,6 +361,59 @@ const HumaniseTextScreen = () => {
       }
     }
   };
+  
+  // Delete a humanization from history
+  const deleteHumanization = async (humanizationId) => {
+    if (!userData?.uid) return;
+    
+    try {
+      await axios.delete(
+        'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/humanize/deleteHumanization',
+        {
+          data: {
+            uid: userData.uid,
+            humanizationId
+          }
+        }
+      );
+      
+      // Remove from local state
+      setHistoryItems(prev => prev.filter(item => item.id !== humanizationId));
+    } catch (error) {
+      console.error('Error deleting humanization:', error);
+    }
+  };
+  
+  // Fetch user's humanization history
+  const fetchUserHumanizations = async () => {
+    if (!userData?.uid) return;
+    
+    try {
+      const response = await axios.get(
+        'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/humanize/getUserHumanizations',
+        {
+          params: {
+            uid: userData.uid,
+            page: 1,
+            itemsPerPage: 10
+          }
+        }
+      );
+      
+      if (response.data && response.data.humanizations) {
+        setHistoryItems(response.data.humanizations);
+      }
+    } catch (error) {
+      console.error('Error fetching humanization history:', error);
+    }
+  };
+  
+  // Fetch history on component mount
+  useEffect(() => {
+    if (userData?.uid) {
+      fetchUserHumanizations();
+    }
+  }, [userData?.uid]);
   
   const renderToneItem = ({ item }) => {
     // Determine the appropriate background color based on tone when selected
@@ -632,21 +659,7 @@ const HumaniseTextScreen = () => {
               </Animated.View>
             </View>
             
-            {/* Tone Selector */}
-            <View style={styles.toneContainer}>
-              <View style={styles.sectionHeaderContainer}>
-                <MaterialCommunityIcons name="format-font" size={normalize(20)} color={colors.primary} />
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Select Tone</Text>
-              </View>
-              <FlatList
-                data={tones}
-                renderItem={renderToneItem}
-                keyExtractor={item => item.id}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.toneList}
-              />
-            </View>
+
             
             {/* Input Section */}
             <View 

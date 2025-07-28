@@ -10,6 +10,7 @@ import FontAwesome from 'react-native-vector-icons/FontAwesome';
 import Toast from 'react-native-toast-message';
 import { CheckBox } from '@react-native-community/checkbox';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { appleAuth } from '@invertase/react-native-apple-authentication';
 import { setupAuthLinking, handleGoogleSignIn } from '../utils/linkingConfig';
 import { debugGoogleAuth, testRedirectMethods } from '../utils/googleAuthDebug';
 const { width } = Dimensions.get('window');
@@ -30,6 +31,7 @@ const generateNonce = (length = 32) => {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [googleLoading, setGoogleLoading] = useState(false);
+    const [appleLoading, setAppleLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [isChecked, setChecked] = useState(false);
     const { getThemeColors } = useTheme();
@@ -39,8 +41,8 @@ const generateNonce = (length = 32) => {
         // Configure Google Sign-In only for iOS
         if (Platform.OS === 'ios') {
             GoogleSignin.configure({
-                iosClientId: '1046714115920-vk3nng2cli9ggeo7cdg9jd87g1620bbk.apps.googleusercontent.com',
-                webClientId: '1046714115920-vk3nng2cli9ggeo7cdg9jd87g1620bbk.apps.googleusercontent.com',
+                iosClientId: '1046714115920-65tdshvb39klvm651lr25sb4r1620gm3.apps.googleusercontent.com',
+                webClientId: '1046714115920-65tdshvb39klvm651lr25sb4r1620gm3.apps.googleusercontent.com',
                 scopes: ['profile', 'email'],
                 offlineAccess: true,
             });
@@ -52,7 +54,7 @@ const generateNonce = (length = 32) => {
         return unsubscribe;
     }, [navigation]);
 
-    // Handle Google login - direct implementation without the utility
+    // Handle Google login - direct implementation using GoogleSignin
     const handleDirectGoogleLogin = async () => {
         if (Platform.OS !== 'ios') {
             Toast.show({
@@ -67,21 +69,91 @@ const generateNonce = (length = 32) => {
         try {
             setGoogleLoading(true);
             
-            // Use direct Supabase OAuth flow with the supabase callback
-            const { data, error } = await supabase.auth.signInWithOAuth({
-                provider: 'google',
-                options: {
-                    redirectTo: 'https://ddtgdhehxhgarkonvpfq.supabase.co/auth/v1/callback'
+            // Check if Google Play Services are available
+            await GoogleSignin.hasPlayServices();
+            
+            // Perform the Google sign-in
+            const userInfo = await GoogleSignin.signIn();
+            console.log('Google Sign-In successful, user info received');
+            
+            // Extract the ID token from the userInfo object
+            let idToken = null;
+            
+            if (userInfo?.idToken) {
+                idToken = userInfo.idToken;
+            } else if (userInfo?.data?.idToken) {
+                idToken = userInfo.data.idToken;
+            } else {
+                // Try to find the token in the response structure
+                if (typeof userInfo === 'object' && userInfo !== null) {
+                    // Recursively search for a property that looks like an ID token
+                    const findIdToken = (obj) => {
+                        if (!obj || typeof obj !== 'object') return null;
+                        
+                        for (const key in obj) {
+                            // Check if this property looks like a JWT token
+                            if (
+                                typeof obj[key] === 'string' && 
+                                obj[key].length > 100 && 
+                                obj[key].split('.').length === 3 && 
+                                (key.toLowerCase().includes('token') || key.toLowerCase().includes('id'))
+                            ) {
+                                return obj[key];
+                            }
+                            
+                            // Recursively search nested objects
+                            if (typeof obj[key] === 'object' && obj[key] !== null) {
+                                const result = findIdToken(obj[key]);
+                                if (result) return result;
+                            }
+                        }
+                        
+                        return null;
+                    };
+                    
+                    idToken = findIdToken(userInfo);
                 }
+            }
+            
+            if (!idToken) {
+                throw new Error('No ID token found in Google Sign-In response');
+            }
+            
+            console.log('Got Google ID token, authenticating with Supabase...');
+            
+            // Generate a nonce for security
+            const nonce = generateNonce();
+            
+            // Sign in with Supabase using the ID token
+            const { data, error } = await supabase.auth.signInWithIdToken({
+                provider: 'google',
+                token: idToken,
+                nonce: nonce,
             });
             
             if (error) throw error;
             
-            console.log('Google auth URL:', data?.url);
-            
-            // Open the URL to start the OAuth flow
-            if (data?.url) {
-                await Linking.openURL(data.url);
+            // Handle successful sign-in
+            if (data?.user) {
+                console.log('Successfully signed in with Google ID token');
+                
+                // Store session and user data
+                await AsyncStorage.setItem('supabase-session', JSON.stringify(data.session));
+                await AsyncStorage.setItem('uid', data.user.id);
+                await AsyncStorage.setItem('userLoggedIn', 'true');
+                
+                Toast.show({
+                    type: 'success',
+                    text1: 'Success',
+                    text2: 'Login successful!',
+                    position: 'bottom'
+                });
+                
+                // Add a small delay to ensure AsyncStorage is updated
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                // Navigate to main screen
+                navigation.replace('Home');
             }
             
         } catch (error) {
@@ -94,6 +166,81 @@ const generateNonce = (length = 32) => {
             });
         } finally {
             setGoogleLoading(false);
+        }
+    };
+    
+    // Handle Apple login - direct implementation using in-app authentication
+    const handleDirectAppleLogin = async () => {
+        // Check if Apple Authentication is available on this device
+        if (!appleAuth.isSupported) {
+            Toast.show({
+                type: 'info',
+                text1: 'Info',
+                text2: 'Apple login is not available on this device',
+                position: 'bottom'
+            });
+            return;
+        }
+
+        try {
+            setAppleLoading(true);
+            
+            // Perform the Apple authentication request
+            const appleAuthRequestResponse = await appleAuth.performRequest({
+                requestedOperation: appleAuth.Operation.LOGIN,
+                requestedScopes: [appleAuth.Scope.EMAIL, appleAuth.Scope.FULL_NAME],
+            });
+            
+            // Get the identity token from the response
+            const { identityToken } = appleAuthRequestResponse;
+            
+            if (!identityToken) {
+                throw new Error('No identity token returned from Apple');
+            }
+            
+            console.log('Got Apple identity token, authenticating with Supabase...');
+            
+            // Sign in with Supabase using the identity token
+            const { data, error } = await supabase.auth.signInWithIdToken({
+                provider: 'apple',
+                token: identityToken,
+            });
+            
+            if (error) throw error;
+            
+            // Handle successful sign-in
+            if (data?.user) {
+                console.log('Successfully signed in with Apple');
+                
+                // Store session and user data
+                await AsyncStorage.setItem('supabase-session', JSON.stringify(data.session));
+                await AsyncStorage.setItem('uid', data.user.id);
+                await AsyncStorage.setItem('userLoggedIn', 'true');
+                
+                Toast.show({
+                    type: 'success',
+                    text1: 'Success',
+                    text2: 'Login successful!',
+                    position: 'bottom'
+                });
+                
+                // Add a small delay to ensure AsyncStorage is updated
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                // Navigate to main screen
+                navigation.replace('Home');
+            }
+            
+        } catch (error) {
+            console.error('Error during Apple login:', error);
+            Toast.show({
+                type: 'error',
+                text1: 'Login Failed',
+                text2: error.message || 'Failed to login with Apple',
+                position: 'bottom'
+            });
+        } finally {
+            setAppleLoading(false);
         }
     };
     
@@ -475,8 +622,16 @@ const generateNonce = (length = 32) => {
                     )}
                 </TouchableOpacity>
                
-                <TouchableOpacity style={styles.socialButton}>
-                    <FontAwesome name="apple" size={24} color="#000" />
+                <TouchableOpacity 
+                    style={[styles.socialButton, appleLoading && styles.disabledButton]}
+                    onPress={handleDirectAppleLogin}
+                    disabled={appleLoading}
+                >
+                    {appleLoading ? (
+                        <ActivityIndicator size="small" color="#000" />
+                    ) : (
+                        <FontAwesome name="apple" size={24} color="#000" />
+                    )}
                 </TouchableOpacity>
                 
                 {/* Debug button - hidden in production */}

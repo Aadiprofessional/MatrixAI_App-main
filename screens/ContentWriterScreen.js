@@ -17,7 +17,8 @@ import {
   StatusBar,
   Platform,
   PixelRatio,
-  KeyboardAvoidingView
+  KeyboardAvoidingView,
+  Modal,
 } from 'react-native';
 import LottieView from 'lottie-react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -30,6 +31,10 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Share from 'react-native-share';
 import axios from 'axios';
+import { supabase } from '../supabaseClient';
+import MathView from 'react-native-math-view';
+import MarkdownDisplay from 'react-native-markdown-display';
+import * as Animatable from 'react-native-animatable';
 
 const { width, height } = Dimensions.get('window');
 const scale = Math.min(width / 375, height / 812); // Base scale on iPhone X dimensions for consistency
@@ -53,10 +58,19 @@ const ContentWriterScreen = () => {
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState('');
-  const [contentType, setContentType] = useState('article');
+  const [contentType, setContentType] = useState('essay');
+  const [wordCount, setWordCount] = useState('500');
+  const [tone, setTone] = useState('professional');
   const [isCopied, setIsCopied] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [hasMathContent, setHasMathContent] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState(null);
+  const [wordCountModalVisible, setWordCountModalVisible] = useState(false);
+  const [toneModalVisible, setToneModalVisible] = useState(false);
   
   // Animated values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -68,32 +82,49 @@ const ContentWriterScreen = () => {
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const scanLineAnim = useRef(new Animated.Value(0)).current;
 
-  // Content types
+  // Content types - updated based on the image
   const contentTypes = [
-    { id: 'article', name: t('article'), icon: 'newspaper' },
-    { id: 'email', name: t('email'), icon: 'email-outline' },
-    { id: 'blog', name: t('blogPost'), icon: 'post-outline' },
-    { id: 'social', name: t('socialMedia'), icon: 'twitter' },
-    { id: 'marketing', name: t('marketing'), icon: 'bullhorn-outline' },
+    { id: 'essay', name: t('essay') || 'Essay', icon: 'file-document-outline' },
+    { id: 'article', name: t('article') || 'Article', icon: 'newspaper' },
+    { id: 'blog', name: t('blogPost') || 'Blog Post', icon: 'post-outline' },
+    { id: 'letter', name: t('letter') || 'Letter', icon: 'email-outline' },
+    { id: 'email', name: t('email') || 'Email', icon: 'email-outline' },
+    { id: 'report', name: t('report') || 'Report', icon: 'chart-box-outline' },
+    { id: 'story', name: t('story') || 'Story', icon: 'book-open-variant' },
+    { id: 'social', name: t('socialMedia') || 'Social Media', icon: 'twitter' },
+    { id: 'marketing', name: t('marketingCopy') || 'Marketing Copy', icon: 'bullhorn-outline' },
+    { id: 'business', name: t('businessProposal') || 'Business Proposal', icon: 'briefcase-outline' },
+  ];
+  
+  // Word count options
+  const wordCountOptions = [
+    { id: '250', count: 250, name: '250 words' },
+    { id: '500', count: 500, name: '500 words' },
+    { id: '750', count: 750, name: '750 words' },
+    { id: '1000', count: 1000, name: '1000 words' },
+    { id: '1500', count: 1500, name: '1500 words' },
+  ];
+  
+  // Tone options - based on the second image
+  const toneOptions = [
+    { id: 'professional', name: t('professional') || 'Professional', icon: 'briefcase-outline' },
+    { id: 'casual', name: t('casual') || 'Casual', icon: 'coffee' },
+    { id: 'friendly', name: t('friendly') || 'Friendly', icon: 'emoticon-outline' },
+    { id: 'formal', name: t('formal') || 'Formal', icon: 'format-letter-case' },
+    { id: 'creative', name: t('creative') || 'Creative', icon: 'palette' },
+    { id: 'persuasive', name: t('persuasive') || 'Persuasive', icon: 'bullhorn-outline' },
+  ];
+  
+  // Quick content prompts
+  const quickContentPrompts = [
+    { id: 'summary', name: t('summarize') || 'Summarize a topic', prompt: 'Write a concise summary about ' },
+    { id: 'explain', name: t('explain') || 'Explain a concept', prompt: 'Explain in simple terms what is ' },
+    { id: 'compare', name: t('compare') || 'Compare and contrast', prompt: 'Compare and contrast between ' },
+    { id: 'steps', name: t('steps') || 'Step-by-step guide', prompt: 'Create a step-by-step guide for ' },
   ];
 
   // History items
-  const [historyItems, setHistoryItems] = useState([
-    { 
-      id: '1', 
-      prompt: 'Write about the benefits of AI in healthcare',
-      content: 'Artificial Intelligence is revolutionizing healthcare by enabling faster diagnostics, personalized treatment plans, and more efficient patient care...',
-      type: 'article',
-      date: '2 hours ago' 
-    },
-    { 
-      id: '2', 
-      prompt: 'Create an email to reschedule a business meeting',
-      content: 'Dear [Name], I hope this email finds you well. I am writing to request a rescheduling of our meeting originally planned for...',
-      type: 'email',
-      date: '1 day ago' 
-    },
-  ]);
+  const [historyItems, setHistoryItems] = useState([]);
 
   // Add a ref for the ScrollView
   const scrollViewRef = useRef(null);
@@ -225,6 +256,20 @@ const ContentWriterScreen = () => {
     if (keyboardVisible) {
       Keyboard.dismiss();
     }
+    
+    // Load history when panel is opened
+    if (!historyOpen) {
+      setIsLoadingHistory(true);
+      fetchUserContent()
+        .then(items => {
+          setHistoryItems(items);
+          setIsLoadingHistory(false);
+        })
+        .catch(error => {
+          console.error('Error loading history:', error);
+          setIsLoadingHistory(false);
+        });
+    }
   };
   
   const spin = rotateAnim.interpolate({
@@ -232,86 +277,478 @@ const ContentWriterScreen = () => {
     outputRange: ['0deg', '360deg']
   });
   
-  const handleGenerate = () => {
+  // Function to send message to AI using the same API as BotScreen.js
+  const sendMessageToAI = (userMessage, onChunk) => {
+    return new Promise((resolve, reject) => {
+      try {
+        // Create XMLHttpRequest for streaming
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions', true);
+        xhr.setRequestHeader('Authorization', 'Bearer sk-256fda005a1445628fe2ceafcda9e389');
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        
+        let fullContent = '';
+        let processedLength = 0; // Track how much we've already processed
+        let isFirstChunk = true;
+        
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === 3 || xhr.readyState === 4) {
+            const responseText = xhr.responseText;
+            
+            // Only process new content that we haven't seen before
+            const newContent = responseText.substring(processedLength);
+            if (newContent) {
+              processedLength = responseText.length; // Update processed length
+              const lines = newContent.split('\n');
+              
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  const data = line.slice(6).trim();
+                  if (data === '[DONE]') {
+                    console.log('✅ Stream marked as DONE');
+                    continue;
+                  }
+                  
+                  try {
+                    const parsed = JSON.parse(data);
+                    const content_chunk = parsed.choices?.[0]?.delta?.content;
+                    
+                    if (content_chunk) {
+                      if (isFirstChunk) {
+                        console.log('📝 First content chunk received');
+                        isFirstChunk = false;
+                      }
+                      
+                      fullContent += content_chunk;
+                      
+                      // Check for math content in the chunk
+                      if (content_chunk.includes('$$') || content_chunk.includes('$') || 
+                          content_chunk.includes('\\(') || content_chunk.includes('\\)') ||
+                          content_chunk.includes('\\[') || content_chunk.includes('\\]')) {
+                        setHasMathContent(true);
+                      }
+                      
+                      // Call the chunk callback immediately for real-time updates
+                      if (onChunk) {
+                        onChunk(content_chunk);
+                      }
+                    }
+                  } catch (parseError) {
+                    // Skip invalid JSON lines
+                    continue;
+                  }
+                }
+              }
+            }
+          }
+        };
+        
+        xhr.onload = function() {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(fullContent);
+          } else {
+            console.error('Request failed with status:', xhr.status);
+            reject(new Error(`Request failed with status ${xhr.status}`));
+          }
+        };
+        
+        xhr.onerror = function() {
+          console.error('XMLHttpRequest error');
+          reject(new Error('Failed to get response from AI. Please try again.'));
+        };
+        
+        xhr.ontimeout = function() {
+          console.error('XMLHttpRequest timeout');
+          reject(new Error('Request timed out. Please try again.'));
+        };
+        
+        xhr.timeout = 60000; // 60 second timeout
+        
+        // Create a system prompt based on content type
+        let systemPrompt;
+        
+        // Common formatting instructions to avoid markdown symbols
+        const formattingInstructions = 'Format your response as clean, readable text without using markdown symbols like ** or ##. Use proper paragraphs and spacing for structure instead of markdown formatting. Do not use asterisks for emphasis or hashtags for headings.';
+        
+        switch(contentType) {
+          case 'article':
+            systemPrompt = `You are a professional article writer. Create well-structured, informative, and engaging articles with proper headings, subheadings, and bullet points where appropriate. ${formattingInstructions}`;
+            break;
+          case 'email':
+            systemPrompt = `You are an email writing assistant. Create clear, concise, and professional emails with proper subject lines, greetings, body content, and closings. ${formattingInstructions}`;
+            break;
+          case 'blog':
+            systemPrompt = `You are a blog post writer. Create engaging blog posts with catchy titles, compelling introductions, well-structured main points with headings, and strong conclusions with calls to action. ${formattingInstructions}`;
+            break;
+          case 'social':
+            systemPrompt = `You are a social media content creator. Create concise, engaging, and shareable social media posts with clear key points and relevant hashtags. ${formattingInstructions}`;
+            break;
+          case 'marketing':
+            systemPrompt = `You are a marketing copywriter. Create persuasive marketing copy with compelling headlines, clear benefits, features, testimonials, and strong calls to action. ${formattingInstructions}`;
+            break;
+          default:
+            systemPrompt = `You are a professional content writer. Create high-quality content that is well-structured and engaging. ${formattingInstructions}`;
+        }
+        
+        // Prepare messages for the API
+        const messages = [
+          {
+            role: 'system',
+            content: systemPrompt
+          },
+          {
+            role: 'user',
+            content: userMessage
+          }
+        ];
+        
+        const requestBody = JSON.stringify({
+          model: "qwen-vl-max",
+          messages: messages,
+          stream: true
+        });
+        
+        console.log('Sending request to AI API...');
+        xhr.send(requestBody);
+        
+      } catch (error) {
+        console.error('Error in sendMessageToAI:', error);
+        reject(new Error('Failed to get response from AI. Please try again.'));
+      }
+    });
+  };
+  
+  // Function to fetch user content history from the API
+  const fetchUserContent = async (contentType = null, searchQuery = null) => {
+    try {
+      // Get current user session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        console.error('No authenticated user found');
+        return [];
+      }
+      
+      const userId = session.user.id;
+      
+      // Build the API URL with optional filters
+      let apiUrl = `https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/content/getUserContent?uid=${userId}`;
+      
+      if (contentType) {
+        apiUrl += `&contentType=${contentType}`;
+      }
+      
+      if (searchQuery) {
+        apiUrl += `&searchQuery=${encodeURIComponent(searchQuery)}`;
+      }
+      
+      const response = await axios.get(apiUrl);
+      
+      if (response.data && response.data.content) {
+        // Format the history items
+        const formattedItems = response.data.content.map(item => ({
+          id: item.id,
+          prompt: item.prompt,
+          content: item.content,
+          type: item.content_type,
+          date: new Date(item.created_at).toLocaleString(),
+          title: item.title
+        }));
+        
+        return formattedItems;
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('Error fetching user content:', error);
+      return [];
+    }
+  };
+  
+  // Function to save content to the API
+  const saveContentToAPI = async (contentData) => {
+    try {
+      // Get current user session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        console.error('No authenticated user found');
+        return null;
+      }
+      
+      const userId = session.user.id;
+      
+      // Prepare the request data
+      const requestData = {
+        uid: userId,
+        prompt: contentData.prompt,
+        content: contentData.content,
+        title: contentData.title || `${contentType.charAt(0).toUpperCase() + contentType.slice(1)} about ${contentData.prompt.substring(0, 30)}...`,
+        tags: contentData.tags || [contentType],
+        content_type: contentData.type,
+        tone: contentData.tone || tone,
+        word_count: contentData.wordCount || wordCount,
+        language: 'en'
+      };
+      
+      const response = await axios.post(
+        'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/content/saveContent',
+        requestData,
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error saving content:', error);
+      return null;
+    }
+  };
+  
+  // Function to delete content from the API
+  const deleteContentFromAPI = async (contentId) => {
+    try {
+      // Get current user session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        console.error('No authenticated user found');
+        return { success: false };
+      }
+      
+      const userId = session.user.id;
+      
+      await axios.delete(
+        'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/content/deleteContent',
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          data: {
+            uid: userId,
+            contentId: contentId
+          }
+        }
+      );
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting content:', error);
+      return { success: false };
+    }
+  };
+  
+  // Function to handle content deletion
+  const handleDeleteContent = async (contentId) => {
+    if (!contentId) return;
+    
+    try {
+      setIsDeleting(true);
+      
+      // Confirm deletion with the user
+      Alert.alert(
+        t('confirmDelete'),
+        t('deleteContentConfirmation'),
+        [
+          {
+            text: t('cancel'),
+            style: 'cancel',
+            onPress: () => setIsDeleting(false)
+          },
+          {
+            text: t('delete'),
+            style: 'destructive',
+            onPress: async () => {
+              // Call the API to delete the content
+              const result = await deleteContentFromAPI(contentId);
+              
+              if (result && result.success) {
+                // Remove the item from local history
+                setHistoryItems(historyItems.filter(item => item.id !== contentId));
+                
+                // If the deleted item was selected, clear the selection
+                if (selectedHistoryItem && selectedHistoryItem.id === contentId) {
+                  setSelectedHistoryItem(null);
+                  setGeneratedContent('');
+                  setPrompt('');
+                }
+                
+                // Show success message
+                Alert.alert(t('success'), t('contentDeletedSuccessfully'));
+              } else {
+                // Show error message
+                Alert.alert(t('error'), t('failedToDeleteContent'));
+              }
+              
+              setIsDeleting(false);
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Error deleting content:', error);
+      Alert.alert(t('error'), t('failedToDeleteContent'));
+      setIsDeleting(false);
+    }
+  };
+  
+  // Function to share content via the API
+  const shareContentViaAPI = async (contentId) => {
+    try {
+      // Get current user session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        console.error('No authenticated user found');
+        return null;
+      }
+      
+      const userId = session.user.id;
+      
+      const response = await axios.post(
+        'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/content/shareContent',
+        {
+          uid: userId,
+          contentId: contentId
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      return response.data.shareId;
+    } catch (error) {
+      console.error('Error sharing content:', error);
+      return null;
+    }
+  };
+  
+  // Load user content history on component mount
+  useEffect(() => {
+    const loadUserContent = async () => {
+      const content = await fetchUserContent();
+      if (content.length > 0) {
+        setHistoryItems(content);
+      }
+    };
+    
+    loadUserContent();
+  }, []);
+  
+  const handleGenerate = async () => {
     if (prompt.trim() === '') {
       Alert.alert(t('error'), t('pleaseEnterPrompt'));
       return;
     }
     
+    // Clear any previous content and set generating state
+    setGeneratedContent('');
     setIsGenerating(true);
     
-    // Create a detailed prompt for content generation based on the selected type
+    // Animate result appearance immediately to show streaming content
+    Animated.parallel([
+      Animated.timing(resultOpacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(resultTranslateY, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      })
+    ]).start();
+    
+    // Create a detailed prompt for content generation based on the selected type, word count, and tone
     let contentPrompt;
+    const selectedWordCount = wordCountOptions.find(option => option.id === wordCount)?.count || 500;
+    const selectedToneText = toneOptions.find(option => option.id === tone)?.name || 'Professional';
+    
+    // Common formatting instructions to ensure clean output without markdown artifacts
+    const formattingInstructions = `
+    Format your response in clean, readable text. Do not use markdown formatting symbols like ** ## or similar. 
+    Use proper paragraphs, spacing, and structure but avoid raw markdown syntax.
+    `;
     
     switch(contentType) {
-      case 'article':
-        contentPrompt = `Write a professional article about "${prompt}". Include headings, subheadings, and bullet points where appropriate. The article should be well-structured, informative, and engaging.`;
+      case 'essay':
+        contentPrompt = `Write a ${selectedToneText.toLowerCase()} essay about "${prompt}". The essay should be approximately ${selectedWordCount} words. Include an introduction, body paragraphs with clear arguments, and a conclusion. ${formattingInstructions}`;
         break;
-      case 'email':
-        contentPrompt = `Write a professional email about "${prompt}". Include a subject line, greeting, body, and closing. The email should be clear, concise, and professional.`;
+      case 'article':
+        contentPrompt = `Write a ${selectedToneText.toLowerCase()} article about "${prompt}". The article should be approximately ${selectedWordCount} words. Include clear sections with proper organization. ${formattingInstructions}`;
         break;
       case 'blog':
-        contentPrompt = `Write an engaging blog post about "${prompt}". Include a catchy title, introduction, main points with headings, and a conclusion. Make it conversational and include a call to action at the end.`;
+        contentPrompt = `Write a ${selectedToneText.toLowerCase()} blog post about "${prompt}". The blog post should be approximately ${selectedWordCount} words. Include a catchy title, introduction, main points, and a conclusion. ${formattingInstructions}`;
+        break;
+      case 'letter':
+        contentPrompt = `Write a ${selectedToneText.toLowerCase()} letter about "${prompt}". The letter should be approximately ${selectedWordCount} words. Include proper formatting with date, address, greeting, body, and closing. ${formattingInstructions}`;
+        break;
+      case 'email':
+        contentPrompt = `Write a ${selectedToneText.toLowerCase()} email about "${prompt}". The email should be approximately ${selectedWordCount} words. Include a subject line, greeting, body, and closing. ${formattingInstructions}`;
+        break;
+      case 'report':
+        contentPrompt = `Write a ${selectedToneText.toLowerCase()} report about "${prompt}". The report should be approximately ${selectedWordCount} words. Include an executive summary, introduction, findings, analysis, and recommendations. ${formattingInstructions}`;
+        break;
+      case 'story':
+        contentPrompt = `Write a ${selectedToneText.toLowerCase()} story about "${prompt}". The story should be approximately ${selectedWordCount} words. Include characters, setting, plot, and narrative arc. ${formattingInstructions}`;
         break;
       case 'social':
-        contentPrompt = `Create a social media post about "${prompt}". Keep it concise, engaging, and include relevant hashtags. Make it engaging and shareable, with clear key points.`;
+        contentPrompt = `Create a ${selectedToneText.toLowerCase()} social media post about "${prompt}". Keep it concise but aim for about ${Math.min(selectedWordCount, 100)} words. Include relevant hashtags. ${formattingInstructions}`;
         break;
       case 'marketing':
-        contentPrompt = `Create marketing copy for "${prompt}". Include a compelling headline, key benefits, features, testimonials, and a strong call to action. Make it persuasive and focused on value.`;
+        contentPrompt = `Create ${selectedToneText.toLowerCase()} marketing copy for "${prompt}". The copy should be approximately ${selectedWordCount} words. Include a compelling headline, key benefits, features, testimonials, and a strong call to action. ${formattingInstructions}`;
+        break;
+      case 'business':
+        contentPrompt = `Write a ${selectedToneText.toLowerCase()} business proposal about "${prompt}". The proposal should be approximately ${selectedWordCount} words. Include an executive summary, problem statement, proposed solution, benefits, costs, and implementation plan. ${formattingInstructions}`;
         break;
       default:
-        contentPrompt = `Write content about "${prompt}".`;
+        contentPrompt = `Write ${selectedToneText.toLowerCase()} content about "${prompt}" in approximately ${selectedWordCount} words. ${formattingInstructions}`;
     }
     
-    // Make API call to matrix-server
-    axios.post('https://ddtgdhehxhgarkonvpfq.supabase.co/functions/v1/createContent', {
-      prompt: contentPrompt
-    }, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
-    .then(response => {
-      // Extract the response
-      const result = response.data.output.text.trim();
+    try {
+      // Initialize empty content for streaming
+      let streamingContent = '';
       
-      setGeneratedContent(result);
+      // Send the prompt to the AI API with streaming
+      const fullResponse = await sendMessageToAI(contentPrompt, (chunk) => {
+        // Update content with each chunk for real-time streaming
+        streamingContent += chunk;
+        setGeneratedContent(streamingContent);
+      });
       
-      // Add to history
+      // Create a new history item
       const newHistoryItem = {
         id: Date.now().toString(),
         prompt: prompt,
-        content: result,
+        content: streamingContent,
         type: contentType,
-        date: 'Just now'
+        tone: tone,
+        wordCount: wordCount,
+        date: 'Just now',
+        title: `${contentType.charAt(0).toUpperCase() + contentType.slice(1)} about ${prompt.substring(0, 30)}...`
       };
       
+      // Save to API
+      const savedContent = await saveContentToAPI(newHistoryItem);
+      
+      if (savedContent && savedContent.id) {
+        // Update the history item with the API-generated ID
+        newHistoryItem.id = savedContent.id;
+      }
+      
+      // Update local history
       setHistoryItems([newHistoryItem, ...historyItems]);
       
-      // Animate result appearance
-      Animated.parallel([
-        Animated.timing(resultOpacity, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(resultTranslateY, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true,
-        })
-      ]).start();
-    })
-    .catch(error => {
+    } catch (error) {
       console.error('Error generating content:', error);
       Alert.alert(t('error'), t('failedToGenerateContent'));
       
       // Fallback to template content if API fails
       handleFallbackGeneration();
-    })
-    .finally(() => {
+    } finally {
       setIsGenerating(false);
-    });
+    }
   };
   
   // Fallback function for content generation if API fails
@@ -347,7 +784,10 @@ const ContentWriterScreen = () => {
       prompt: prompt,
       content: result,
       type: contentType,
-      date: 'Just now'
+      tone: tone,
+      wordCount: wordCount,
+      date: 'Just now',
+      title: `${contentType.charAt(0).toUpperCase() + contentType.slice(1)} about ${prompt.substring(0, 30)}...`
     };
     
     setHistoryItems([newHistoryItem, ...historyItems]);
@@ -387,15 +827,48 @@ const ContentWriterScreen = () => {
   };
   
   const shareContent = async () => {
+    if (!generatedContent) return;
+    
     try {
-      const shareOptions = {
-        message: generatedContent,
-        title: 'Generated Content from MatrixAI'
-      };
+      // Get the selected history item (if any) or use the current content
+      const contentId = historyItems.find(item => item.content === generatedContent)?.id;
       
-      await Share.open(shareOptions);
+      if (!contentId) {
+        // If no history item is selected, share directly without API
+        const shareOptions = {
+          message: generatedContent,
+          title: 'Generated Content from MatrixAI'
+        };
+        
+        await Share.open(shareOptions);
+        return;
+      }
+      
+      // Show loading indicator
+      setIsGenerating(true);
+      
+      // Get shareable link from API
+      const shareId = await shareContentViaAPI(contentId);
+      
+      if (!shareId) {
+        Alert.alert(t('error'), t('failedToShareContent'));
+        return;
+      }
+      
+      // Create a shareable link
+      const shareableLink = `https://matrixai.app/shared/${shareId}`;
+      
+      // Show sharing options
+      Share.share({
+        message: generatedContent,
+        title: 'Share Content',
+        url: shareableLink
+      });
     } catch (error) {
-      console.log('Error sharing content:', error);
+      console.error('Error sharing content:', error);
+      Alert.alert(t('error'), t('failedToShareContent'));
+    } finally {
+      setIsGenerating(false);
     }
   };
   
@@ -452,63 +925,161 @@ const ContentWriterScreen = () => {
     // For very small screens, we might need to truncate the text more
     const truncateLength = width < 320 ? 40 : width < 375 ? 50 : 60;
     const isSmallScreen = width < 360;
+    const isSelected = selectedHistoryItem && selectedHistoryItem.id === item.id;
+    
+    // Get the tone name from the tone ID
+    const toneText = item.tone ? 
+      (toneOptions.find(option => option.id === item.tone)?.name || 'Professional') : 
+      'Professional';
+    
+    // Get the word count from the word count ID
+    const wordCountText = item.wordCount ? 
+      (wordCountOptions.find(option => option.id === item.wordCount)?.count || '500') : 
+      '500';
     
     return (
-      <TouchableOpacity 
+      <Animatable.View 
+        animation="fadeIn"
+        duration={500}
+        delay={200}
         style={[styles.historyItem, { 
           backgroundColor: currentTheme === 'dark' ? 'rgba(40, 40, 50, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+          borderColor: isSelected ? colors.primary : 'transparent',
+          borderWidth: isSelected ? 1 : 0,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 3,
+          elevation: 2,
         }]}
-        onPress={() => {
-          setPrompt(item.prompt);
-          setGeneratedContent(item.content);
-          setContentType(item.type);
-          toggleHistory();
-          
-          // Animate result appearance
-          Animated.parallel([
-            Animated.timing(resultOpacity, {
-              toValue: 1,
-              duration: 500,
-              useNativeDriver: true,
-            }),
-            Animated.timing(resultTranslateY, {
-              toValue: 0,
-              duration: 500,
-              useNativeDriver: true,
-            })
-          ]).start();
-        }}
       >
-        <View style={[styles.historyItemHeader, isSmallScreen && { flexDirection: 'column' }]}>
-          <View style={[styles.historyItemTextContainer, isSmallScreen && { marginBottom: responsiveSpacing(8) }]}>
-            <Text style={[styles.historyItemTitle, { color: colors.text }]} numberOfLines={2}>
-              {item.prompt.length > truncateLength ? `${item.prompt.substring(0, truncateLength)}...` : item.prompt}
-            </Text>
-            <Text style={[styles.historyItemDate, { color: colors.textSecondary }]}>
-              {item.date}
-            </Text>
+        <TouchableOpacity 
+          style={{ flex: 1 }}
+          onPress={() => {
+            setSelectedHistoryItem(item);
+            setPrompt(item.prompt);
+            setGeneratedContent(item.content);
+            setContentType(item.type);
+            if (item.tone) setTone(item.tone);
+            if (item.wordCount) setWordCount(item.wordCount);
+            toggleHistory();
+            
+            // Check if content has math formulas
+            const hasMath = item.content.includes('$$') || item.content.includes('$') || 
+                           item.content.includes('\\(') || item.content.includes('\\)') ||
+                           item.content.includes('\\[') || item.content.includes('\\]');
+            setHasMathContent(hasMath);
+            
+            // Animate result appearance
+            Animated.parallel([
+              Animated.timing(resultOpacity, {
+                toValue: 1,
+                duration: 500,
+                useNativeDriver: true,
+              }),
+              Animated.timing(resultTranslateY, {
+                toValue: 0,
+                duration: 500,
+                useNativeDriver: true,
+              })
+            ]).start();
+          }}
+        >
+          <View style={[styles.historyItemHeader, isSmallScreen && { flexDirection: 'column' }]}>
+            <View style={[styles.historyItemTextContainer, isSmallScreen && { marginBottom: responsiveSpacing(8) }]}>
+              <Text style={[styles.historyItemTitle, { color: colors.text }]} numberOfLines={2}>
+                {item.title || (item.prompt.length > truncateLength ? `${item.prompt.substring(0, truncateLength)}...` : item.prompt)}
+              </Text>
+              <View style={styles.historyItemMetaContainer}>
+                <Text style={[styles.historyItemDate, { color: colors.textSecondary }]}>
+                  {item.date}
+                </Text>
+                {item.tone && (
+                  <Text style={[styles.historyItemMeta, { color: colors.textSecondary }]}>
+                    • {toneText}
+                  </Text>
+                )}
+                {item.wordCount && (
+                  <Text style={[styles.historyItemMeta, { color: colors.textSecondary }]}>
+                    • {wordCountText} words
+                  </Text>
+                )}
+              </View>
+            </View>
+            <View style={[
+              styles.historyItemBadge, 
+              { 
+                backgroundColor: 
+                  item.type === 'essay' ? '#3F51B5' :
+                  item.type === 'article' ? '#2196F3' : 
+                  item.type === 'blog' ? '#4CAF50' : 
+                  item.type === 'letter' ? '#795548' :
+                  item.type === 'email' ? '#00BCD4' : 
+                  item.type === 'report' ? '#607D8B' :
+                  item.type === 'story' ? '#9C27B0' : 
+                  item.type === 'social' ? '#E91E63' : 
+                  item.type === 'marketing' ? '#FF9800' : 
+                  item.type === 'business' ? '#F44336' : '#3F51B5',
+                opacity: 0.9,
+                alignSelf: isSmallScreen ? 'flex-start' : 'center'
+              }
+            ]}>
+              <Text style={styles.historyItemBadgeText}>
+                {item.type.charAt(0).toUpperCase() + item.type.slice(1)}
+              </Text>
+            </View>
           </View>
-          <View style={[
-            styles.historyItemBadge, 
-            { 
-              backgroundColor: item.type === 'email' ? '#2196F3' : 
-                               item.type === 'blog' ? '#4CAF50' : 
-                               item.type === 'social' ? '#9C27B0' : 
-                               item.type === 'marketing' ? '#FF9800' : '#3F51B5',
-              opacity: 0.9,
-              alignSelf: isSmallScreen ? 'flex-start' : 'center'
-            }
-          ]}>
-            <Text style={styles.historyItemBadgeText}>
-              {item.type.charAt(0).toUpperCase() + item.type.slice(1)}
-            </Text>
-          </View>
-        </View>
-        <Text style={[styles.historyItemPreview, { color: colors.textSecondary }]} numberOfLines={2}>
-          {item.content}
-        </Text>
-      </TouchableOpacity>
+          <Text style={[styles.historyItemPreview, { color: colors.textSecondary }]} numberOfLines={2}>
+            {item.content}
+          </Text>
+        </TouchableOpacity>
+        
+        {/* Delete button */}
+        <TouchableOpacity 
+          style={styles.deleteButton} 
+          onPress={() => handleDeleteContent(item.id)}
+          disabled={isDeleting}
+        >
+          <MaterialIcons 
+            name="delete-outline" 
+            size={22} 
+            color={colors.error || '#F44336'} 
+          />
+        </TouchableOpacity>
+      </Animatable.View>
     );
+  };
+  
+  // Render skeleton loading for history items
+  const renderHistorySkeleton = () => {
+    return Array(3).fill(0).map((_, index) => (
+      <Animatable.View 
+        key={`skeleton-${index}`}
+        animation="pulse"
+        iterationCount="infinite"
+        duration={1500}
+        style={[styles.historyItem, { backgroundColor: 'transparent' }]}
+      >
+        <LinearGradient
+          colors={currentTheme === 'dark' ? 
+            ['rgba(60, 60, 70, 0.8)', 'rgba(40, 40, 50, 0.6)', 'rgba(60, 60, 70, 0.8)'] : 
+            ['rgba(240, 240, 240, 0.8)', 'rgba(255, 255, 255, 0.6)', 'rgba(240, 240, 240, 0.8)']}
+          start={{x: 0, y: 0}}
+          end={{x: 1, y: 0}}
+          style={styles.skeletonGradient}
+        >
+          <View style={styles.historyItemHeader}>
+            <View style={styles.historyItemTextContainer}>
+              <View style={[styles.skeletonText, { width: '80%', height: 18, marginBottom: 8 }]} />
+              <View style={[styles.skeletonText, { width: '40%', height: 12 }]} />
+            </View>
+            <View style={[styles.skeletonBadge, { width: 60, height: 24 }]} />
+          </View>
+          <View style={[styles.skeletonText, { width: '100%', height: 14, marginTop: 8 }]} />
+          <View style={[styles.skeletonText, { width: '90%', height: 14, marginTop: 4 }]} />
+        </LinearGradient>
+      </Animatable.View>
+    ));
   };
 
   const getContentTypeIcon = () => {
@@ -608,6 +1179,113 @@ const ContentWriterScreen = () => {
               </View>
             </View>
             
+            {/* Word Count and Tone Selector in a single line */}
+            <View style={styles.standardContainer}>
+              <View style={styles.combinedSelectors}>
+                {/* Word Count Selector */}
+                <View style={styles.selectorContainer}>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('wordCount')}</Text>
+                  <TouchableOpacity 
+                    style={[styles.dropdownSelector, { backgroundColor: colors.card, borderColor: colors.border }]}
+                    onPress={() => setWordCountModalVisible(true)}
+                  >
+                    <Text style={[styles.dropdownText, { color: colors.text }]}>
+                      {wordCountOptions.find(item => item.id === wordCount)?.count || '500'}
+                    </Text>
+                    <MaterialIcons name="arrow-drop-down" size={24} color={colors.text} />
+                  </TouchableOpacity>
+                  
+                  {/* Word Count Modal */}
+                  <Modal
+                    transparent={true}
+                    visible={wordCountModalVisible}
+                    animationType="fade"
+                    onRequestClose={() => setWordCountModalVisible(false)}
+                  >
+                    <TouchableOpacity 
+                      style={styles.modalOverlay}
+                      activeOpacity={1}
+                      onPress={() => setWordCountModalVisible(false)}
+                    >
+                      <View style={[styles.modalContent, { backgroundColor: colors.card, top: '35%' }]}>
+                        <FlatList
+                          data={wordCountOptions}
+                          renderItem={({ item }) => (
+                            <TouchableOpacity
+                              style={[styles.modalItem, wordCount === item.id && styles.selectedModalItem]}
+                              onPress={() => {
+                                setWordCount(item.id);
+                                setWordCountModalVisible(false);
+                              }}
+                            >
+                              <Text style={[styles.modalItemText, { color: colors.text }, wordCount === item.id && { color: colors.primary, fontWeight: '600' }]}>
+                                {item.count} words
+                              </Text>
+                              {wordCount === item.id && (
+                                <MaterialIcons name="check" size={20} color={colors.primary} />
+                              )}
+                            </TouchableOpacity>
+                          )}
+                          keyExtractor={item => item.id}
+                        />
+                      </View>
+                    </TouchableOpacity>
+                  </Modal>
+                </View>
+                
+                {/* Tone Selector */}
+                <View style={styles.selectorContainer}>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('tone')}</Text>
+                  <TouchableOpacity 
+                    style={[styles.dropdownSelector, { backgroundColor: colors.card, borderColor: colors.border }]}
+                    onPress={() => setToneModalVisible(true)}
+                  >
+                    <Text style={[styles.dropdownText, { color: colors.text }]}>
+                      {toneOptions.find(item => item.id === tone)?.name || 'Professional'}
+                    </Text>
+                    <MaterialIcons name="arrow-drop-down" size={24} color={colors.text} />
+                  </TouchableOpacity>
+                  
+                  {/* Tone Modal */}
+                  <Modal
+                    transparent={true}
+                    visible={toneModalVisible}
+                    animationType="fade"
+                    onRequestClose={() => setToneModalVisible(false)}
+                  >
+                    <TouchableOpacity 
+                      style={styles.modalOverlay}
+                      activeOpacity={1}
+                      onPress={() => setToneModalVisible(false)}
+                    >
+                      <View style={[styles.modalContent, { backgroundColor: colors.card, top: '35%' }]}>
+                        <FlatList
+                          data={toneOptions}
+                          renderItem={({ item }) => (
+                            <TouchableOpacity
+                              style={[styles.modalItem, tone === item.id && styles.selectedModalItem]}
+                              onPress={() => {
+                                setTone(item.id);
+                                setToneModalVisible(false);
+                              }}
+                            >
+                              <Text style={[styles.modalItemText, { color: colors.text }, tone === item.id && { color: colors.primary, fontWeight: '600' }]}>
+                                {item.name}
+                              </Text>
+                              {tone === item.id && (
+                                <MaterialIcons name="check" size={20} color={colors.primary} />
+                              )}
+                            </TouchableOpacity>
+                          )}
+                          keyExtractor={item => item.id}
+                        />
+                      </View>
+                    </TouchableOpacity>
+                  </Modal>
+                </View>
+              </View>
+            </View>
+            
             {/* Prompt Input */}
             <View 
               ref={promptInputRef}
@@ -695,6 +1373,27 @@ const ContentWriterScreen = () => {
                     </>
                   )}
                 </TouchableOpacity>
+                
+                {/* Quick Content Buttons */}
+                <View style={styles.quickContentContainer}>
+                  <Text style={[styles.quickContentTitle, { color: colors.text }]}>{t('quickContent')}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickContentScroll}>
+                    {quickContentPrompts.map((item) => (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={[styles.quickContentButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+                        onPress={() => {
+                          setPrompt(item.prompt);
+                          handleGenerate();
+                        }}
+                        disabled={isGenerating}
+                      >
+                        <MaterialIcons name={item.icon} size={18} color={colors.primary} />
+                        <Text style={[styles.quickContentButtonText, { color: colors.text }]}>{item.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
               </View>
             )}
             
@@ -726,9 +1425,54 @@ const ContentWriterScreen = () => {
                       style={styles.contentScroll}
                       nestedScrollEnabled={true}
                     >
-                      <Text style={[styles.contentText, { color: colors.text }]}>
-                        {generatedContent}
-                      </Text>
+                      <MarkdownDisplay
+                        style={[styles.contentText, { color: colors.text }]}
+                        value={generatedContent}
+                        mergeStyle={{
+                          body: { color: colors.text },
+                          paragraph: { color: colors.text, lineHeight: 22 },
+                          heading1: { color: colors.text, fontWeight: 'bold', fontSize: 24, marginBottom: 10, marginTop: 16 },
+                          heading2: { color: colors.text, fontWeight: 'bold', fontSize: 20, marginBottom: 8, marginTop: 14 },
+                          heading3: { color: colors.text, fontWeight: 'bold', fontSize: 18, marginBottom: 6, marginTop: 12 },
+                          heading4: { color: colors.text, fontWeight: 'bold', fontSize: 16, marginBottom: 4, marginTop: 10 },
+                          heading5: { color: colors.text, fontWeight: 'bold', fontSize: 14, marginBottom: 2, marginTop: 8 },
+                          heading6: { color: colors.text, fontWeight: 'bold', fontSize: 12, marginBottom: 2, marginTop: 6 },
+                          list_item: { color: colors.text, marginBottom: 4 },
+                          bullet_list: { color: colors.text, marginBottom: 10 },
+                          ordered_list: { color: colors.text, marginBottom: 10 },
+                          code_block: { backgroundColor: colors.card, padding: 10, borderRadius: 5, marginVertical: 8 },
+                          fence: { backgroundColor: colors.card, padding: 10, borderRadius: 5, marginVertical: 8 },
+                          blockquote: { borderLeftColor: colors.primary, backgroundColor: colors.card, opacity: 0.8, paddingLeft: 10, marginVertical: 8 },
+                          link: { color: colors.primary },
+                          em: { fontStyle: 'italic' },
+                          strong: { fontWeight: 'bold' },
+                          hr: { backgroundColor: colors.border, marginVertical: 10 },
+                          table: { borderColor: colors.border, marginVertical: 10 },
+                          tr: { borderBottomColor: colors.border },
+                          th: { padding: 5, fontWeight: 'bold' },
+                          td: { padding: 5 },
+                        }}
+                        rules={{
+                          math: (node) => {
+                            return (
+                              <MathView
+                                key={node.key}
+                                math={node.content}
+                                style={{ color: colors.text }}
+                              />
+                            );
+                          },
+                          inlineMath: (node) => {
+                            return (
+                              <MathView
+                                key={node.key}
+                                math={node.content}
+                                style={{ color: colors.text }}
+                              />
+                            );
+                          }
+                        }}
+                      />
                     </ScrollView>
                   </View>
                   
@@ -803,14 +1547,56 @@ const ContentWriterScreen = () => {
             <Text style={[styles.historyTitle, { color: colors.text }]}>
               {t('contentHistory')}
             </Text>
-            <TouchableOpacity onPress={toggleHistory}>
+            <TouchableOpacity 
+              style={styles.historyCloseButton}
+              onPress={toggleHistory}
+            >
               <MaterialIcons name="close" size={24} color={colors.text} />
             </TouchableOpacity>
           </View>
           
-          {historyItems.length > 0 ? (
+          {/* History Filter */}
+          <View style={styles.historyFilterContainer}>
+            <Text style={[styles.historyFilterLabel, { color: colors.text }]}>{t('filterBy')}:</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.historyFilterScroll}>
+              <TouchableOpacity 
+                style={[styles.historyFilterButton, { 
+                  backgroundColor: historyFilter === null ? colors.primary : colors.card,
+                  borderColor: historyFilter === null ? colors.primary : colors.border,
+                }]}
+                onPress={() => setHistoryFilter(null)}
+              >
+                <Text style={[styles.historyFilterButtonText, { color: historyFilter === null ? '#FFFFFF' : colors.text }]}>
+                  {t('all')}
+                </Text>
+              </TouchableOpacity>
+              
+              {contentTypes.map((type) => (
+                <TouchableOpacity 
+                  key={type.id}
+                  style={[styles.historyFilterButton, { 
+                    backgroundColor: historyFilter === type.id ? colors.primary : colors.card,
+                    borderColor: historyFilter === type.id ? colors.primary : colors.border,
+                  }]}
+                  onPress={() => setHistoryFilter(type.id)}
+                >
+                  <Text style={[styles.historyFilterButtonText, { color: historyFilter === type.id ? '#FFFFFF' : colors.text }]}>
+                    {type.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+          
+          {isLoadingHistory ? (
+            <View style={styles.historyList}>
+              {renderHistorySkeleton()}
+            </View>
+          ) : historyItems.length > 0 ? (
             <FlatList
-              data={historyItems}
+              data={historyFilter === null ? 
+                historyItems : 
+                historyItems.filter(item => item.type === historyFilter)}
               renderItem={renderHistoryItem}
               keyExtractor={item => item.id}
               showsVerticalScrollIndicator={false}
@@ -824,7 +1610,7 @@ const ContentWriterScreen = () => {
                 color={colors.textSecondary} 
               />
               <Text style={[styles.emptyHistoryText, { color: colors.textSecondary }]}>
-                {t('noHistoryFound')}
+                {historyFilter === null ? t('noHistoryFound') : t('noHistoryFoundForFilter')}
               </Text>
             </View>
           )}
@@ -1089,6 +1875,36 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0, 0, 0, 0.1)',
   },
+  historyCloseButton: {
+    padding: 8,
+    borderRadius: 20,
+  },
+  historyFilterContainer: {
+    padding: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  historyFilterLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  historyFilterScroll: {
+    flexDirection: 'row',
+  },
+  historyFilterButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+    borderWidth: 1,
+  },
+  historyFilterButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
   historyTitle: {
     fontSize: 18,
     fontWeight: '600',
@@ -1123,17 +1939,41 @@ const styles = StyleSheet.create({
     color: '#9E9E9E',
     marginTop: 2,
   },
+  historyItemMetaContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  historyItemMeta: {
+    fontSize: 12,
+    color: '#9E9E9E',
+    marginLeft: 4,
+  },
   historyItemPreview: {
     fontSize: 14,
     lineHeight: 20,
   },
   historyItemBadge: {
-    padding: 4,
-    borderRadius: 4,
+    padding: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
   },
   historyItemBadgeText: {
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  deleteButton: {
+    padding: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   emptyHistoryContainer: {
     flex: 1,
@@ -1160,6 +2000,101 @@ const styles = StyleSheet.create({
   standardContainer: {
     width: '100%',
     marginTop: 16,
+  },
+  skeletonGradient: {
+    flex: 1,
+    borderRadius: 12,
+    padding: responsiveSpacing(12),
+  },
+  skeletonText: {
+    borderRadius: 4,
+    backgroundColor: 'rgba(200, 200, 200, 0.3)',
+  },
+  skeletonBadge: {
+    borderRadius: 12,
+    backgroundColor: 'rgba(200, 200, 200, 0.3)',
+  },
+  quickContentContainer: {
+    marginTop: 16,
+    width: '100%',
+  },
+  quickContentTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  quickContentScroll: {
+    flexDirection: 'row',
+  },
+  quickContentButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginRight: 8,
+    borderWidth: 1,
+  },
+  quickContentButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 4,
+  },
+  // New styles for dropdown selectors
+  combinedSelectors: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 24,
+    width: '100%',
+  },
+  selectorContainer: {
+    width: '48%',
+  },
+  dropdownSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  dropdownText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '80%',
+    maxHeight: 300,
+    borderRadius: 16,
+    padding: 16,
+    position: 'absolute',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  modalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  selectedModalItem: {
+    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+  },
+  modalItemText: {
+    fontSize: 16,
   },
 });
 

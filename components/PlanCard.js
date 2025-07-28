@@ -18,7 +18,7 @@ const PlanCard = ({ planDetails }) => {
 
       {/* Background Watermark Image */}
       <Image
-        source={require('../assets/logo.png')} // Update path accordingly
+        source={require('../assets/logo7.png')} // Update path accordingly
         style={styles.watermark}
         resizeMode="contain"
       />

@@ -23,7 +23,7 @@ const StoriesScreen = ({ navigation }) => {
       url: 'https://www.w3schools.com/html/mov_bbb.mp4',
       duration: 10000,
       user: {
-        name: 'johndoe',
+        name: 'MatrixAI',
         avatar: 'https://i.pravatar.cc/100?img=1',
       },
     },
@@ -32,7 +32,7 @@ const StoriesScreen = ({ navigation }) => {
       url: 'https://media.w3.org/2010/05/sintel/trailer.mp4',
       duration: 12000,
       user: {
-        name: 'janedoe',
+        name: 'Aadi',
         avatar: 'https://i.pravatar.cc/100?img=2',
       },
     },
@@ -204,40 +204,40 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: 'white',
   },
-  topOverlay: {
-    position: 'absolute',
-    width: '100%',
-    paddingTop: 20,
-    paddingBottom: 60,
-  },
-  header: {
-    marginTop: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-  },
-  backButton: {
-    padding: 4,
-    marginRight: 10,
-  },
-  userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginRight: 8,
-    borderColor: 'white',
-    borderWidth: 1,
-  },
-  username: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 16,
-  },
+topOverlay: {
+  position: 'absolute',
+  width: '100%',
+  paddingTop: 1,
+  paddingBottom: 20,
+  paddingHorizontal: 12,
+},
+progressContainer: {
+  flexDirection: 'row',
+  marginBottom: 12,
+},
+header: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  paddingTop: 12,
+},
+userInfo: {
+  flexDirection: 'row',
+  alignItems: 'center',
+},
+avatar: {
+  width: 32,
+  height: 32,
+  borderRadius: 16,
+  marginRight: 8,
+  borderColor: 'white',
+  borderWidth: 1,
+},
+username: {
+  color: 'white',
+  fontWeight: '600',
+  fontSize: 16,
+},
+
   pauseIcon: {
     alignSelf: 'center',
     marginTop: height * 0.35,

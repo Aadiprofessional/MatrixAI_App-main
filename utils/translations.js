@@ -3,6 +3,10 @@ export const translations = {
   // English
   'English': {
     // Common
+    'reselectTemplate': 'Re-select Template',
+    'uploadingImage': 'Uploading Image...',
+    'typeYourVideoPromptHere': 'Type your video prompt here...',
+    'chooseThisVideo': 'Choose this video',
     'home': 'Home',
     'profile': 'Profile',
     'settings': 'Settings',
@@ -154,6 +158,9 @@ export const translations = {
     'pause': 'Pause',
     'download': 'Download',
     'retry': 'Retry',
+    'selectTemplate': 'Select Template',
+    'generateWithTemplate': 'Generate with Template',
+    'chooseTemplate': 'Choose Template',
     'matrixAI': 'Matrix AI',
     'welcomeToMatrixAI': 'Hi, Welcome to Matrix AI',
     'whatCanIGenerateForYou': 'What can I generate for you today?',
@@ -425,6 +432,13 @@ export const translations = {
     'noHistoryFound': 'No history found',
     'error': 'Error',
     'failedToGenerateContent': 'Failed to generate content. Please try again.',
+    'wordCount': 'Word Count',
+    'tone': 'Tone',
+    'professional': 'Professional',
+    'casual': 'Casual',
+    'friendly': 'Friendly',
+    'formal': 'Formal',
+    'essay': 'Essay',
     'aiContentWriter': 'AI Content Writer',
     'generateProfessionalContent': 'Generate professional content for articles, emails, blogs and more',
     
@@ -457,10 +471,25 @@ export const translations = {
     "humanLikeTransformations": "Human-like transformations",
     "identifyAIGeneratedContent": "Identify AI-generated content",
     "aiPoweredWritingAssistant": "AI-powered writing assistant",
+    
+    // Video Generate Screen - Template Modal
+    'selectTemplate': 'Select Template',
+    'loadingTemplates': 'Loading templates...',
+    'noTemplatesAvailable': 'No templates available',
+    'confirm': 'Confirm',
+    'selectTemplateFirst': 'Please select a template first',
+    'standardTextToVideo': 'Standard Text-to-Video with prompt_extend',
+    'templateBasedGeneration': 'Template-based Generation (without prompt_extend)',
+    'premium': 'Premium',
+    'basic': 'Basic',
   },
   // Traditional Chinese
   'Traditional Chinese': {
     // Common
+    'reselectTemplate': '重新選擇模板',
+    'uploadingImage': '上傳中...',
+    'typeYourVideoPromptHere': '輸入您的視頻提示...',
+    'chooseThisVideo': '選擇此視頻',
     'home': '首頁',
     'profile': '個人資料',
     'settings': '設定',
@@ -806,6 +835,13 @@ export const translations = {
     'noHistoryFound': '沒有找到歷史記錄',
     'error': '錯誤',
     'failedToGenerateContent': '生成內容失敗。請再試一次。',
+    'wordCount': '字數',
+    'tone': '語調',
+    'professional': '專業',
+    'casual': '隨意',
+    'friendly': '友好',
+    'formal': '正式',
+    'essay': '論文',
     'errorPickingFile': '選擇檔案時發生錯誤。',
     'noFileSelected': '未選擇檔案',
     'uidAndAudioIdRequired': '刪除檔案需要UID和音訊ID。',
@@ -884,6 +920,10 @@ export const translations = {
   // Simplified Chinese
   'Simplified Chinese': {
     // Common
+    'reselectTemplate': '重新选择模板',
+    'uploadingImage': '上传中...',
+    'typeYourVideoPromptHere': '输入您的视频提示...',
+    'chooseThisVideo': '选择此视频',
     'home': '首页',
     'profile': '个人资料',
     'settings': '设置',
@@ -918,6 +958,8 @@ export const translations = {
     'deleteAll': '删除全部',
     'emptyList': '您的列表为空',
     'uploadNow': '立即上传',
+
+    'reselectTemplate': '重新选择模板',
     
     // Profile screen
     'editProfile': '编辑个人资料',
@@ -945,7 +987,7 @@ export const translations = {
     'typeyourprompt': '输入您的提示',
     "helpCenter": "帮助中心",
     "customerSupport": "客户支持",
-    "rateUs": "评价我���",
+    "rateUs": "评价我们",
     "yourInformation": "您的信息",
     "proFeatures": "专业功能",
     "settingsSaved": "设置已成功保存",
@@ -1266,6 +1308,13 @@ export const translations = {
     'noHistoryFound': '没有找到历史记录',
     'error': '错误',
     'failedToGenerateContent': '生成内容失败。请再试一次。',
+    'wordCount': '字数',
+    'tone': '语调',
+    'professional': '专业',
+    'casual': '随意',
+    'friendly': '友好',
+    'formal': '正式',
+    'essay': '论文',
     'aiContentWriter': 'AI内容写作',
     'generateProfessionalContent': '为文章、电子邮件、博客等生成专业内容',
     

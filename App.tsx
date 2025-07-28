@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import Toast from 'react-native-toast-message';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, getStateFromPath } from '@react-navigation/native';
 import { enableScreens } from 'react-native-screens';
 import NetInfo from '@react-native-community/netinfo';
+import { Linking, Platform } from 'react-native';
+import { supabase } from './supabaseClient';
+
 
 // Import i18n configuration
 import './utils/i18n';
@@ -18,7 +21,7 @@ import LoginScreen from './screens/LoginScreens';
 import OTPCodeScreen from './screens/OTPCodeScreen';
 import { View, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage'; // Import AsyncStorage
-import { supabase } from './supabaseClient'; // Import Supabase client
+
 
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
 import EmailVerificationScreen from './screens/EmailVerificationScreen';
@@ -103,6 +106,26 @@ const App = () => {
     const [onboardingCompleted, setOnboardingCompleted] = useState(false);
     const [isLoading, setIsLoading] = useState(true); // Show loading state while checking AsyncStorage
     const [isLoggedIn, setIsLoggedIn] = useState(false);
+    
+    // Register the deep link handler for URL scheme
+    useEffect(() => {
+        // Set up deep link handling for auth
+        const setupDeepLinks = async () => {
+            // Register the custom URL scheme with Supabase
+            if (Platform.OS === 'ios' || Platform.OS === 'android') {
+                // Register the URL scheme
+                await supabase.auth.initialize();
+                
+                // Get the initial URL if the app was opened with a URL
+                const initialUrl = await Linking.getInitialURL();
+                if (initialUrl) {
+                    console.log('App opened with URL:', initialUrl);
+                }
+            }
+        };
+        
+        setupDeepLinks();
+    }, []);
     
     // Check if the user is logged in on initial app load
     useEffect(() => {
@@ -201,7 +224,106 @@ const App = () => {
                         <ModalProvider>
                             <ProStatusProvider>
                           
-                            <NavigationContainer>
+                            <NavigationContainer
+                                linking={{
+                                    prefixes: ['matrixai://', 'https://ddtgdhehxhgarkonvpfq.supabase.co'],
+                                    config: {
+                                        screens: {
+                                            Login: 'login',
+                                            Home: 'home',
+                                            SignUpDetails: 'signup',
+                                            // Add explicit mapping for auth callback
+                                            AuthCallback: 'auth/callback'
+                                        }
+                                    },
+                                    // Custom handler for auth callback URLs
+                                    getStateFromPath: (path, config) => {
+                                        console.log('NavigationContainer processing path:', path);
+                                        
+                                        // If this is an auth callback, handle it specially
+                                        if (path.includes('auth/callback') || path.includes('access_token') || path.includes('code=')) {
+                                            console.log('Auth callback detected in NavigationContainer');
+                                            // Return the user to the Login screen where the deep link handler will process the auth
+                                            return {
+                                                routes: [{ name: 'Login' }]
+                                            };
+                                        }
+                                        
+                                        // For other paths, use the default behavior
+                                        return getStateFromPath(path, config);
+                                    },
+                                    // Subscribe to URL changes
+                                    subscribe: (listener) => {
+                                        console.log('=== NAVIGATION CONTAINER: SETTING UP DEEP LINK LISTENERS ===');
+                                        // Listen to incoming links from deep linking
+                                        const linkingSubscription = Linking.addEventListener('url', ({ url }) => {
+                                            console.log('=== DEEP LINK RECEIVED IN NAVIGATION CONTAINER ===');
+                                            console.log('Deep link URL:', url);
+                                            console.log('URL contains auth/callback:', url.includes('auth/callback'));
+                                            console.log('URL contains access_token:', url.includes('access_token'));
+                                            console.log('URL contains code=:', url.includes('code='));
+                                            
+                                            // Pass the URL to the navigation listener
+                                            listener(url);
+                                            console.log('URL passed to navigation listener');
+                                        });
+                                        
+                                        // Check for initial URL on app start
+                                        console.log('Checking for initial URL on app start...');
+                                        Linking.getInitialURL().then((url) => {
+                                            if (url) {
+                                                console.log('=== INITIAL URL DETECTED ===');
+                                                console.log('Initial URL:', url);
+                                                console.log('URL contains auth/callback:', url.includes('auth/callback'));
+                                                console.log('URL contains access_token:', url.includes('access_token'));
+                                                console.log('URL contains code=:', url.includes('code='));
+                                                
+                                                // Pass the URL to the navigation listener
+                                                listener(url);
+                                                console.log('Initial URL passed to navigation listener');
+                                            } else {
+                                                console.log('No initial URL detected');
+                                            }
+                                        }).catch(error => {
+                                            console.error('Error getting initial URL:', error);
+                                        });
+                                        
+                                        console.log('Deep link listeners set up successfully');
+                                        return () => {
+                                            // Clean up the event listener when the component is unmounted
+                                            console.log('Cleaning up deep link listeners');
+                                            linkingSubscription.remove();
+                                        };
+                                    },
+                                }}
+                                onStateChange={(state) => {
+                                    console.log('=== NAVIGATION STATE CHANGED ===');
+                                    console.log('Navigation state changed:', JSON.stringify(state));
+                                    // Log the current route name
+                                    if (state && state.routes && state.routes.length > 0) {
+                                        const currentRoute = state.routes[state.index];
+                                        console.log('Current route:', currentRoute.name, 'with params:', JSON.stringify(currentRoute.params));
+                                        
+                                        // Log navigation state details
+                                        console.log('Navigation state index:', state?.index);
+                                        console.log('Number of routes:', state?.routes?.length);
+                                        
+                                        // Log route history (last 3 routes)
+                                        const routeHistory = state.routes
+                                            .slice(Math.max(0, state.routes.length - 3))
+                                            .map(route => route.name);
+                                        console.log('Recent route history (last 3):', routeHistory);
+                                        
+                                        // Check if we're on a protected route that requires authentication
+                                        const isProtectedRoute = !['Login', 'EmailLogin', 'ForgotPassword', 
+                                            'EmailVerification', 'OTPCode', 'OTPCode2', 'SignUpDetails', 
+                                            'SignUpDetails2', 'TermsOfService', 'PrivacyPolicy'].includes(currentRoute.name);
+                                        console.log('Is protected route requiring auth:', isProtectedRoute);
+                                        console.log('Current auth state - isLoggedIn:', isLoggedIn);
+                                    }
+                                    console.log('=== NAVIGATION STATE CHANGE END ===');
+                                }}
+                            >
                                 <Stack.Navigator>
                                     {/* Onboarding Screen */}
                                     {!onboardingCompleted && !isLoggedIn && (
@@ -265,30 +387,13 @@ const App = () => {
                                           <Stack.Screen
   name="TermsOfService"
   component={TermsOfServiceScreen}
-  options={{
-    title: 'Terms of Service',
-    headerStyle: {
-      backgroundColor: '#2274F0', // Custom background color
-    },
-    headerTintColor: '#fff', // Custom text color for the title and back button
-    headerTitleStyle: {
-      fontWeight: 'bold', // Custom font weight for the title
-    },
-  }}
+   options={{ headerShown: false }} 
+  
 />
 <Stack.Screen
   name="PrivacyPolicy"
   component={PrivacyPolicyScreen}
-  options={{
-    title: 'Privacy Policy',
-    headerStyle: {
-      backgroundColor: '#2274F0', // Custom background color
-    },
-    headerTintColor: '#fff', // Custom text color for the title and back button
-    headerTitleStyle: {
-      fontWeight: 'bold', // Custom font weight for the title
-    },
-  }}
+  options={{ headerShown: false }} 
 />
                                         </>
                                     )}

@@ -7,6 +7,7 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Toast from 'react-native-toast-message';
 import { supabase } from '../supabaseClient';
 import { LANGUAGES, DEFAULT_LANGUAGE } from '../utils/languageUtils';
+import { useTheme } from '../context/ThemeContext';
 
 const SignUpDetailsScreen = ({ navigation }) => {
     const route = useRoute();
@@ -23,6 +24,9 @@ const SignUpDetailsScreen = ({ navigation }) => {
     const [referralCode, setReferralCode] = useState('');
     const [preferredLanguage, setPreferredLanguage] = useState(DEFAULT_LANGUAGE);
     const [languageModalVisible, setLanguageModalVisible] = useState(false);
+    
+    const { getThemeColors } = useTheme();
+    const colors = getThemeColors();
 
     useEffect(() => {
         console.log('Received user info:', userInfo);
@@ -206,7 +210,7 @@ const SignUpDetailsScreen = ({ navigation }) => {
     };
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
             <KeyboardAvoidingView 
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={{ flex: 1 }}
@@ -224,26 +228,26 @@ const SignUpDetailsScreen = ({ navigation }) => {
                     </TouchableOpacity>
 
                     {/* Header */}
-                    <Text style={styles.headerText}>Create Your Account</Text>
+                    <Text style={[styles.headerText, { color: colors.text }]}>Create Your Account</Text>
 
                     {/* Input Fields */}
-                    <View style={styles.inputContainer}>
-                        <Icon name="person-outline" size={20} color="#aaa" style={styles.inputIcon} />
+                    <View style={[styles.inputContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                        <Icon name="person-outline" size={20} color={colors.placeholder} style={styles.inputIcon} />
                         <TextInput
-                            style={styles.input}
+                            style={[styles.input, { color: colors.text }]}
                             placeholder="Enter Your Name"
-                            placeholderTextColor="#aaa"
+                            placeholderTextColor={colors.placeholder}
                             value={name}
                             onChangeText={setName}
                         />
                     </View>
 
-                    <View style={styles.inputContainer}>
-                        <Icon name="mail-outline" size={20} color="#aaa" style={styles.inputIcon} />
+                    <View style={[styles.inputContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                        <Icon name="mail-outline" size={20} color={colors.placeholder} style={styles.inputIcon} />
                         <TextInput
-                            style={styles.input}
+                            style={[styles.input, { color: colors.text }]}
                             placeholder="Email Address"
-                            placeholderTextColor="#aaa"
+                            placeholderTextColor={colors.placeholder}
                             keyboardType="email-address"
                             autoCapitalize="none"
                             value={inputEmail}
@@ -252,12 +256,12 @@ const SignUpDetailsScreen = ({ navigation }) => {
                         />
                     </View>
 
-                    <View style={styles.inputContainer}>
-                        <Icon name="calendar-outline" size={20} color="#aaa" style={styles.inputIcon} />
+                    <View style={[styles.inputContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                        <Icon name="calendar-outline" size={20} color={colors.placeholder} style={styles.inputIcon} />
                         <TextInput
-                            style={styles.input}
+                            style={[styles.input, { color: colors.text }]}
                             placeholder="Age (Optional)"
-                            placeholderTextColor="#aaa"
+                            placeholderTextColor={colors.placeholder}
                             keyboardType="numeric"
                             value={age}
                             onChangeText={setAge}
@@ -265,74 +269,75 @@ const SignUpDetailsScreen = ({ navigation }) => {
                     </View>
 
                     {/* Gender Selection */}
-                    <Text style={styles.genderLabel}>Select Gender</Text>
+                    <Text style={[styles.genderLabel, { color: colors.text }]}>Select Gender</Text>
                     <View style={styles.genderContainer}>
                         {['Male', 'Female', 'Others'].map((item) => (
                             <TouchableOpacity
                                 key={item}
                                 style={[
                                     styles.genderButton,
+                                    { backgroundColor: colors.card, borderColor: colors.border },
                                     gender === item && styles.genderButtonSelected,
                                 ]}
                                 onPress={() => setGender(item)}
                             >
-                                <Text style={{ color: gender === item ? '#fff' : '#000' }}>{item}</Text>
+                                <Text style={{ color: gender === item ? '#fff' : colors.text }}>{item}</Text>
                             </TouchableOpacity>
                         ))}
                     </View>
 
                     {/* Language Selection Button */}
                     <View style={styles.languageSection}>
-                        <Text style={styles.languageLabel}>Preferred Language</Text>
+                        <Text style={[styles.languageLabel, { color: colors.text }]}>Preferred Language</Text>
                         <TouchableOpacity 
-                            style={styles.languageSelector}
+                            style={[styles.languageSelector, { backgroundColor: colors.card, borderColor: colors.border }]}
                             onPress={() => setLanguageModalVisible(true)}
                         >
-                            <Text style={styles.languageText}>
+                            <Text style={[styles.languageText, { color: colors.text }]}>
                                 {LANGUAGES[preferredLanguage]?.name || preferredLanguage}
                             </Text>
-                            <Icon name="chevron-down" size={20} color="#666" />
+                            <Icon name="chevron-down" size={20} color={colors.text} />
                         </TouchableOpacity>
                     </View>
 
                     {/* Password Fields */}
-                    <View style={styles.inputContainer}>
-                        <Icon name="lock-closed-outline" size={20} color="#aaa" style={styles.inputIcon} />
+                    <View style={[styles.inputContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                        <Icon name="lock-closed-outline" size={20} color={colors.placeholder} style={styles.inputIcon} />
                         <TextInput
-                            style={styles.input}
+                            style={[styles.input, { color: colors.text }]}
                             placeholder="Password"
-                            placeholderTextColor="#aaa"
+                            placeholderTextColor={colors.placeholder}
                             secureTextEntry={!showPassword}
                             value={password}
                             onChangeText={setPassword}
                         />
                         <TouchableOpacity style={styles.eyeIcon} onPress={togglePasswordVisibility}>
-                            <Icon name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#aaa" />
+                            <Icon name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.placeholder} />
                         </TouchableOpacity>
                     </View>
 
-                    <View style={styles.inputContainer}>
-                        <Icon name="lock-closed-outline" size={20} color="#aaa" style={styles.inputIcon} />
+                    <View style={[styles.inputContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                        <Icon name="lock-closed-outline" size={20} color={colors.placeholder} style={styles.inputIcon} />
                         <TextInput
-                            style={styles.input}
+                            style={[styles.input, { color: colors.text }]}
                             placeholder="Confirm Password"
-                            placeholderTextColor="#aaa"
+                            placeholderTextColor={colors.placeholder}
                             secureTextEntry={!showConfirmPassword}
                             value={confirmPassword}
                             onChangeText={setConfirmPassword}
                         />
                         <TouchableOpacity style={styles.eyeIcon} onPress={toggleConfirmPasswordVisibility}>
-                            <Icon name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#aaa" />
+                            <Icon name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.placeholder} />
                         </TouchableOpacity>
                     </View>
 
                     {/* Referral Code */}
-                    <View style={styles.inputContainer}>
-                        <Icon name="gift-outline" size={20} color="#aaa" style={styles.inputIcon} />
+                    <View style={[styles.inputContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                        <Icon name="gift-outline" size={20} color={colors.placeholder} style={styles.inputIcon} />
                         <TextInput
-                            style={styles.input}
+                            style={[styles.input, { color: colors.text }]}
                             placeholder="Referral Code (Optional)"
-                            placeholderTextColor="#aaa"
+                            placeholderTextColor={colors.placeholder}
                             value={referralCode}
                             onChangeText={setReferralCode}
                             autoCapitalize="characters"
@@ -354,7 +359,7 @@ const SignUpDetailsScreen = ({ navigation }) => {
 
                     {/* Login Link */}
                     <View style={styles.loginLinkContainer}>
-                        <Text style={styles.loginText}>Already have an account?</Text>
+                        <Text style={[styles.loginText, { color: '#ffff' }]}>Already have an account?</Text>
                         <TouchableOpacity onPress={() => navigation.navigate('EmailLogin')}>
                             <Text style={styles.loginLink}>Login</Text>
                         </TouchableOpacity>
@@ -370,11 +375,11 @@ const SignUpDetailsScreen = ({ navigation }) => {
                 onRequestClose={() => setLanguageModalVisible(false)}
             >
                 <View style={styles.modalContainer}>
-                    <View style={styles.modalContent}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Choose Language</Text>
+                    <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
+                        <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+                            <Text style={[styles.modalTitle, { color: colors.text }]}>Choose Language</Text>
                             <TouchableOpacity onPress={() => setLanguageModalVisible(false)}>
-                                <Icon name="close" size={24} color="#333" />
+                                <Icon name="close" size={24} color={colors.text} />
                             </TouchableOpacity>
                         </View>
 
@@ -385,6 +390,7 @@ const SignUpDetailsScreen = ({ navigation }) => {
                                 <TouchableOpacity
                                     style={[
                                         styles.languageItem,
+                                        { borderBottomColor: colors.border },
                                         preferredLanguage === item && styles.selectedLanguageItem,
                                     ]}
                                     onPress={() => handleSelectLanguage(item)}
@@ -392,6 +398,7 @@ const SignUpDetailsScreen = ({ navigation }) => {
                                     <Text
                                         style={[
                                             styles.languageItemText,
+                                            { color: colors.text },
                                             preferredLanguage === item && styles.selectedLanguageText,
                                         ]}
                                     >
@@ -413,7 +420,6 @@ const SignUpDetailsScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#fff',
         padding: 20,
     },
     backButton: {

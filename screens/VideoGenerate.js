@@ -17,8 +17,10 @@ import {
   Alert,
   ToastAndroid,
   PermissionsAndroid,
-  Modal
+  Modal,
+  Pressable
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { supabase } from '../supabaseClient';
 import RNFS from 'react-native-fs';
@@ -52,6 +54,34 @@ const VideoGenerateScreen = () => {
   const [selectedImage, setSelectedImage] = useState(null);
   const [uploadedImageUrl, setUploadedImageUrl] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [negativePrompt, setNegativePrompt] = useState('');
+  
+  // Video generation options state
+  const [selectedOption, setSelectedOption] = useState('standard');
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [showOptionsDropdown, setShowOptionsDropdown] = useState(false);
+  const [showTemplateOptions, setShowTemplateOptions] = useState(false);
+  
+  // Template videos state
+  const [templateVideos, setTemplateVideos] = useState([]);
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+  const [templateModalVisible, setTemplateModalVisible] = useState(false);
+  
+  // Available video generation options
+  const videoOptions = [
+    { id: 'standard', name: t('standardTextToVideo') },
+    { id: 'template', name: t('templateBasedGeneration') }
+  ];
+  
+  // Define template video type
+  /**
+   * @typedef {Object} TemplateVideo
+   * @property {string} id - Template identifier
+   * @property {string} name - Display name
+   * @property {string} videoUrl - URL to the template video
+   * @property {'basic'|'premium'} category - Template category
+   * @property {string} description - Template description
+   */
   
   // Initialize animated values with useRef to prevent re-creation on re-renders
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -79,6 +109,7 @@ const VideoGenerateScreen = () => {
   const [videoPreviewModalVisible, setVideoPreviewModalVisible] = useState(false);
   const [previewVideoUrl, setPreviewVideoUrl] = useState(null);
   const [previewVideoTitle, setPreviewVideoTitle] = useState('');
+  const [previewPromptText, setPreviewPromptText] = useState('');
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const [isDownloadingPreview, setIsDownloadingPreview] = useState(false);
   const [localVideoPath, setLocalVideoPath] = useState(null);
@@ -87,7 +118,7 @@ const VideoGenerateScreen = () => {
   const [videoDuration, setVideoDuration] = useState(0);
   const videoRef = useRef(null);
   
-  // Run animations on mount
+  // Run animations on mount and handle cleanup on unmount
   useEffect(() => {
     // Start animations when component mounts
     Animated.parallel([
@@ -112,8 +143,9 @@ const VideoGenerateScreen = () => {
       )
     ]).start();
 
-    // Cleanup function to remove temporary files on unmount
+    // Cleanup function to remove temporary files and reset state on unmount
     return () => {
+      // Clean up temporary video files
       if (localVideoPath) {
         const filePath = localVideoPath.replace('file://', '');
         RNFS.exists(filePath).then(exists => {
@@ -124,8 +156,28 @@ const VideoGenerateScreen = () => {
           }
         });
       }
+      
+      // Reset all state variables
+      setUserText('');
+      setIsFinished(false);
+      setTranscription(t('startWritingToGenerateVideos'));
+      setSelectedImage(null);
+      setUploadedImageUrl(null);
+      setIsUploading(false);
+      setNegativePrompt('');
+      setSelectedOption('standard');
+      setSelectedTemplate(null);
+      setShowOptionsDropdown(false);
+      setShowTemplateOptions(false);
+      setHistoryOpen(false);
+      setVideoHistory([]);
+      setHistoryPage(1);
+      setDownloadingVideoId(null);
+      setVideoPreviewModalVisible(false);
+      setPreviewVideoUrl(null);
+      setLocalVideoPath(null);
     };
-  }, [fadeAnim, scaleAnim, sendRotation, localVideoPath]);
+  }, [fadeAnim, scaleAnim, sendRotation, localVideoPath, t]);
   
   // Fetch video history when history panel is opened
   useEffect(() => {
@@ -135,8 +187,7 @@ const VideoGenerateScreen = () => {
   }, [historyOpen]);
 
   const fetchVideoHistory = async (page = 1) => {
-    // Use a working UID instead of the user's UID
-    const workingUid = VIDEO_SERVICE_UID || '0a147ebe-af99-481b-bcaf-ae70c9aeb8d8';
+    // Use the user's actual UID from AuthContext
     
     setIsLoading(true);
     setError(null);
@@ -144,7 +195,7 @@ const VideoGenerateScreen = () => {
     try {
       // Use enhanced video service to get all videos with more details
       const result = await videoService.getAllVideosEnhanced({
-        uid: workingUid
+        uid: uid
       });
       
       console.log('Video history result:', result);
@@ -193,8 +244,7 @@ const VideoGenerateScreen = () => {
   const handleRemoveVideo = async (videoId) => {
     if (!videoId) return;
     
-    // Use a working UID instead of the user's UID
-    const workingUid = VIDEO_SERVICE_UID || '0a147ebe-af99-481b-bcaf-ae70c9aeb8d8';
+    // Use the user's actual UID from AuthContext
     
     try {
       Alert.alert(
@@ -211,7 +261,7 @@ const VideoGenerateScreen = () => {
               setIsLoading(true);
               // Use videoService to remove video
               await videoService.removeVideo({
-                uid: workingUid,
+                uid: uid,
                 videoId: videoId
               });
               
@@ -245,8 +295,20 @@ const VideoGenerateScreen = () => {
   const handleSend = () => {
     if (userText.trim().length > 0) {
       setIsFinished(true); // Show buttons after sending the input
-      setSelectedImage(null); // Hide the attached image when send button is pressed
-      // Keep the uploadedImageUrl for API call but hide the UI
+      // Don't clear selectedImage so it can be used for API call
+      // Just hide the UI but keep the image data for processing
+      console.log('handleSend called, selectedImage preserved:', selectedImage);
+    }
+  };
+  
+  // Function to handle text input changes
+  const handleTextInputChange = (text) => {
+    setUserText(text); // Update input
+    setTranscription(text || t('startWritingToGenerateVideos'));
+    
+    // If user starts typing, clear the template selection
+    if (text.trim().length > 0) {
+      setSelectedTemplate(null);
     }
   };
   
@@ -273,7 +335,7 @@ const VideoGenerateScreen = () => {
         const fileExt = asset.uri.substring(asset.uri.lastIndexOf('.') + 1).toLowerCase();
         if (fileExt === 'heic' || fileExt === 'heif') {
           console.log('HEIC image detected, will convert to JPEG');
-          // We'll continue with upload but inform the user
+          // We'll continue with processing but inform the user
           Toast.show({
             type: 'info',
             text1: 'Converting image format',
@@ -295,7 +357,10 @@ const VideoGenerateScreen = () => {
           });
         }
         
-        uploadImageToSupabase(asset);
+        // Process the image but don't upload to Supabase
+        // Just set it as selected and show in UI
+        setIsUploading(true);
+        setTimeout(() => setIsUploading(false), 500); // Just for UI feedback
       }
     } catch (error) {
       console.error('Error picking image:', error.message || error);
@@ -303,201 +368,198 @@ const VideoGenerateScreen = () => {
     }
   };
   
-  const uploadImageToSupabase = async (asset) => {
-    try {
-      setIsUploading(true);
-      
-      // Get file extension from uri
-      const fileExt = asset.uri.substring(asset.uri.lastIndexOf('.') + 1).toLowerCase();
-      
-      // Check if the image is in HEIC format and needs conversion
-      let imageUri = asset.uri;
-      let contentType = asset.type || 'image/jpeg';
-      let finalFileExt = fileExt;
-      
-      // For iOS, we need to handle the file:// protocol
-      if (Platform.OS === 'ios' && !imageUri.startsWith('file://')) {
-        imageUri = `file://${imageUri}`;
-      }
-      
-      // Convert HEIC images to JPEG format
-      if (fileExt === 'heic' || fileExt === 'heif') {
-        console.log('Converting HEIC image to JPEG format...');
-        try {
-          // Import the image resizer library
-          const ImageResizer = require('@bam.tech/react-native-image-resizer').default;
-          
-          // Resize and convert the image to JPEG
-          const response = await ImageResizer.createResizedImage(
-            imageUri,
-            1280, // width
-            720,  // height
-            'JPEG', // format
-            80,    // quality
-            0,     // rotation
-            null,  // outputPath
-            false  // keepMeta
-          );
-          
-          // Update the image URI and content type
-          imageUri = response.uri;
-          contentType = 'image/jpeg';
-          finalFileExt = 'jpg';
-          console.log('HEIC image converted to JPEG:', response.uri);
-        } catch (conversionError) {
-          console.error('Error converting HEIC image:', conversionError);
-          throw new Error('Failed to convert HEIC image to JPEG format. Please try a different image.');
-        }
-      }
-      
-      // Create file name with correct extension
-      const filePath = `user-uploads/${Date.now()}.${finalFileExt}`;
-      
-      // Read the file as base64
-      const fileContent = await RNFS.readFile(imageUri, 'base64');
-      
-      // Function to decode base64 to array buffer
-      const decodeBase64 = (base64) => {
-        // React Native doesn't have atob, so we need to implement it
-        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
-        let str = base64.replace(/=+$/, '');
-        let output = '';
-        
-        if (str.length % 4 === 1) {
-          throw new Error("'atob' failed: The string to be decoded is not correctly encoded.");
-        }
-        
-        for (let bc = 0, bs = 0, buffer, i = 0; buffer = str.charAt(i++); ~buffer && (bs = bc % 4 ? bs * 64 + buffer : buffer, bc++ % 4) ? output += String.fromCharCode(255 & bs >> (-2 * bc & 6)) : 0) {
-          buffer = chars.indexOf(buffer);
-        }
-        
-        const byteCharacters = output;
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        return new Uint8Array(byteNumbers);
-      };
-      
-      const arrayBuffer = decodeBase64(fileContent);
-      
-      // Upload to Supabase storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('user-uploads')
-        .upload(filePath, arrayBuffer, {
-          contentType: contentType,
-          cacheControl: '3600'
-        });
-      
-      console.log('Uploaded file with content type:', contentType);
-
-      if (uploadError) throw uploadError;
-
-      // Get the public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('user-uploads')
-        .getPublicUrl(filePath);
-
-      console.log('Upload successful, public URL:', publicUrl);
-      setUploadedImageUrl(publicUrl);
-    } catch (error) {
-      console.error('Error uploading image:', error.message || error);
-      
-      // Provide more specific error messages based on the error type
-      if (error.message && error.message.includes('HEIC')) {
-        Alert.alert(
-          'Image Format Error', 
-          'HEIC image format could not be processed. The image has been converted to JPEG but still failed. Please try a different image.'
-        );
-      } else if (error.message && error.message.includes('timed out')) {
-        Alert.alert(
-          'Upload Timeout', 
-          'The image upload timed out. This may be due to a large file size or slow connection. Please try a smaller image or check your connection.'
-        );
-      } else {
-        Alert.alert('Error', 'Failed to upload image: ' + (error.message || 'Unknown error'));
-      }
-      
-      setSelectedImage(null);
-      setUploadedImageUrl(null);
-    } finally {
-      setIsUploading(false);
-    }
-  };
+  // We no longer need to upload to Supabase, as we're sending the image file directly to the API
+  // This function is kept as a reference but is no longer used
   
   const handleRemoveAttachedImage = () => {
     setSelectedImage(null);
     setUploadedImageUrl(null);
+    setSelectedTemplate(null);
+    setShowTemplateOptions(false);
+  };
+  
+  // Function to fetch template videos from Supabase storage
+  const fetchTemplateVideos = async () => {
+    setIsLoadingTemplates(true);
+    try {
+      // Try to get templates from local storage first
+      const cachedTemplates = await AsyncStorage.getItem('templateVideos');
+      const cachedTimestamp = await AsyncStorage.getItem('templateVideosTimestamp');
+      const currentTime = new Date().getTime();
+      
+      // Check if we have cached templates and they're less than 24 hours old
+      if (cachedTemplates && cachedTimestamp && 
+          (currentTime - parseInt(cachedTimestamp)) < 24 * 60 * 60 * 1000) {
+        console.log('Using cached template videos');
+        const templates = JSON.parse(cachedTemplates);
+        setTemplateVideos(templates);
+        setIsLoadingTemplates(false);
+        return;
+      }
+      
+      // If no valid cache, fetch from Supabase
+      console.log('Fetching template videos from Supabase');
+      const { data: files, error } = await supabase.storage
+        .from('user-uploads')
+        .list('important', {
+          limit: 100,
+          sortBy: { column: 'name', order: 'asc' }
+        });
+      
+      if (error) {
+        console.error('Error fetching template videos:', error);
+        return;
+      }
+      
+      if (!files) {
+        console.log('No template videos found');
+        return;
+      }
+      
+      // Filter video files and create template objects
+      const videoFiles = files.filter(file =>
+        file.name.toLowerCase().endsWith('.mp4') ||
+        file.name.toLowerCase().endsWith('.mov') ||
+        file.name.toLowerCase().endsWith('.webm')
+      );
+      
+      const templates = videoFiles.map((file) => {
+        const { data: { publicUrl } } = supabase.storage
+          .from('user-uploads')
+          .getPublicUrl(`important/${file.name}`);
+        
+        // Determine category based on file name
+        // Check if the template name matches any of the premium templates
+        const premiumTemplates = ['dance1', 'dance2', 'dance3', 'mermaid', 'graduation', 'dragon', 'money'];
+        const templateId = file.name.replace(/\.(mp4|mov|webm)$/i, '');
+        const category = premiumTemplates.includes(templateId) ? 'premium' : 'basic';
+        
+        // Extract template name from filename (remove extension and format)
+        const templateName = file.name
+          .replace(/\.(mp4|mov|webm)$/i, '')
+          .replace(/[-_]/g, ' ')
+          .replace(/\b\w/g, l => l.toUpperCase());
+        
+        return {
+          id: templateId,
+          name: templateName,
+          videoUrl: publicUrl,
+          category,
+          description: `${templateName} template animation`
+        };
+      });
+      
+      // Save templates to local storage with timestamp
+      await AsyncStorage.setItem('templateVideos', JSON.stringify(templates));
+      await AsyncStorage.setItem('templateVideosTimestamp', currentTime.toString());
+      
+      setTemplateVideos(templates);
+    } catch (error) {
+      console.error('Error fetching template videos:', error);
+    } finally {
+      setIsLoadingTemplates(false);
+    }
   };
 
   const handleTryAgain = () => {
     setIsFinished(false); // Reset to show the input box again
     setUserText(''); // Clear the text input
+    setNegativePrompt(''); // Clear negative prompt
+    setSelectedTemplate(null); // Clear selected template
+    setSelectedOption('standard'); // Reset to standard option
+    setShowOptionsDropdown(false); // Hide options dropdown
+    setShowTemplateOptions(false); // Hide template options
     setTranscription(
       t('startWritingToGenerateVideos')
     );
   };
+  
+  const handleOptionSelect = (optionId) => {
+    setSelectedOption(optionId);
+    setShowOptionsDropdown(false);
+    
+    // Reset template when changing options
+    if (optionId !== 'template') {
+      setSelectedTemplate(null);
+      setShowTemplateOptions(false);
+    } else {
+      // Fetch template videos when template option is selected
+      fetchTemplateVideos();
+      setTemplateModalVisible(true);
+    }
+  };
+  
+  // Fetch template videos when component mounts
+  useEffect(() => {
+    fetchTemplateVideos();
+  }, []);
+  
+  const handleTemplateSelect = (template) => {
+    // Set the template ID as the selected template
+    setSelectedTemplate(template.id);
+    setTemplateModalVisible(false);
+  };
 
   const handleGenerate = (existingPrompt) => {
-    // Check if user has enough coins (25) for Video Generate
-    if (coinCount >= 25) {
-      // If an existing prompt was provided, use it for navigation
-      const promptToUse = existingPrompt || userText;
-      // Clone the message to avoid passing a synthetic event
-      const messageToPass = (promptToUse || transcription) + "";
+    // If an existing prompt was provided, use it for navigation
+    const promptToUse = existingPrompt || userText;
+    // Clone the message to avoid passing a synthetic event
+    const messageToPass = (promptToUse || transcription) + "";
+    
+    // Check if we have a selected image
+    let hasValidImage = false;
+    
+    if (selectedImage) {
+      hasValidImage = true;
+      console.log('handleGenerate found valid image:', selectedImage);
+    }
+    
+    // Prepare parameters based on selected option
+    let templateToPass = null;
+    let promptTextToPass = messageToPass;
+    let requiredCoinsAmount = 25; // Default cost for standard videos
+    
+    // Simplify to three cases as requested:
+    // Case 1: Text-only prompt (no image)
+    // Case 2: Image with prompt
+    // Case 3: Image with template selection
+    
+    if (!hasValidImage) {
+      // Case 1: Text-only prompt
+      // Just use the prompt text, no template
+      console.log('Case 1: Text-only prompt');
+    } else if (selectedOption === 'template' && selectedTemplate) {
+      // Case 3: Image with template selection
+      promptTextToPass = "";
+      templateToPass = selectedTemplate;
+      console.log('Case 3: Image with template selection');
       
-      // Validate the image URL if one exists
-      let imageUrlToPass = null;
-      let hasValidImage = false;
-      
-      if (uploadedImageUrl) {
-        if (typeof uploadedImageUrl === 'string' && uploadedImageUrl.trim()) {
-          imageUrlToPass = uploadedImageUrl.trim();
-          hasValidImage = true;
-          
-          // Check if the URL contains 'heic' which might cause issues
-          if (imageUrlToPass.toLowerCase().includes('.heic')) {
-            console.warn('HEIC image URL detected in final URL:', imageUrlToPass);
-            // We'll still try to use it since we should have converted it earlier
-          }
-          
-          // Validate that the URL is properly formed
-          try {
-            new URL(imageUrlToPass);
-          } catch (error) {
-            console.error('Invalid image URL format:', error);
-            Toast.show({
-              type: 'error',
-              text1: 'Invalid Image URL',
-              text2: 'The image URL format is invalid. Please try attaching the image again.',
-              position: 'bottom',
-            });
-            return; // Don't proceed with invalid URL
-          }
-        } else {
-          console.error('Invalid uploadedImageUrl:', uploadedImageUrl);
-          Toast.show({
-            type: 'error',
-            text1: 'Image Error',
-            text2: 'There was a problem with the attached image. Please try again.',
-            position: 'bottom',
-          });
-          return; // Don't proceed with invalid image
-        }
+      // Check if this is a premium template
+      const premiumTemplates = ['dance1', 'dance2', 'dance3', 'mermaid', 'graduation', 'dragon', 'money'];
+      if (premiumTemplates.includes(selectedTemplate)) {
+        requiredCoinsAmount = 55; // Premium templates cost 55 coins
       }
-      
+    } else {
+      // Case 2: Image with prompt is the default case
+      console.log('Case 2: Image with prompt');
+    }
+    
+    // Check if user has enough coins for the selected video type
+    if (coinCount >= requiredCoinsAmount) {
       console.log('Generating video with:', {
-        message: messageToPass,
-        imageUrl: imageUrlToPass,
-        hasImage: hasValidImage
+        message: promptTextToPass,
+        hasImage: hasValidImage,
+        template: templateToPass,
+        requiredCoins: requiredCoinsAmount
       });
       
       navigation.navigate('CreateVideoScreen', { 
-        message: messageToPass,
-        imageUrl: imageUrlToPass // Pass the validated image URL if available
+        message: promptTextToPass,
+        imageFile: selectedImage, // Pass the image file directly instead of URL
+        template: templateToPass
       });
     } else {
-      setRequiredCoins(25);
+      setRequiredCoins(requiredCoinsAmount);
       setLowBalanceModalVisible(true);
     }
   };
@@ -743,6 +805,7 @@ const VideoGenerateScreen = () => {
       // Set up the preview modal and state
       setPreviewVideoUrl(videoUrl); // Store original URL for retry
       setPreviewVideoTitle(promptText || t('videoPreview'));
+      setPreviewPromptText(promptText || ''); // Store prompt text for display
       setVideoPreviewModalVisible(true);
       setIsDownloadingPreview(true);
       setDownloadProgress(0);
@@ -822,6 +885,7 @@ const VideoGenerateScreen = () => {
     setIsDownloadingPreview(false);
     setPreviewVideoUrl(null);
     setPreviewVideoTitle('');
+    setPreviewPromptText('');
     setDownloadProgress(0);
     
     // Clean up the temporary file
@@ -915,7 +979,7 @@ const VideoGenerateScreen = () => {
           <Text style={[styles.historyDate, {color: '#FFFFFF'}]}>
             {item.ageDisplay || 'Just now'}
           </Text>
-          <Text style={[styles.videoStatus, {
+          {/* <Text style={[styles.videoStatus, {
             color: item.isReady ? '#4CAF50' : 
                   item.statusDisplay === 'Failed' ? '#F44336' : 
                   '#FF9800',
@@ -928,7 +992,7 @@ const VideoGenerateScreen = () => {
                            'rgba(255,152,0,0.1)',
           }]}>
             {item.statusDisplay || (item.isReady ? 'Ready' : item.task_status === 'PROCESSING' ? 'Processing' : item.task_status || 'Processing')}
-          </Text>
+          </Text> */}
         </View>
         
         {/* Video prompt text - improved readability */}
@@ -1068,6 +1132,46 @@ const VideoGenerateScreen = () => {
         {/* Buttons */}
         {isFinished && (
           <View style={styles.buttonContainer}>
+            {/* Selected Image and Template Preview */}
+            {selectedTemplate && selectedImage && (
+              <View style={styles.previewContainer}>
+                <View style={styles.previewImagesContainer}>
+                  {/* User Image */}
+                  <View style={styles.previewImageWrapper}>
+                    <Image 
+                      source={{ uri: typeof selectedImage === 'string' ? selectedImage : selectedImage.uri }} 
+                      style={styles.previewImage} 
+                      resizeMode="cover"
+                    />
+                  </View>
+                  
+                  {/* Template Video */}
+                  <View style={styles.previewVideoWrapper}>
+                    {previewVideoUrl && (
+                      <Video
+                        source={{ uri: previewVideoUrl }}
+                        style={styles.previewVideo}
+                        resizeMode="cover"
+                        repeat={true}
+                        paused={false}
+                        muted={true}
+                      />
+                    )}
+                    {/* Re-select Template Button */}
+                    <TouchableOpacity 
+                      style={styles.reselectTemplateButton}
+                      onPress={() => {
+                        fetchTemplateVideos();
+                        setTemplateModalVisible(true);
+                      }}
+                    >
+                      <Text style={styles.reselectTemplateButtonText}>{t('reselectTemplate')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
+            
             <TouchableOpacity 
               style={[styles.generateButton, { backgroundColor: colors.primary }]} 
               onPress={() => {
@@ -1076,12 +1180,27 @@ const VideoGenerateScreen = () => {
               }}
             >
               <View style={styles.horizontalContent}>
-                <View style={styles.generateContent}>
-                  <Text style={styles.generateText}>{t('generateVideo')}</Text>
-                  <View style={styles.horizontalContent}>
-                    <Text style={styles.coinText}>-25</Text>
-                    <Image source={require('../assets/coin.png')} style={styles.coinIcon} />
-                  </View>
+                <Text style={styles.generateText}>{t('generateVideo')}</Text>
+                <View style={styles.coinContainer}>
+                  {/* Check if this is a premium template */}
+                  {selectedTemplate && (() => {
+                    const premiumTemplates = ['dance1', 'dance2', 'dance3', 'mermaid', 'graduation', 'dragon', 'money'];
+                    const isPremium = premiumTemplates.includes(selectedTemplate);
+                    return (
+                      <>
+                        <Text style={styles.coinText}>{isPremium ? '-55' : '-25'}</Text>
+                        <Image source={require('../assets/coin.png')} style={styles.coinIcon} />
+                      </>
+                    );
+                  })()}
+                  
+                  {/* Default cost if no template is selected */}
+                  {!selectedTemplate && (
+                    <>
+                      <Text style={styles.coinText}>-25</Text>
+                      <Image source={require('../assets/coin.png')} style={styles.coinIcon} />
+                    </>
+                  )}
                 </View>
                 <Image source={require('../assets/send2.png')} style={styles.icon} />
               </View>
@@ -1116,42 +1235,105 @@ const VideoGenerateScreen = () => {
                   onPress={() => {
                     setSelectedImage(null);
                     setUploadedImageUrl(null);
+                    setSelectedTemplate(null);
+                    setShowTemplateOptions(false);
+                    setNegativePrompt('');
                   }}
                 >
                   <MaterialIcons name="close" size={20} color="#FFFFFF" />
                 </TouchableOpacity>
               </View>
             )}
-            <View style={styles.textInputContainer}>
-              <TextInput
-                style={styles.textInput}
-                placeholder={t('typeYourVideoPromptHere')}
-                placeholderTextColor="#999999"
-                value={userText}
-                onChangeText={(text) => {
-                  setUserText(text); // Update input
-                  setTranscription(text || t('startWritingToGenerateVideos'));
-                }}
-              />
-              <TouchableOpacity 
-                style={styles.attachButton}
-                onPress={handleAttachImage}
-              >
-                <MaterialIcons name="attach-file" size={24} color="#999999" />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.sendButton} 
-                onPress={() => {
-                  // Call handleSend with no arguments, but ensure we're not passing a synthetic event
-                  handleSend();
-                }}
-              >
-                <Image
-                  source={require('../assets/send2.png')}
-                  style={[styles.sendIcon, {tintColor: '#FFFFFF'}]}
+            
+            {/* Template Selection Button - only visible when image is selected and user hasn't started typing */}
+            {selectedImage && userText.trim().length === 0 && (
+              <View style={styles.advancedOptionsContainer}>
+                <TouchableOpacity 
+                  style={[styles.templateSelectionButton, selectedTemplate && styles.selectedTemplateButton]}
+                  onPress={() => {
+                    // Open the template modal
+                    fetchTemplateVideos();
+                    setTemplateModalVisible(true);
+                  }}
+                >
+                  <Text style={[styles.templateSelectionButtonText, selectedTemplate && styles.selectedTemplateButtonText]}>
+                    {selectedTemplate ? t('changeTemplate') : t('selectTemplate')}
+                  </Text>
+                  <MaterialIcons name="video-library" size={20} color={selectedTemplate ? "#FFFFFF" : "#999999"} />
+                </TouchableOpacity>
+                
+                {/* Selected Template Preview - only visible when a template is selected */}
+                {selectedTemplate && (
+                  <View style={styles.selectedTemplateInfo}>
+                    <View style={styles.infoContainer}>
+                      <Text style={[styles.infoText, {color: colors.text}]}>
+                        {t('templateModeInfo') || 'In template mode, no prompt text is needed. The video will be generated based on the selected template.'}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+                
+                {/* Negative Prompt Input - only visible when negative prompt option is selected and no template is selected */}
+                {selectedOption === 'negative' && !selectedTemplate && (
+                  <View style={styles.negativePromptContainer}>
+                    <Text style={[styles.optionLabel, {color: colors.text}]}>{t('negativePrompt')}:</Text>
+                    <TextInput
+                      style={[styles.negativePromptInput, {backgroundColor: colors.background2, color: colors.text}]}
+                      placeholder={t('whatToAvoidInVideo')}
+                      placeholderTextColor="#999999"
+                      value={negativePrompt}
+                      onChangeText={setNegativePrompt}
+                    />
+                  </View>
+                )}
+              </View>
+            )}
+            {/* Hide text input when template is selected */}
+            {!selectedTemplate ? (
+              <View style={styles.textInputContainer}>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder={t('typeYourVideoPromptHere')}
+                  placeholderTextColor="#999999"
+                  value={userText}
+                  onChangeText={handleTextInputChange}
                 />
-              </TouchableOpacity>
-            </View>
+                <TouchableOpacity 
+                  style={styles.attachButton}
+                  onPress={handleAttachImage}
+                >
+                  <MaterialIcons name="attach-file" size={24} color="#999999" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.sendButton} 
+                  onPress={() => {
+                    // Call handleSend with no arguments, but ensure we're not passing a synthetic event
+                    handleSend();
+                  }}
+                >
+                  <Image
+                    source={require('../assets/send2.png')}
+                    style={[styles.sendIcon, {tintColor: '#FFFFFF'}]}
+                  />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.templateSendContainer}>
+                <TouchableOpacity 
+                  style={styles.templateSendButton} 
+                  onPress={() => {
+                    // Call handleSend with no arguments when using a template
+                    handleSend();
+                  }}
+                >
+                  <Text style={styles.templateSendButtonText}>{t('generateWithTemplate')}</Text>
+                  <Image
+                    source={require('../assets/send2.png')}
+                    style={[styles.sendIcon, {tintColor: '#FFFFFF', marginLeft: 8}]}
+                  />
+                </TouchableOpacity>
+              </View>
+            )}
           </>
         )}
       </KeyboardAvoidingView>
@@ -1377,6 +1559,13 @@ const VideoGenerateScreen = () => {
                     )}
                   </TouchableOpacity>
                   
+                  {/* Display prompt text if available */}
+                  {previewPromptText ? (
+                    <View style={styles.videoPreviewPromptContainer}>
+                      <Text style={styles.videoPreviewPromptText}>{previewPromptText}</Text>
+                    </View>
+                  ) : null}
+                  
                   {/* Video Control Bar - Enhanced with labels */}
                   <View style={styles.videoControlBar}>
                     <TouchableOpacity 
@@ -1431,6 +1620,11 @@ const VideoGenerateScreen = () => {
                 <View style={styles.errorStateContainer}>
                   <MaterialIcons name="error-outline" size={48} color="#ff6b6b" />
                   <Text style={styles.errorStateText}>{t('failedToLoadVideo')}</Text>
+                  {previewPromptText ? (
+                    <View style={[styles.videoPreviewPromptContainer, {position: 'relative', marginVertical: 15}]}>
+                      <Text style={styles.videoPreviewPromptText}>{previewPromptText}</Text>
+                    </View>
+                  ) : null}
                   <TouchableOpacity 
                     style={styles.retryButton}
                     onPress={() => {
@@ -1445,6 +1639,154 @@ const VideoGenerateScreen = () => {
                 </View>
               )}
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Template Selection Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={templateModalVisible}
+        onRequestClose={() => setTemplateModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, {backgroundColor: colors.background2, maxHeight: '80%'}]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, {color: colors.text}]}>{t('selectTemplate')}</Text>
+              <TouchableOpacity 
+                onPress={() => setTemplateModalVisible(false)}
+                style={styles.modalCloseButton}
+              >
+                <MaterialIcons name="close" size={24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            
+            {isLoadingTemplates ? (
+              <View style={styles.loaderContainer}>
+                <ActivityIndicator size="large" color="#007BFF" />
+                <Text style={styles.loaderText}>{t('loadingTemplates')}</Text>
+              </View>
+            ) : templateVideos.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Text style={[styles.emptyText, {color: colors.text}]}>{t('noTemplatesAvailable')}</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={templateVideos}
+                keyExtractor={(item) => item.id}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.templateList}
+                numColumns={2}
+                columnWrapperStyle={styles.templateRow}
+                renderItem={({ item }) => (
+                  <TouchableOpacity 
+                    style={[styles.templateItem, selectedTemplate === item.id && styles.selectedTemplateItem]}
+                    onPress={() => {
+                      // Set the selected template and play the video
+                      setSelectedTemplate(item.id);
+                      // Set the preview video URL for the selected template
+                      setPreviewVideoUrl(item.videoUrl);
+                      // Start playing the video
+                      setIsPreviewPlaying(true);
+                    }}
+                  >
+                    <View style={styles.templateItemContent}>
+                      {/* Video preview */}
+                      <View style={styles.templateVideoContainer}>
+                        {item.videoUrl && (
+                          <Video
+                            source={{ uri: item.videoUrl }}
+                            style={styles.templateVideo}
+                            resizeMode="cover"
+                            repeat={true}
+                            paused={selectedTemplate !== item.id}
+                            muted={true}
+                          />
+                        )}
+                        {/* Play button overlay */}
+                        <View style={styles.templatePlayButtonOverlay}>
+                          <MaterialIcons 
+                            name="play-circle-filled" 
+                            size={40} 
+                            color="#FFFFFF" 
+                          />
+                        </View>
+                        {selectedTemplate === item.id && (
+                          <View style={styles.chooseVideoButtonContainer}>
+                            <Text style={styles.chooseVideoButtonText}>{t('chooseThisVideo')}</Text>
+                          </View>
+                        )}
+                      </View>
+                      <View style={styles.templateInfo}>
+                        <View style={styles.templateNameRow}>
+                          <Text style={[styles.templateName, {color: colors.text}]}>{item.name}</Text>
+                          {item.category === 'premium' && (
+                            <View style={styles.premiumBadge}>
+                              <Image source={require('../assets/coin.png')} style={styles.templateCoinIcon} />
+                              <Text style={styles.premiumCost}>55</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={[styles.templateCategory, {
+                          color: item.category === 'premium' ? '#FFD700' : '#4CAF50'
+                        }]}>
+                          {item.category === 'premium' ? t('premium') : t('basic')}
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+            
+            {selectedTemplate && (
+              <View style={styles.selectedTemplatePreview}>
+                <View style={styles.selectedTemplateContainer}>
+                  {selectedImage && (
+                    <Image 
+                      source={{ uri: typeof selectedImage === 'string' ? selectedImage : selectedImage.uri }} 
+                      style={styles.selectedUserImage} 
+                      resizeMode="cover"
+                    />
+                  )}
+                  {previewVideoUrl && (
+                    <Video
+                      source={{ uri: previewVideoUrl }}
+                      style={styles.selectedTemplateVideo}
+                      resizeMode="cover"
+                      repeat={true}
+                      paused={!isPreviewPlaying}
+                      muted={false}
+                    />
+                  )}
+                </View>
+              </View>
+            )}
+            
+            <TouchableOpacity 
+              style={[styles.rechargeButton, {paddingHorizontal: 20}]}
+              onPress={() => {
+                if (selectedTemplate) {
+                  setTemplateModalVisible(false);
+                  // Disable the prompt input when a template is selected
+                  setShowTemplateOptions(true);
+                  // Set the selected option to template
+                  setSelectedOption('template');
+                  // Set isFinished to true to show the generate button
+                  setIsFinished(true);
+                } else {
+                  // Show a message that no template is selected
+                  Toast.show({
+                    type: 'info',
+                    text1: t('selectTemplateFirst'),
+                    position: 'bottom',
+                  });
+                }
+              }}
+            >
+              <Text style={[styles.rechargeButtonText, {fontSize: 18, fontWeight: '700'}]}>{t('chooseThisVideo')}</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1543,12 +1885,62 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   buttonContainer: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     justifyContent: 'center',
+    alignItems: 'center',
     margin: 10,
     position: 'absolute',
     bottom: 70,
     alignSelf: 'center',
+    width: '90%',
+  },
+  previewContainer: {
+    width: '100%',
+    marginBottom: 15,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    padding: 10,
+  },
+  previewImagesContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    height: 120,
+  },
+  previewImageWrapper: {
+    width: '48%',
+    height: '100%',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  previewVideoWrapper: {
+    width: '48%',
+    height: '100%',
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  previewVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  reselectTemplateButton: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,123,255,0.8)',
+    paddingVertical: 6,
+    alignItems: 'center',
+  },
+  reselectTemplateButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   keyboardAvoidView: {
     position: 'absolute',
@@ -1593,6 +1985,8 @@ const styles = StyleSheet.create({
   horizontalContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
   },
   icon: {
     width: 16,
@@ -1600,12 +1994,17 @@ const styles = StyleSheet.create({
     tintColor:'#fff',
     marginLeft:10,
   },
-  generateContent: {
+  coinContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginLeft: 10,
   },
   generateText: {
     fontSize: 16,
     color: '#fff',
+    flex: 1,
+    textAlign: 'center',
   },
   coinIcon: {
     width: 12,
@@ -1621,7 +2020,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 25,
-    marginHorizontal: 10,
+    width: '100%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
@@ -1871,7 +2270,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalContainer: {
-    width: '80%',
+    width: '95%',
     backgroundColor: '#fff',
     borderRadius: 15,
     padding: 20,
@@ -1889,6 +2288,154 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     marginBottom: 10,
+  },
+  // Advanced options styles for template selection and negative prompt
+  advancedOptionsContainer: {
+    width: '100%',
+    paddingHorizontal: 15,
+    marginBottom: 10,
+  },
+  optionLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 5,
+  },
+  templateSelectionContainer: {
+    marginBottom: 10,
+  },
+  templateSelectionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  templateSelectionButtonText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  selectedTemplateButton: {
+    backgroundColor: '#007BFF',
+    borderColor: '#007BFF',
+  },
+  selectedTemplateButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  templateSendContainer: {
+    width: '100%',
+    paddingHorizontal: 15,
+    marginBottom: 10,
+  },
+  templateSendButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#007BFF',
+    paddingVertical: 12,
+    borderRadius: 25,
+  },
+  templateSendButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  selectedTemplateInfo: {
+    marginBottom: 10,
+  },
+  infoContainer: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 10,
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#fff',
+    fontStyle: 'italic',
+  },
+  optionSelectionContainer: {
+    marginBottom: 10,
+  },
+  optionSelector: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  optionSelectorText: {
+    fontSize: 14,
+  },
+  optionsDropdownContainer: {
+    marginTop: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    maxHeight: 150,
+    position: 'absolute',
+    top: 70,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
+  optionItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  optionItemText: {
+    fontSize: 14,
+  },
+  templateSelector: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  templateSelectorText: {
+    fontSize: 14,
+  },
+  templateOptionsContainer: {
+    marginTop: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    maxHeight: 150,
+  },
+  templateOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  templateOptionText: {
+    fontSize: 14,
+  },
+  negativePromptContainer: {
+    marginBottom: 10,
+  },
+  negativePromptInput: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    fontSize: 14,
   },
   modalTitle: {
     fontSize: 18,
@@ -1925,7 +2472,149 @@ const styles = StyleSheet.create({
   },
   rechargeButtonText: {
     color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 15,
+  },
+  modalCloseButton: {
+    padding: 5,
+  },
+  templateList: {
+    paddingHorizontal: 5,
+    paddingBottom: 10,
+  },
+  templateRow: {
+    justifyContent: 'space-between',
+  },
+  templateItem: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    width: '48%',
+    aspectRatio: 1,
+  },
+  selectedTemplateItem: {
+    borderColor: '#007BFF',
+    backgroundColor: 'rgba(0,123,255,0.1)',
+  },
+  templateItemContent: {
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  templateVideoContainer: {
+    width: '100%',
+    height: '60%',
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: 8,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    position: 'relative',
+  },
+  templateVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  templatePlayButtonOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  chooseVideoButtonContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,123,255,0.8)',
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chooseVideoButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  templateInfo: {
+    flex: 1,
+  },
+  templateNameRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  templateName: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    flex: 1,
+  },
+  templateCategory: {
+    fontSize: 11,
     fontWeight: '500',
+    marginBottom: 4,
+  },
+  templateDescription: {
+    fontSize: 10,
+  },
+  premiumBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,215,0,0.2)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginLeft: 5,
+  },
+  templateCoinIcon: {
+    width: 12,
+    height: 12,
+    marginRight: 3,
+  },
+  premiumCost: {
+    color: '#FFD700',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  selectedTemplatePreview: {
+    width: '100%',
+    marginTop: 10,
+    marginBottom: 10,
+    padding: 10,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderRadius: 10,
+  },
+  selectedTemplateContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    height: 100,
+  },
+  selectedUserImage: {
+    width: '45%',
+    height: '100%',
+    borderRadius: 8,
+    marginRight: 10,
+  },
+  selectedTemplateVideo: {
+    width: '45%',
+    height: '100%',
+    borderRadius: 8,
   },
   videoPreviewOverlay: {
     flex: 1,
@@ -1965,6 +2654,23 @@ const styles = StyleSheet.create({
     marginHorizontal: 10,
     textAlign: 'center',
     top:15,
+  },
+  videoPreviewPromptContainer: {
+    padding: 15,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    position: 'absolute',
+    bottom: 80,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
+  videoPreviewPromptText: {
+    color: '#fff',
+    fontSize: 14,
+    textAlign: 'center',
   },
   videoPreviewBackButton: {
     padding: 8,
