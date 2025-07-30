@@ -618,31 +618,25 @@ const generateNonce = (length = 32) => {
                     {googleLoading ? (
                         <ActivityIndicator size="small" color="#DB4437" />
                     ) : (
-                        <FontAwesome name="google" size={24} color="#DB4437" />
+                        <Image 
+                            source={require('../assets/google.png')} 
+                            style={{width: 24, height: 24}} 
+                            resizeMode="contain"
+                        />
                     )}
                 </TouchableOpacity>
                
                 <TouchableOpacity 
-                    style={[styles.socialButton, appleLoading && styles.disabledButton]}
+                    style={[styles.socialButton, appleLoading && styles.disabledButton, {backgroundColor: '#000'}]}
                     onPress={handleDirectAppleLogin}
                     disabled={appleLoading}
                 >
                     {appleLoading ? (
-                        <ActivityIndicator size="small" color="#000" />
+                        <ActivityIndicator size="small" color="#FFF" />
                     ) : (
-                        <FontAwesome name="apple" size={24} color="#000" />
+                        <FontAwesome name="apple" size={24} color="#FFF" />
                     )}
                 </TouchableOpacity>
-                
-                {/* Debug button - hidden in production */}
-                {__DEV__ && (
-                    <TouchableOpacity 
-                        style={styles.socialButton}
-                        onPress={debugAuth}
-                    >
-                        <FontAwesome name="bug" size={24} color="#333" />
-                    </TouchableOpacity>
-                )}
             </View>
 
             {/* Sign Up Link */}

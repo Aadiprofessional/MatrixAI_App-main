@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Dimensions, TouchableOpacity, Image
 import { SafeAreaView } from 'react-native-safe-area-context';
 const { width, height } = Dimensions.get('window');
 import { useTheme } from '../context/ThemeContext';
+import AnimatedGradientText from '../components/AnimatedGradientText';
 
 
 const OnboardingScreen = ({ navigation,onFinish }) => {
@@ -61,8 +62,7 @@ const OnboardingScreen = ({ navigation,onFinish }) => {
                         <View style={styles.imageContainer}>
                             <Image source={slide.image} style={styles.image} />
                         </View>
-                        <Text style={[styles.title, { color: colors.text }]}>{slide.title}</Text>
-
+                       <AnimatedGradientText text={slide.title} />
                     </View>
                 ))}
             </ScrollView>

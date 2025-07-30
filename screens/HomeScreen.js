@@ -148,28 +148,12 @@ const HomeScreen = () => {
       screen: 'SpeechToTextScreen'
     },
     {
-      id: 'background',
-      title: t('humaniseText'),
-      description: t('humanLikeTransformations'),
-      icon: <MaterialCommunityIcons name="human-greeting" size={26} color="#FFFFFF" />,
-      colors: ['#D500F9', '#9C27B0'],
-      screen: 'HumaniseText'
-    },
-    {
-      id: 'detect',
-      title: t('detectAI'),
-      description: t('identifyAIGeneratedContent'),
-      icon: <MaterialCommunityIcons name="magnify-scan" size={26} color="#FFFFFF" />,
-      colors: ['#43A047', '#2E7D32'],
-      screen: 'DetectAIScreen'
-    },
-    {
       id: 'content',
       title: t('contentWriter'),
       description: t('aiPoweredWritingAssistant'),
       icon: <MaterialCommunityIcons name="text-box-outline" size={26} color="#FFFFFF" />,
       colors: ['#D500F9', '#9C27B0'],
-      screen: 'ContentWriterScreen'
+      screen: 'CombinedContentScreen'
     },
   ];
 

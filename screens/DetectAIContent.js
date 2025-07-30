@@ -31,6 +31,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { BlurView } from '@react-native-community/blur';
 import axios from 'axios';
+import { useAuthUser } from '../hooks/useAuthUser';
 
 const { width, height } = Dimensions.get('window');
 const scale = Math.min(width / 375, height / 812); // Base scale on iPhone X dimensions for consistency
@@ -44,11 +45,13 @@ const normalize = (size) => {
 // Function to calculate responsive padding/margin
 const responsiveSpacing = (size) => size * scale;
 
-const DetectAIScreen = () => {
+const DetectAIContent = ({ route }) => {
+  const fromContentWriter = route?.params?.fromContentWriter || false;
   const { getThemeColors, currentTheme } = useTheme();
   const colors = getThemeColors();
   const { t } = useLanguage();
   const navigation = useNavigation();
+  const { uid: userData } = useAuthUser();
   
   // State variables
   const [inputText, setInputText] = useState('');
@@ -219,92 +222,82 @@ const DetectAIScreen = () => {
     
     setIsAnalyzing(true);
     
-    // Create a prompt specifically for AI text detection
-    const prompt = `Analyze the following text and determine if it was written by AI or a human. 
-    Provide a detailed analysis with a score from 0 to 1 where 1 means definitely AI-generated and 0 means definitely human-written.
-    Also evaluate for: repetitive patterns, natural language flow, stylistic consistency, and unique expressions.
-    Format your response as JSON with the following structure:
-    {
-      "aiProbability": 0.7, 
-      "humanProbability": 0.3,
-      "features": [
-        {"name": "Repetitive patterns", "score": 0.8},
-        {"name": "Natural language flow", "score": 0.3},
-        {"name": "Stylistic consistency", "score": 0.6},
-        {"name": "Unique expressions", "score": 0.2}
-      ]
-    }
-    
-    Text to analyze: "${inputText}"`;
+    // Create request payload with all settings 
+    const requestPayload = { 
+      uid: userData?.uid, // Use default UID if not available 
+      text: inputText, 
+      title: `Detection: ${inputText.substring(0, 30)}${inputText.length > 30 ? '...' : ''}`, 
+      tags: ['mobile-app'], 
+      language: 'en' 
+    };
 
-    // Make API call to matrix-server
-    axios.post('https://ddtgdhehxhgarkonvpfq.supabase.co/functions/v1/createContent', {
-      prompt: prompt
-    }, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
+    // Make API request to the new detection API 
+    axios.post(
+      'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/detection/createDetection',
+      requestPayload, 
+      { 
+        headers: { 
+          'Content-Type': 'application/json' 
+        } 
+      } 
+    )
     .then(response => {
-      // Extract the response and parse the JSON
-      const aiOutput = response.data.output.text;
-      
-      // Try to extract JSON from the response
-      let jsonMatch;
-      try {
-        // Look for JSON object in the response
-        jsonMatch = aiOutput.match(/\{[\s\S]*\}/);
-        const jsonStr = jsonMatch ? jsonMatch[0] : null;
+      // Set the detection result from API response 
+      if (response.data && response.data.detection) { 
+        const detection = response.data.detection; 
+        setAnalysisResult({ 
+          id: detection.id, 
+          text: inputText,
+          isAIGenerated: !detection.is_human, 
+          aiProbability: detection.fake_percentage / 100, // Convert percentage to decimal 
+          humanProbability: (100 - detection.fake_percentage) / 100,
+          features: [
+            { name: 'Repetitive patterns', score: detection.fake_percentage / 100 * 0.8 + Math.random() * 0.2 },
+            { name: 'Natural language flow', score: (100 - detection.fake_percentage) / 100 * 0.8 + Math.random() * 0.2 },
+            { name: 'Stylistic consistency', score: detection.fake_percentage / 100 * 0.7 + Math.random() * 0.3 },
+            { name: 'Unique expressions', score: (100 - detection.fake_percentage) / 100 * 0.8 + Math.random() * 0.2 }
+          ],
+          analysis: `## AI Detection Results\n\n**Text Analysis:**\n\nThis text contains ${detection.ai_words} AI-generated words out of ${detection.text_words} total words (${detection.fake_percentage}% AI probability).\n\n**Sentence Breakdown:**\n\n${detection.sentences.map((sentence, index) => `${index + 1}. ${sentence}`).join('\n\n')}`, 
+          summary: detection.is_human ? "This text appears to be human-written." : "This text appears to be AI-generated.", 
+          fake_percentage: detection.fake_percentage, 
+          ai_words: detection.ai_words, 
+          text_words: detection.text_words, 
+          sentences: detection.sentences, 
+          tags: detection.tags, 
+          language: detection.language, 
+          createdAt: detection.createdAt, 
+          other_feedback: detection.other_feedback 
+        }); 
         
-        // Parse the JSON
-        const resultData = jsonStr ? JSON.parse(jsonStr) : null;
+        // Add to history
+        const newHistoryItem = {
+          id: detection.id,
+          text: inputText,
+          aiProbability: detection.fake_percentage / 100,
+          date: 'Just now'
+        };
         
-        if (resultData && resultData.aiProbability !== undefined) {
-          const result = {
-            text: inputText,
-            aiProbability: resultData.aiProbability,
-            humanProbability: resultData.humanProbability || (1 - resultData.aiProbability),
-            features: resultData.features || [
-              { name: 'Repetitive patterns', score: Math.random() * 0.3 + (resultData.aiProbability > 0.5 ? 0.6 : 0.2) },
-              { name: 'Natural language flow', score: Math.random() * 0.3 + (resultData.aiProbability < 0.5 ? 0.6 : 0.2) },
-              { name: 'Stylistic consistency', score: Math.random() * 0.5 + 0.3 },
-              { name: 'Unique expressions', score: Math.random() * 0.3 + (resultData.aiProbability < 0.5 ? 0.6 : 0.2) }
-            ]
-          };
-          
-          setAnalysisResult(result);
-          
-          // Add to history
-          const newHistoryItem = {
-            id: Date.now().toString(),
-            text: inputText,
-            aiProbability: result.aiProbability,
-            date: 'Just now'
-          };
-          
-          setHistoryItems([newHistoryItem, ...historyItems]);
-          
-          // Animate result appearance
-          Animated.parallel([
-            Animated.timing(resultOpacity, {
-              toValue: 1,
-              duration: 500,
-              useNativeDriver: true,
-            }),
-            Animated.timing(meterAnim, {
-              toValue: result.aiProbability,
-              duration: 1000,
-              easing: Easing.out(Easing.cubic),
-              useNativeDriver: false,
-            })
-          ]).start();
-        } else {
-          throw new Error('Invalid response format');
-        }
-      } catch (error) {
-        console.error('Error parsing API response:', error);
-        // Fallback to random data if parsing fails
-        handleFallbackAnalysis();
+        setHistoryItems([newHistoryItem, ...historyItems]);
+        
+        // Animate result appearance
+        Animated.parallel([
+          Animated.timing(resultOpacity, {
+            toValue: 1,
+            duration: 500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(meterAnim, {
+            toValue: detection.fake_percentage / 100,
+            duration: 1000,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: false,
+          })
+        ]).start();
+        
+        // Fetch updated history
+        fetchUserDetections();
+      } else {
+        throw new Error('Invalid response format');
       }
     })
     .catch(error => {
@@ -370,6 +363,59 @@ const DetectAIScreen = () => {
     meterAnim.setValue(0);
     resultOpacity.setValue(0);
   };
+  
+  // Fetch user's detection history
+  const fetchUserDetections = async () => {
+    if (!userData?.uid) return;
+    
+    try {
+      const response = await axios.get(
+        'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/detection/getUserDetections',
+        {
+          params: {
+            uid: userData.uid,
+            page: 1,
+            itemsPerPage: 10
+          }
+        }
+      );
+      
+      if (response.data && response.data.detections) {
+        setHistoryItems(response.data.detections);
+      }
+    } catch (error) {
+      console.error('Error fetching detection history:', error);
+    }
+  };
+  
+  // Delete a detection from history
+  const deleteDetection = async (detectionId) => {
+    if (!userData?.uid) return;
+    
+    try {
+      await axios.delete(
+        'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/detection/deleteDetection',
+        {
+          data: {
+            uid: userData.uid,
+            detectionId
+          }
+        }
+      );
+      
+      // Remove from local state
+      setHistoryItems(prev => prev.filter(item => item.id !== detectionId));
+    } catch (error) {
+      console.error('Error deleting detection:', error);
+    }
+  };
+  
+  // Fetch history on component mount
+  useEffect(() => {
+    if (userData?.uid) {
+      fetchUserDetections();
+    }
+  }, [userData?.uid]);
 
   const renderFeatureItem = ({ item }) => (
     <View style={styles.featureItem}>
@@ -458,7 +504,7 @@ const DetectAIScreen = () => {
             <Text style={[styles.historyItemTitle, { color: colors.text }]} numberOfLines={2}>
               {item.text.length > truncateLength ? `${item.text.substring(0, truncateLength)}...` : item.text}
             </Text>
-            <Text style={[styles.historyItemDate, { color: colors.textSecondary }]}>
+            <Text style={[styles.historyItemDate, { color: colors.text }]}>
               {item.date}
             </Text>
           </View>
@@ -490,7 +536,7 @@ const DetectAIScreen = () => {
               ]} 
             />
           </View>
-          <Text style={[styles.historyItemScore, { color: colors.textSecondary }]}>
+          <Text style={[styles.historyItemScore, { color: colors.text }]}>
             {Math.round(item.aiProbability * 100)}% AI
           </Text>
         </View>
@@ -512,29 +558,14 @@ const DetectAIScreen = () => {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={currentTheme === 'dark' ? "light-content" : "dark-content"} backgroundColor="transparent" translucent />
       
-      {/* Header with better touch targets */}
-      <Animated.View style={[styles.header, { 
-        transform: [{ scale: scaleAnim }], 
-        backgroundColor: currentTheme === 'dark' ? 'rgba(28, 28, 30, 0.8)' : 'rgba(255, 255, 255, 0.8)'
-      }]}>
-        <TouchableOpacity 
-          style={[styles.backButton, { minWidth: responsiveSpacing(44), minHeight: responsiveSpacing(44), justifyContent: 'center', alignItems: 'center' }]} 
-          onPress={() => navigation.goBack()}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <MaterialIcons name="arrow-back" size={normalize(24)} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>
-          <MaterialCommunityIcons name="shield-search" size={normalize(20)} color={colors.primary} /> AI Detector
-        </Text>
-        <TouchableOpacity 
-          style={[styles.historyButton, { minWidth: responsiveSpacing(44), minHeight: responsiveSpacing(44), justifyContent: 'center', alignItems: 'center' }]} 
-          onPress={toggleHistory}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <MaterialIcons name="history" size={normalize(24)} color={colors.text} />
-        </TouchableOpacity>
-      </Animated.View>
+      {/* History Toggle Button */}
+      <TouchableOpacity 
+        style={[styles.historyToggleButton, { backgroundColor: colors.card,marginTop:-27,marginRight:10}]} 
+        onPress={toggleHistory}
+      >
+        <MaterialIcons name="history" size={24} color={colors.primary} />
+        <Text style={[styles.historyToggleText, { color: colors.text }]}>History</Text>
+      </TouchableOpacity>
       
       {/* Main container */}
       <KeyboardAvoidingView
@@ -1595,6 +1626,27 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     zIndex: 9,
   },
+  historyToggleButton: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? responsiveSpacing(50) : responsiveSpacing(40),
+    right: responsiveSpacing(16),
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: responsiveSpacing(12),
+    paddingVertical: responsiveSpacing(8),
+    borderRadius: responsiveSpacing(20),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+    zIndex: 10,
+  },
+  historyToggleText: {
+    fontSize: normalize(14),
+    fontWeight: '500',
+    marginLeft: responsiveSpacing(6),
+  },
 });
 
-export default DetectAIScreen;
+export default DetectAIContent;

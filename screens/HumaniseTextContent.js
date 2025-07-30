@@ -45,7 +45,8 @@ const normalize = (size) => {
 // Function to calculate responsive padding/margin
 const responsiveSpacing = (size) => size * scale;
 
-const HumaniseTextScreen = () => {
+const HumaniseTextContent = ({ route }) => {
+  const fromContentWriter = route?.params?.fromContentWriter || false;
   const { getThemeColors, currentTheme } = useTheme();
   const colors = getThemeColors();
   const { t } = useLanguage();
@@ -57,9 +58,12 @@ const HumaniseTextScreen = () => {
   const [outputText, setOutputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
-  const [isCopied, setIsCopied] = useState(false);
+  const [selectedTone, setSelectedTone] = useState('professional');
+  const [selectedDetector, setSelectedDetector] = useState('ZeroGPT.com');
+ 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
   
   // Animated values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -193,15 +197,22 @@ const HumaniseTextScreen = () => {
   }, []);
 
   const toggleHistory = () => {
-    setHistoryOpen(!historyOpen);
+    const newHistoryState = !historyOpen;
+    console.log('Toggling history panel, current state:', historyOpen, 'new state:', newHistoryState);
+    console.log('Current history items:', historyItems.length);
     
-    // Animate to 70% of the screen width
+    setHistoryOpen(newHistoryState);
+    
+    // Animate to 70% of the screen width - using newHistoryState instead of historyOpen
+    // because historyOpen hasn't been updated yet when this code runs
     Animated.timing(historySlideAnim, {
-      toValue: historyOpen ? width * 0.7 : 0,
+      toValue: newHistoryState ? 0 : width * 0.7,
       duration: 300,
       easing: Easing.ease,
       useNativeDriver: true,
-    }).start();
+    }).start(() => {
+      console.log('History animation completed, historyOpen:', newHistoryState);
+    });
     
     // Close keyboard if it's open when toggling history
     if (keyboardVisible) {
@@ -214,26 +225,33 @@ const HumaniseTextScreen = () => {
     outputRange: ['0deg', '360deg']
   });
   
-  const handleSend = () => {
+  const handleSend = async () => {
     if (inputText.trim() === '') {
       Alert.alert(t('error'), t('pleaseEnterSomeTextToHumanise'));
       return;
     }
     
+    // Reset any previous results
+    setOutputText('');
     setIsProcessing(true);
+    setIsFinished(false);
+    
+    // Reset animations
+    resultOpacity.setValue(0);
+    resultTranslateY.setValue(20);
     
     try { 
       // Create request payload with all settings 
       const requestPayload = { 
         uid: userData?.uid, // Use default UID if not available 
         prompt: inputText, 
-        ai_detector: 'gpt-detector', 
-        tone: 'neutral', 
+        ai_detector: selectedDetector, 
+        tone: selectedTone, 
         level: 'medium' 
       }; 
       
       // Make API request to the new humanization API 
-      axios.post( 
+      const response = await axios.post( 
         'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/humanize/createHumanization', 
         requestPayload, 
         { 
@@ -241,91 +259,134 @@ const HumaniseTextScreen = () => {
             'Content-Type': 'application/json' 
           } 
         } 
-      )
-      .then(response => {
+      );
+      
+      // Check if response data has the expected structure
+      if (response.data && response.data.humanization && response.data.humanization.humanized_text) {
         // Extract the response
         const result = response.data.humanization.humanized_text.trim();
         
         setOutputText(result);
-        setIsFinished(true);
         
         // Add to history
         const newHistoryItem = {
           id: response.data.humanization.id || Date.now().toString(),
           originalText: inputText,
           humanisedText: result,
-          date: 'Just now'
+          date: 'Just now',
+          tone: selectedTone,
+          ai_detector: selectedDetector
         };
         
         setHistoryItems([newHistoryItem, ...historyItems]);
         
-        // Animate result appearance
-        Animated.parallel([
-          Animated.timing(resultOpacity, {
-            toValue: 1,
-            duration: 500,
-            useNativeDriver: true,
-          }),
-          Animated.timing(resultTranslateY, {
-            toValue: 0,
-            duration: 500,
-            useNativeDriver: true,
-          })
-        ]).start();
-
         // Fetch updated history
         fetchUserHumanizations();
-      })
-      .catch(error => {
-        console.error('Error humanising text:', error);
-        Alert.alert(t('error'), t('failedToHumaniseText'));
-        
-        // Fallback to simple transformation if API fails
-        handleFallbackHumanisation();
-      })
-      .finally(() => {
-        setIsProcessing(false);
-      });
+      } else if (response.data && response.data.error) {
+        // Handle API error response
+        throw new Error(response.data.error);
+      } else {
+        // Handle unexpected response format
+        throw new Error('Unexpected response format from the server');
+      }
     } catch (error) {
-      console.error('Error in humanization process:', error);
+      console.error('Error humanising text:', error);
+      Alert.alert(t('error'), t('failedToHumaniseText'));
+      
+      // Fallback to simple transformation if API fails
       handleFallbackHumanisation();
+    } finally {
       setIsProcessing(false);
+      setIsFinished(true);
+      
+      // Animate result appearance
+      Animated.parallel([
+        Animated.timing(resultOpacity, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(resultTranslateY, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+        })
+      ]).start();
     }
   };
   
   // Fallback function for text humanisation if API fails
   const handleFallbackHumanisation = () => {
-    // Simple transformation for fallback
-    const result = `I would like to inform you that ${inputText}`;
-    
-    setOutputText(result);
-    setIsFinished(true);
-    
-    // Add to history
-    const newHistoryItem = {
-      id: Date.now().toString(),
-      originalText: inputText,
-      humanisedText: result,
-      date: 'Just now'
-    };
-    
-    setHistoryItems([newHistoryItem, ...historyItems]);
-    
-    // Animate result appearance
-    Animated.parallel([
-      Animated.timing(resultOpacity, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.timing(resultTranslateY, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      })
-    ]).start();
-    
-    Alert.alert(t('notice'), t('usingSimpleTransformation'));
+    try {
+      // Simple transformation for fallback
+      let result = '';
+      
+      // Make sure we have text to transform
+      if (inputText && inputText.trim().length > 0) {
+        // Apply different transformations based on selected tone
+        switch (selectedTone) {
+          case 'professional':
+            result = `I would like to inform you that ${inputText}`;
+            break;
+          case 'formal':
+            result = `We wish to advise that ${inputText}`;
+            break;
+          case 'friendly':
+            result = `Hey there! Just wanted to let you know that ${inputText}`;
+            break;
+          case 'casual':
+            result = `Hey! ${inputText}`;
+            break;
+          default:
+            result = `I would like to inform you that ${inputText}`;
+        }
+      } else {
+        result = 'Please enter some text to humanize.';
+      }
+      
+      setOutputText(result);
+      setIsFinished(true);
+      
+      // Only add to history if we have valid input and output
+      if (inputText && inputText.trim().length > 0) {
+        // Add to history
+        const newHistoryItem = {
+          id: Date.now().toString(),
+          originalText: inputText,
+          humanisedText: result,
+          date: 'Just now',
+          tone: selectedTone,
+          ai_detector: selectedDetector
+        };
+        
+        setHistoryItems(prevItems => {
+          // Ensure prevItems is an array
+          const currentItems = Array.isArray(prevItems) ? prevItems : [];
+          return [newHistoryItem, ...currentItems];
+        });
+      }
+      
+      // Animate result appearance
+      Animated.parallel([
+        Animated.timing(resultOpacity, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(resultTranslateY, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+        })
+      ]).start();
+      
+      Alert.alert(t('notice'), t('usingSimpleTransformation'));
+    } catch (error) {
+      console.error('Error in fallback humanisation:', error);
+      // Set a basic error message as output
+      setOutputText('Unable to process your text. Please try again.');
+      setIsFinished(true);
+    }
   };
   
   const handleReset = () => {
@@ -338,9 +399,9 @@ const HumaniseTextScreen = () => {
   
   const copyToClipboard = () => {
     Clipboard.setString(outputText);
-    setIsCopied(true);
     
-    // Reset copied status after 2 seconds
+    // Set copied state and reset after a delay
+    setIsCopied(true);
     setTimeout(() => {
       setIsCopied(false);
     }, 2000);
@@ -386,7 +447,12 @@ const HumaniseTextScreen = () => {
   
   // Fetch user's humanization history
   const fetchUserHumanizations = async () => {
-    if (!userData?.uid) return;
+    if (!userData?.uid) {
+      console.log('No user ID available, skipping history fetch');
+      return;
+    }
+    
+    console.log('Fetching humanization history for user:', userData.uid);
     
     try {
       const response = await axios.get(
@@ -400,73 +466,87 @@ const HumaniseTextScreen = () => {
         }
       );
       
-      if (response.data && response.data.humanizations) {
-        setHistoryItems(response.data.humanizations);
+      console.log('Humanization history API response:', response.data);
+      
+      if (response.data && Array.isArray(response.data.humanizations)) {
+        console.log('Setting history items:', response.data.humanizations.length, 'items');
+        
+        // Map API response to match the expected format for history items
+        const formattedItems = response.data.humanizations.map(item => ({
+          id: item.id || String(Date.now()),
+          originalText: item.original_text || '',
+          humanisedText: item.humanized_text || '',
+          date: item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'Unknown date',
+          tone: item.tone || 'professional',
+          ai_detector: item.ai_detector || 'ZeroGPT.com'
+        }));
+        
+        setHistoryItems(formattedItems);
+      } else {
+        console.log('No humanizations found in response or invalid response format');
+        // Set empty array to prevent undefined errors
+        setHistoryItems([]);
       }
     } catch (error) {
       console.error('Error fetching humanization history:', error);
+      // Set empty array to prevent undefined errors when fetch fails
+      setHistoryItems([]);
+      
+      // Only show alert for network errors, not for empty responses
+      if (error.response || error.request) {
+        console.log('Network error when fetching history');
+        // Uncomment if you want to show an alert for network errors
+        // Alert.alert(t('error'), t('failedToFetchHistory'));
+      }
     }
   };
   
   // Fetch history on component mount
   useEffect(() => {
+    console.log('useEffect for fetchUserHumanizations triggered, userData:', userData?.uid ? 'available' : 'not available');
     if (userData?.uid) {
+      console.log('Calling fetchUserHumanizations from useEffect');
       fetchUserHumanizations();
+    } else {
+      console.log('Skipping fetchUserHumanizations call - no user ID available');
     }
   }, [userData?.uid]);
   
-  const renderToneItem = ({ item }) => {
-    // Determine the appropriate background color based on tone when selected
-    const selectedColor = item.id === 'formal' ? '#3F51B5' : 
-                          item.id === 'professional' ? '#2196F3' : 
-                          item.id === 'friendly' ? '#9C27B0' : '#FF9800';
-    
-    // Apply different styling based on selection state
-    const isSelected = selectedTone === item.id;
-    
-    return (
-      <TouchableOpacity
-        style={[
-          styles.toneItem,
-          isSelected && [styles.selectedToneItem, { backgroundColor: selectedColor }],
-          { 
-            backgroundColor: currentTheme === 'dark' ? 'rgba(30, 30, 40, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-            borderWidth: 1,
-            borderColor: isSelected ? selectedColor : 'transparent',
-            transform: isSelected ? [{ scale: 1.05 }] : [{ scale: 1 }]
-          }
-        ]}
-        onPress={() => setSelectedTone(item.id)}
-      >
-        <MaterialCommunityIcons 
-          name={item.icon} 
-          size={normalize(24)} 
-          color={isSelected ? colors.text : colors.text} 
-        />
-        <Text style={[
-          styles.toneName,
-          { 
-            color: isSelected ? colors.text : colors.text,
-            fontWeight: isSelected ? '600' : '500'
-          }
-        ]}>
-          {item.name}
-        </Text>
-        
-        {/* Add a small indicator for the selected item */}
-        {isSelected && (
-          <View style={styles.selectedIndicator}>
-            <MaterialIcons name="check" size={normalize(14)} color="#FFFFFF" />
-          </View>
-        )}
-      </TouchableOpacity>
-    );
-  };
+  // List of supported AI detectors
+  const supportedDetectors = [
+    "ZeroGPT.com",
+    "Originality.ai",
+    "Originality.ai (Legacy)",
+    "Winston AI",
+    "Winston AI (Legacy)",
+    "Turnitin",
+    "Turnitin (Legacy)",
+    "ZeroGPT.com (Legacy)",
+    "Sapling.ai",
+    "GPTZero.me",
+    "GPTZero.me (Legacy)",
+    "CopyLeaks.com",
+    "CopyLeaks.com (Legacy)",
+    "Writer.me",
+    "Universal Mode (Beta)"
+  ];
+  
+  // List of supported tones
+  const supportedTones = [
+    "professional",
+    "formal",
+    "friendly",
+    "casual"
+  ];
+  
+
   
   const renderHistoryItem = ({ item }) => {
     // For very small screens, we might need to truncate the text more
     const truncateLength = width < 320 ? 40 : width < 375 ? 50 : 60;
     const isSmallScreen = width < 360;
+    
+    console.log('Rendering history item:', item.id, 'Original text:', item.originalText?.substring(0, 20));
     
     return (
       <TouchableOpacity 
@@ -474,11 +554,11 @@ const HumaniseTextScreen = () => {
           backgroundColor: currentTheme === 'dark' ? 'rgba(40, 40, 50, 0.6)' : 'rgba(255, 255, 255, 0.8)',
         }]}
         onPress={() => {
-          setInputText(item.originalText);
-          setOutputText(item.humanisedText);
-          setSelectedTone(item.tone);
-          setIsFinished(true);
-          toggleHistory();
+        console.log('History item pressed:', item.id);
+        setInputText(item.originalText);
+        setOutputText(item.humanisedText);
+        setIsFinished(true);
+        toggleHistory();
           
           // Animate result appearance
           Animated.parallel([
@@ -500,7 +580,7 @@ const HumaniseTextScreen = () => {
             <Text style={[styles.historyItemTitle, { color: colors.text }]} numberOfLines={2}>
               {item.originalText.length > truncateLength ? `${item.originalText.substring(0, truncateLength)}...` : item.originalText}
             </Text>
-            <Text style={[styles.historyItemDate, { color: colors.textSecondary }]}>
+            <Text style={[styles.historyItemDate, { color: colors.text }]}>
               {item.date}
             </Text>
           </View>
@@ -519,7 +599,7 @@ const HumaniseTextScreen = () => {
             </Text>
           </View>
         </View>
-        <Text style={[styles.historyItemSubtitle, { color: colors.textSecondary }]} numberOfLines={2}>
+        <Text style={[styles.historyItemSubtitle, { color: colors.text }]} numberOfLines={2}>
           {item.humanisedText}
         </Text>
       </TouchableOpacity>
@@ -534,29 +614,14 @@ const HumaniseTextScreen = () => {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={currentTheme === 'dark' ? "light-content" : "dark-content"} backgroundColor="transparent" translucent />
       
-      {/* Header with better touch targets */}
-      <Animated.View style={[styles.header, { 
-        transform: [{ scale: scaleAnim }], 
-        backgroundColor: currentTheme === 'dark' ? 'rgba(28, 28, 30, 0.8)' : 'rgba(255, 255, 255, 0.8)'
-      }]}>
-        <TouchableOpacity 
-          style={[styles.backButton, { minWidth: responsiveSpacing(44), minHeight: responsiveSpacing(44), justifyContent: 'center', alignItems: 'center' }]} 
-          onPress={() => navigation.goBack()}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <MaterialIcons name="arrow-back" size={normalize(24)} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>
-          <MaterialCommunityIcons name="human-greeting" size={normalize(20)} color={colors.primary} /> Humanise Text
-        </Text>
-        <TouchableOpacity 
-          style={[styles.historyButton, { minWidth: responsiveSpacing(44), minHeight: responsiveSpacing(44), justifyContent: 'center', alignItems: 'center' }]} 
-          onPress={toggleHistory}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <MaterialIcons name="history" size={normalize(24)} color={colors.text} />
-        </TouchableOpacity>
-      </Animated.View>
+      {/* History Toggle Button */}
+      <TouchableOpacity 
+        style={[styles.historyToggleButton, { backgroundColor: colors.card }]} 
+        onPress={toggleHistory}
+      >
+        <MaterialIcons name="history" size={24} color={colors.primary} />
+        <Text style={[styles.historyToggleText, { color: colors.text }]}>History</Text>
+      </TouchableOpacity>
       
       {/* Main container */}
       <KeyboardAvoidingView
@@ -780,6 +845,51 @@ const HumaniseTextScreen = () => {
                   </View>
                 </View>
                 
+                {/* Settings Section */}
+                <View style={[styles.settingsContainer, { backgroundColor: currentTheme === 'dark' ? 'rgba(30, 30, 40, 0.6)' : 'rgba(255, 255, 255, 0.8)', borderColor: colors.border }]}>
+                  <View style={styles.settingRow}>
+                    <Text style={[styles.settingLabel, { color: colors.text }]}>Tone:</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.toneSelector}>
+                      {supportedTones.map((tone) => (
+                        <TouchableOpacity
+                          key={tone}
+                          style={[styles.toneOption, selectedTone === tone && styles.toneOptionSelected]}
+                          onPress={() => setSelectedTone(tone)}
+                        >
+                          <Text style={[styles.toneText, selectedTone === tone && styles.toneTextSelected]}>
+                            {tone.charAt(0).toUpperCase() + tone.slice(1)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                  
+                  <View style={styles.settingRow}>
+                    <Text style={[styles.settingLabel, { color: colors.text }]}>AI Detector:</Text>
+                    <View style={styles.detectorSelector}>
+                      <TouchableOpacity 
+                        style={[styles.detectorButton, { borderColor: colors.border }]}
+                        onPress={() => {
+                          // Show modal or dropdown for detector selection
+                          Alert.alert(
+                            'Select AI Detector',
+                            'Choose the AI detector to bypass:',
+                            supportedDetectors.map(detector => ({
+                              text: detector,
+                              onPress: () => setSelectedDetector(detector)
+                            }))
+                          );
+                        }}
+                      >
+                        <Text style={[styles.detectorButtonText, { color: colors.text }]} numberOfLines={1}>
+                          {selectedDetector}
+                        </Text>
+                        <MaterialIcons name="arrow-drop-down" size={normalize(20)} color={colors.text} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+                
                 {!isFinished && (
                   <TouchableOpacity 
                     style={[styles.submitButton, {
@@ -915,13 +1025,23 @@ const HumaniseTextScreen = () => {
           </View>
           
           {historyItems.length > 0 ? (
-            <FlatList
-              data={historyItems}
-              renderItem={renderHistoryItem}
-              keyExtractor={item => item.id}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.historyList}
-            />
+            <>
+              <Text style={[{color: colors.text, marginHorizontal: 16, marginBottom: 8}]}>
+                {historyItems.length} items found
+              </Text>
+              <FlatList
+                data={historyItems}
+                renderItem={renderHistoryItem}
+                keyExtractor={item => item.id}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.historyList}
+                ListEmptyComponent={() => (
+                  <Text style={[{color: colors.text, textAlign: 'center', padding: 20}]}>
+                    No items to display
+                  </Text>
+                )}
+              />
+            </>
           ) : (
             <View style={styles.emptyHistoryContainer}>
               <MaterialCommunityIcons 
@@ -1103,38 +1223,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: responsiveSpacing(12),
   },
-  toneContainer: {
-    marginTop: responsiveSpacing(24),
-    width: '100%',
-  },
   sectionTitle: {
     fontSize: normalize(18),
     fontWeight: '600',
     marginLeft: responsiveSpacing(8),
-  },
-  toneList: {
-    paddingVertical: responsiveSpacing(8),
-    marginLeft: responsiveSpacing(16),
-  },
-  toneItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: responsiveSpacing(12),
-    borderRadius: responsiveSpacing(12),
-    marginRight: responsiveSpacing(12),
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  selectedToneItem: {
-    backgroundColor: '#9C27B0',
-  },
-  toneName: {
-    marginLeft: responsiveSpacing(8),
-    fontWeight: '500',
-    fontSize: normalize(14),
   },
   inputContainer: {
     marginTop: responsiveSpacing(24),
@@ -1395,6 +1487,66 @@ const styles = StyleSheet.create({
     fontSize: normalize(12),
     fontWeight: '600',
   },
+  
+  // Settings styles
+  settingsContainer: {
+    borderRadius: responsiveSpacing(16),
+    padding: responsiveSpacing(16),
+    marginTop: responsiveSpacing(16),
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: responsiveSpacing(12),
+  },
+  settingLabel: {
+    fontSize: normalize(14),
+    fontWeight: '500',
+    width: responsiveSpacing(100),
+  },
+  toneSelector: {
+    flexGrow: 1,
+  },
+  toneOption: {
+    paddingHorizontal: responsiveSpacing(12),
+    paddingVertical: responsiveSpacing(6),
+    borderRadius: responsiveSpacing(16),
+    marginRight: responsiveSpacing(8),
+    backgroundColor: 'rgba(156, 39, 176, 0.1)',
+  },
+  toneOptionSelected: {
+    backgroundColor: '#9C27B0',
+  },
+  toneText: {
+    fontSize: normalize(14),
+    color: '#9C27B0',
+  },
+  toneTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '500',
+  },
+  detectorSelector: {
+    flex: 1,
+  },
+  detectorButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderRadius: responsiveSpacing(8),
+    paddingHorizontal: responsiveSpacing(12),
+    paddingVertical: responsiveSpacing(8),
+  },
+  detectorButtonText: {
+    fontSize: normalize(14),
+    flex: 1,
+  },
   historyItemSubtitle: {
     fontSize: normalize(14),
     lineHeight: normalize(20),
@@ -1436,6 +1588,27 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     zIndex: 9,
   },
+  historyToggleButton: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? responsiveSpacing(50) : responsiveSpacing(40),
+    right: responsiveSpacing(16),
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: responsiveSpacing(12),
+    paddingVertical: responsiveSpacing(8),
+    borderRadius: responsiveSpacing(20),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+    zIndex: 10,
+  },
+  historyToggleText: {
+    fontSize: normalize(14),
+    fontWeight: '500',
+    marginLeft: responsiveSpacing(6),
+  },
 });
 
-export default HumaniseTextScreen;
+export default HumaniseTextContent;

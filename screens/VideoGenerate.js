@@ -517,7 +517,7 @@ const VideoGenerateScreen = () => {
     // Prepare parameters based on selected option
     let templateToPass = null;
     let promptTextToPass = messageToPass;
-    let requiredCoinsAmount = 25; // Default cost for standard videos
+    let requiredCoinsAmount = 30; // Default cost for standard videos
     
     // Simplify to three cases as requested:
     // Case 1: Text-only prompt (no image)
@@ -1188,7 +1188,7 @@ const VideoGenerateScreen = () => {
                     const isPremium = premiumTemplates.includes(selectedTemplate);
                     return (
                       <>
-                        <Text style={styles.coinText}>{isPremium ? '-55' : '-25'}</Text>
+                        <Text style={styles.coinText}>{isPremium ? '-55' : '-30'}</Text>
                         <Image source={require('../assets/coin.png')} style={styles.coinIcon} />
                       </>
                     );
@@ -1197,7 +1197,7 @@ const VideoGenerateScreen = () => {
                   {/* Default cost if no template is selected */}
                   {!selectedTemplate && (
                     <>
-                      <Text style={styles.coinText}>-25</Text>
+                      <Text style={styles.coinText}>-30</Text>
                       <Image source={require('../assets/coin.png')} style={styles.coinIcon} />
                     </>
                   )}

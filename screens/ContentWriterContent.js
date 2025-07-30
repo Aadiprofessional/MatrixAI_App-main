@@ -48,7 +48,7 @@ const normalize = (size) => {
 // Function to calculate responsive padding/margin
 const responsiveSpacing = (size) => size * scale;
 
-const ContentWriterScreen = () => {
+const ContentWriterContent = () => {
   const { getThemeColors, currentTheme } = useTheme();
   const colors = getThemeColors();
   const { t } = useLanguage();
@@ -991,16 +991,16 @@ const ContentWriterScreen = () => {
                 {item.title || (item.prompt.length > truncateLength ? `${item.prompt.substring(0, truncateLength)}...` : item.prompt)}
               </Text>
               <View style={styles.historyItemMetaContainer}>
-                <Text style={[styles.historyItemDate, { color: colors.textSecondary }]}>
+                <Text style={[styles.historyItemDate, { color: colors.text }]}>
                   {item.date}
                 </Text>
                 {item.tone && (
-                  <Text style={[styles.historyItemMeta, { color: colors.textSecondary }]}>
+                  <Text style={[styles.historyItemMeta, { color: colors.text }]}>
                     • {toneText}
                   </Text>
                 )}
                 {item.wordCount && (
-                  <Text style={[styles.historyItemMeta, { color: colors.textSecondary }]}>
+                  <Text style={[styles.historyItemMeta, { color: colors.text }]}>
                     • {wordCountText} words
                   </Text>
                 )}
@@ -1029,7 +1029,7 @@ const ContentWriterScreen = () => {
               </Text>
             </View>
           </View>
-          <Text style={[styles.historyItemPreview, { color: colors.textSecondary }]} numberOfLines={2}>
+          <Text style={[styles.historyItemPreview, { color: colors.text }]} numberOfLines={2}>
             {item.content}
           </Text>
         </TouchableOpacity>
@@ -1093,25 +1093,16 @@ const ContentWriterScreen = () => {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <Animated.View style={[styles.header, { 
-        transform: [{ scale: scaleAnim }], 
-        backgroundColor: colors.background2
-      }]}>
-        <TouchableOpacity 
-          style={styles.backButton} 
-          onPress={() => navigation.goBack()}
-        >
-          <MaterialIcons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>{t('contentWriter')}</Text>
-        <TouchableOpacity 
-          style={styles.historyButton} 
-          onPress={toggleHistory}
-        >
-          <MaterialIcons name="history" size={24} color={colors.text} />
-        </TouchableOpacity>
-      </Animated.View>
+      <StatusBar barStyle={currentTheme === 'dark' ? "light-content" : "dark-content"} backgroundColor="transparent" translucent />
+      
+      {/* History Toggle Button */}
+      <TouchableOpacity 
+        style={[styles.historyToggleButton, { backgroundColor: colors.card }]} 
+        onPress={toggleHistory}
+      >
+        <MaterialIcons name="history" size={24} color={colors.primary} />
+        <Text style={[styles.historyToggleText, { color: colors.text }]}>History</Text>
+      </TouchableOpacity>
       
       {/* Main Content */}
       <KeyboardAvoidingView
@@ -1145,7 +1136,7 @@ const ContentWriterScreen = () => {
                       <Text style={[styles.bannerTitle, { color: colors.text }]}>
                         {t('aiContentWriter')}
                       </Text>
-                      <Text style={[styles.bannerSubtitle, { color: colors.textSecondary }]}>
+                      <Text style={[styles.bannerSubtitle, { color: colors.text }]}>
                         {t('generateProfessionalContent')}
                       </Text>
                     </View>
@@ -1163,7 +1154,8 @@ const ContentWriterScreen = () => {
                 </LinearGradient>
               </Animated.View>
             </View>
-            
+
+           
             {/* Content Type Selector */}
             <View style={styles.standardContainer}>
               <View style={styles.typeContainer}>
@@ -1607,9 +1599,9 @@ const ContentWriterScreen = () => {
               <MaterialCommunityIcons 
                 name="history" 
                 size={48} 
-                color={colors.textSecondary} 
+                color={colors.text} 
               />
-              <Text style={[styles.emptyHistoryText, { color: colors.textSecondary }]}>
+              <Text style={[styles.emptyHistoryText, { color: colors.text }]}>
                 {historyFilter === null ? t('noHistoryFound') : t('noHistoryFoundForFilter')}
               </Text>
             </View>
@@ -2096,6 +2088,27 @@ const styles = StyleSheet.create({
   modalItemText: {
     fontSize: 16,
   },
+  historyToggleButton: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? responsiveSpacing(50) : responsiveSpacing(40),
+    right: responsiveSpacing(16),
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: responsiveSpacing(12),
+    paddingVertical: responsiveSpacing(8),
+    borderRadius: responsiveSpacing(20),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+    zIndex: 10,
+  },
+  historyToggleText: {
+    fontSize: normalize(14),
+    fontWeight: '500',
+    marginLeft: responsiveSpacing(6),
+  },
 });
 
-export default ContentWriterScreen;
+export default ContentWriterContent;

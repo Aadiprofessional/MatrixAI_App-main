@@ -153,18 +153,111 @@ const BotScreen2 = ({ navigation, route }) => {
     navigation.navigate('CameraScreen');
   };
 
-  const saveChatHistory = async (messageText, sender, coinsDeducted = 0) => {
+  const saveChatToDatabase = async (messageContent, role) => {
     try {
-      const response = await axios.post('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/sendChat', {
-        uid,
-        chatid: audioid, // Using audioid as chatid
-        updatedMessage: messageText,
-        sender,
-        coinsDeducted,
+      // Get current user session
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.user?.id || !audioid) {
+        console.log('No authenticated user or audioid, skipping database save');
+        return;
+      }
+      
+      const userId = session.user.id;
+      const timestamp = new Date().toISOString();
+      
+      // Check if this chat exists in the database
+      const { data: existingChat, error: chatError } = await supabase
+        .from('transcription_chats')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('audio_id', audioid)
+        .single();
+      
+      if (chatError && chatError.code !== 'PGRST116') { // PGRST116 is "not found" error
+        console.error('Error checking chat existence:', chatError);
+      }
+      
+      // New message object for database storage
+      const newMessage = {
+        sender: role, // 'user' or 'assistant'
+        text: messageContent,
+        timestamp: timestamp
+      };
+      
+      console.log('Saving message to database:', {
+        role,
+        contentLength: messageContent.length,
+        audioid
       });
-      console.log('Message saved:', response.data);
+      
+      if (existingChat) {
+        // Update existing chat
+        // Ensure messages is an array
+        const existingMessages = Array.isArray(existingChat.messages) ? existingChat.messages : [];
+        
+        // Limit to 50 messages to prevent database size issues
+        const updatedMessages = [...existingMessages, newMessage].slice(-50);
+        
+        const { error: updateError } = await supabase
+          .from('transcription_chats')
+          .update({
+            messages: updatedMessages,
+            updated_at: timestamp
+          })
+          .eq('user_id', userId)
+          .eq('audio_id', audioid);
+        
+        if (updateError) {
+          console.error('Error updating chat:', updateError);
+          
+          // If error is related to size, try with fewer messages
+          if (updateError.message && updateError.message.includes('size')) {
+            console.log('Trying with fewer messages due to size constraint');
+            
+            // Try again with only 10 most recent messages
+            const reducedMessages = [...existingMessages, newMessage].slice(-10);
+            
+            const { error: retryError } = await supabase
+              .from('transcription_chats')
+              .update({
+                messages: reducedMessages,
+                updated_at: timestamp
+              })
+              .eq('user_id', userId)
+              .eq('audio_id', audioid);
+            
+            if (retryError) {
+              console.error('Error on retry with reduced messages:', retryError);
+            } else {
+              console.log('Successfully saved reduced chat history');
+            }
+          }
+        } else {
+          console.log('Successfully updated chat history');
+        }
+      } else {
+        // Create new chat
+        const newChat = {
+          user_id: userId,
+          audio_id: audioid,
+          messages: [newMessage],
+          created_at: timestamp,
+          updated_at: timestamp
+        };
+        
+        const { error: insertError } = await supabase
+          .from('transcription_chats')
+          .insert(newChat);
+        
+        if (insertError) {
+          console.error('Error creating new chat:', insertError);
+        } else {
+          console.log('Successfully created new chat history');
+        }
+      }
     } catch (error) {
-      console.error('Error saving chat history:', error);
+      console.error('Error saving to database:', error);
     }
   };
 
@@ -227,7 +320,7 @@ const BotScreen2 = ({ navigation, route }) => {
             setMessages((prev) => [...prev, newMessage]);
             
             // Save the chat history for the image
-            await saveChatHistory(publicUrl, 'user');
+            await saveChatToDatabase(publicUrl, 'user');
             
             // Create a streaming bot message that will be updated in real-time
             const streamingMessageId = 'streaming-' + Date.now().toString();
@@ -279,7 +372,7 @@ const BotScreen2 = ({ navigation, route }) => {
             ));
             
             // Save the chat history for the bot response
-            await saveChatHistory(fullResponse, 'bot', 1);
+            await saveChatToDatabase(fullResponse, 'assistant');
             
             // Clear the image and text
             setSelectedImage(null);
@@ -309,7 +402,7 @@ const BotScreen2 = ({ navigation, route }) => {
             sender: 'user',
           };
           setMessages((prev) => [...prev, newMessage]);
-          saveChatHistory(inputText, 'user');
+          saveChatToDatabase(inputText, 'user');
           fetchDeepSeekResponse(inputText);
           setInputText('');
           
@@ -519,7 +612,7 @@ const BotScreen2 = ({ navigation, route }) => {
       ));
       
       // Save the chat history for the bot response
-      await saveChatHistory(fullResponse, 'bot', 1);
+      await saveChatToDatabase(fullResponse, 'assistant');
       
       // Ensure scroll to bottom after receiving bot response
       setTimeout(() => {
@@ -550,7 +643,7 @@ const BotScreen2 = ({ navigation, route }) => {
       });
       
       // Save the error message
-      await saveChatHistory('Sorry, I encountered an error. Could you try again?', 'bot');
+      await saveChatToDatabase('Sorry, I encountered an error. Could you try again?', 'assistant');
       
       // Ensure scroll to bottom even after error
       setTimeout(() => {
@@ -665,7 +758,7 @@ const BotScreen2 = ({ navigation, route }) => {
       };
       
       setMessages(prev => [...prev, userMessage]);
-      await saveChatHistory(userMessage.text, 'user');
+      await saveChatToDatabase(userMessage.text, 'user');
       
       // Process the document and send to AI
       await sendDocumentToAI(fileUri, fileName);
@@ -721,7 +814,7 @@ const BotScreen2 = ({ navigation, route }) => {
       const aiResponse = await sendMessageToAI(`I'm sending you a document named ${fileName}. Please analyze its content.`, null, handleChunk);
       
       // Save the chat history
-      await saveChatHistory(aiResponse, 'bot');
+      await saveChatToDatabase(aiResponse, 'assistant');
       
       // Set loading to false
       setIsLoading(false);
@@ -733,58 +826,85 @@ const BotScreen2 = ({ navigation, route }) => {
     }
   };
 
-  useEffect(() => {
-    const fetchChatHistory = async () => {
-      try {
-        setIsInitialLoading(true);
-        const response = await axios.post('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/getChat', {
-          uid,
-          chatid: audioid, // Using audioid as chatid
-        });
-
-        const fetchedMessages = response.data.messages || [];
-        const hasChatHistory = fetchedMessages.length > 0;
-
-        if (hasChatHistory) {
-          // If we have chat history, update messages with fetched messages
-          setMessages(fetchedMessages.map(msg => ({
-            ...msg,
-            image: msg.imageUrl || msg.image,
-            text: msg.text.replace(/(\*\*|\#\#)/g, ""),
-          })));
-        } else {
-          // If no chat history, create and save the initial greeting message
-          const initialMessage = {
-            id: '1',
-            text: "Hello.👋 I'm your new friend, MatrixAI Bot. You can ask me any questions.",
-            sender: 'bot',
-          };
-          
-          // Set the initial message in state
-          setMessages([initialMessage]);
-          
-          // Save initial message to database
-          await saveChatHistory(initialMessage.text, initialMessage.sender);
-        }
-
-        setDataLoaded(true);
-      } catch (error) {
-        console.error('Error fetching chat history:', error);
-        // Handle 404 or other errors by setting the initial greeting message
+  const loadChatFromDatabase = async () => {
+    try {
+      setIsInitialLoading(true);
+      
+      // Get current user session
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.user?.id || !audioid) {
+        console.log('No authenticated user or audioid, skipping chat history load');
+        setIsInitialLoading(false);
+        return;
+      }
+      
+      const userId = session.user.id;
+      
+      // Check if this chat exists in the database
+      const { data: existingChat, error: chatError } = await supabase
+        .from('transcription_chats')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('audio_id', audioid)
+        .single();
+      
+      if (chatError && chatError.code !== 'PGRST116') { // PGRST116 is the error code for no rows returned
+        console.error('Error fetching chat history:', chatError);
+        setIsInitialLoading(false);
+        return;
+      }
+      
+      if (existingChat && existingChat.messages && Array.isArray(existingChat.messages)) {
+        // Convert database message format to app message format
+        const formattedMessages = existingChat.messages.map((msg, index) => ({
+          id: msg.timestamp ? new Date(msg.timestamp).getTime().toString() : Date.now().toString() + index,
+          text: msg.text,
+          sender: msg.sender === 'user' ? 'user' : 'bot',
+          timestamp: msg.timestamp ? new Date(msg.timestamp).getTime() : Date.now()
+        }));
+        
+        // Set chat messages from database
+        setMessages(formattedMessages);
+        console.log('Chat history loaded from database:', formattedMessages.length, 'messages');
+      } else {
+        // If no chat history, create and save the initial greeting message
         const initialMessage = {
           id: '1',
           text: "Hello.👋 I'm your new friend, MatrixAI Bot. You can ask me any questions.",
           sender: 'bot',
         };
+        
+        // Set the initial message in state
         setMessages([initialMessage]);
-        setDataLoaded(true);
-      } finally {
-        setIsInitialLoading(false);
+        
+        // Save initial message to database
+        await saveChatToDatabase(initialMessage.text, 'assistant');
       }
-    };
 
-    fetchChatHistory();
-  }, [audioid]);
+      setDataLoaded(true);
+    } catch (error) {
+      console.error('Error loading chat history:', error);
+      // Handle errors by setting the initial greeting message
+      const initialMessage = {
+        id: '1',
+        text: "Hello.👋 I'm your new friend, MatrixAI Bot. You can ask me any questions.",
+        sender: 'bot',
+      };
+      setMessages([initialMessage]);
+      setDataLoaded(true);
+    } finally {
+      setIsInitialLoading(false);
+    }
+  };
+
+  // Fetch chat history when component mounts
+  // Fetch transcription data and chat history
+  useEffect(() => {
+    if (uid && audioid) {
+      loadChatFromDatabase(); // Load chat history
+    }
+  }, [uid, audioid]);
   
   const handleGeneratePPT = (message) => {
     navigation.navigate('CreatePPTScreen', {

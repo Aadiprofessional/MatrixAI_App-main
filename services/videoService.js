@@ -60,7 +60,7 @@
  * @property {string} message - Response message
  */
 
-const API_BASE_URL = 'http://192.168.1.36:3002';
+const API_BASE_URL = 'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run';
 
 /**
  * Helper function to convert React Native image object to FormData

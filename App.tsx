@@ -31,6 +31,7 @@ import SignUpDetailsScreen from './screens/SignUpDetailsScreen';
 import AudioVideoUploadScreen from './screens/AudioVideoUploadScreen';
 import TranslateScreen from './screens/TranslateScreen';
 import BotScreen2 from './screens/BotScreen copy';
+import CombinedContentScreen from './screens/CombinedContentScreen';
 
 import ImageGenerateScreen from './screens/ImageGenerateScreen';
 
@@ -88,10 +89,7 @@ import { getPreferredLanguage } from './utils/languageUtils';
 import { ThemeProvider } from './context/ThemeContext';
 import { ProfileUpdateProvider } from './context/ProfileUpdateContext.js';
 
-// Import our new screens
-import HumaniseTextScreen from './screens/HumaniseTextScreen';
-import DetectAIScreen from './screens/DetectAIScreen';
-import ContentWriterScreen from './screens/ContentWriterScreen';
+
 import StoriesScreen from './screens/StoriesScreen.js';
 
 const Stack = createStackNavigator();
@@ -548,9 +546,15 @@ const App = () => {
                                    
                                  
                                   
+                                  
                                     <Stack.Screen 
                                         name="BUYSubscription" 
                                         component={BUYSubscription} 
+                                        options={{ headerShown: false }} 
+                                    />
+                                    <Stack.Screen 
+                                        name="CombinedContentScreen" 
+                                        component={CombinedContentScreen} 
                                         options={{ headerShown: false }} 
                                     />
                                     <Stack.Screen 
@@ -596,22 +600,7 @@ const App = () => {
                                         options={{ headerShown: false }} 
                                     />
                                    
-                                    {/* Add our new screens */}
-                                    <Stack.Screen 
-                                        name="HumaniseText" 
-                                        component={HumaniseTextScreen} 
-                                        options={{ headerShown: false }} 
-                                    />
-                                    <Stack.Screen 
-                                        name="DetectAIScreen" 
-                                        component={DetectAIScreen} 
-                                        options={{ headerShown: false }} 
-                                    />
-                                    <Stack.Screen 
-                                        name="ContentWriterScreen" 
-                                        component={ContentWriterScreen} 
-                                        options={{ headerShown: false }} 
-                                    />
+                              
 
                                      <Stack.Screen 
                                         name="Stories" 

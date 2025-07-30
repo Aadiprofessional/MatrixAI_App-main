@@ -134,7 +134,7 @@ const PrivacyPolicyScreen = ({ navigation }) => {
                   <Icon name="mail" size={16} color="#FFFFFF" style={styles.contactIcon} />
                   <Text style={styles.contactButtonText}>Contact Us</Text>
                 </TouchableOpacity>
-                <Text style={[styles.emailText, { color: colors.text }]}>privacy@matrixai.com</Text>
+                <Text style={[styles.emailText, { color: colors.text }]}>privacy@matrixaiglobal.com</Text>
               </View>
             </LinearGradient>
           </View>
