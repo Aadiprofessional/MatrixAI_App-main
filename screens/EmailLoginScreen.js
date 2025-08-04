@@ -16,6 +16,7 @@ import { debugGoogleAuth, testRedirectMethods } from '../utils/googleAuthDebug';
 const { width } = Dimensions.get('window');
 import { useTheme } from '../context/ThemeContext';
 
+
 // Generate a nonce for security purposes
 const generateNonce = (length = 32) => {
   const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -34,8 +35,10 @@ const generateNonce = (length = 32) => {
     const [appleLoading, setAppleLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [isChecked, setChecked] = useState(false);
-    const { getThemeColors } = useTheme();
-    const colors = getThemeColors();
+
+
+    const { getThemeColors, currentTheme } = useTheme();
+  const colors = getThemeColors();
 
     useEffect(() => {
         // Configure Google Sign-In only for iOS
@@ -280,6 +283,8 @@ const generateNonce = (length = 32) => {
         }
     };
 
+
+
     const handleLogin = async () => {
         // Validate email and password
         if (email.trim() === '' || !email.includes('@')) {
@@ -301,6 +306,8 @@ const generateNonce = (length = 32) => {
             });
             return;
         }
+
+
     
         setLoading(true);
     
@@ -592,6 +599,8 @@ const generateNonce = (length = 32) => {
                 <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
             </TouchableOpacity>
 
+
+
             {/* Login Button */}
             <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
                 {loading ? (
@@ -655,6 +664,8 @@ const generateNonce = (length = 32) => {
                     <Text style={styles.footerLink}>Terms of Service</Text>
                 </TouchableOpacity>
             </View>
+
+
         </SafeAreaView>
     );
 };
@@ -812,6 +823,15 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#2274F0',
     },
+    loginButtonContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    verifiedIcon: {
+        marginLeft: 8,
+    },
+
 });
 
 export default EmailLoginScreen;

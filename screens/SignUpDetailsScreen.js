@@ -9,6 +9,7 @@ import { supabase } from '../supabaseClient';
 import { LANGUAGES, DEFAULT_LANGUAGE } from '../utils/languageUtils';
 import { useTheme } from '../context/ThemeContext';
 
+
 const SignUpDetailsScreen = ({ navigation }) => {
     const route = useRoute();
     const { userInfo = {}, email = '', disableEmailInput = false } = route.params || {};
@@ -24,9 +25,10 @@ const SignUpDetailsScreen = ({ navigation }) => {
     const [referralCode, setReferralCode] = useState('');
     const [preferredLanguage, setPreferredLanguage] = useState(DEFAULT_LANGUAGE);
     const [languageModalVisible, setLanguageModalVisible] = useState(false);
+
     
-    const { getThemeColors } = useTheme();
-    const colors = getThemeColors();
+    const { getThemeColors, currentTheme } = useTheme();
+  const colors = getThemeColors();
 
     useEffect(() => {
         console.log('Received user info:', userInfo);
@@ -69,6 +71,8 @@ const SignUpDetailsScreen = ({ navigation }) => {
         setLanguageModalVisible(false);
     };
 
+
+
     const handleSignUp = async () => {
         // Validate inputs
         if (!name.trim()) {
@@ -110,6 +114,8 @@ const SignUpDetailsScreen = ({ navigation }) => {
             });
             return;
         }
+
+
 
         setLoading(true);
         try {
@@ -413,6 +419,8 @@ const SignUpDetailsScreen = ({ navigation }) => {
                     </View>
                 </View>
             </Modal>
+
+
         </SafeAreaView>
     );
 };
@@ -584,6 +592,14 @@ const styles = StyleSheet.create({
     selectedLanguageText: {
         color: '#fff',
         fontWeight: 'bold',
+    },
+    signupButtonContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    verifiedIcon: {
+        marginLeft: 8,
     }
 });
 

@@ -1095,14 +1095,7 @@ const ContentWriterContent = () => {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={currentTheme === 'dark' ? "light-content" : "dark-content"} backgroundColor="transparent" translucent />
       
-      {/* History Toggle Button */}
-      <TouchableOpacity 
-        style={[styles.historyToggleButton, { backgroundColor: colors.card }]} 
-        onPress={toggleHistory}
-      >
-        <MaterialIcons name="history" size={24} color={colors.primary} />
-        <Text style={[styles.historyToggleText, { color: colors.text }]}>History</Text>
-      </TouchableOpacity>
+
       
       {/* Main Content */}
       <KeyboardAvoidingView
@@ -1167,6 +1160,7 @@ const ContentWriterContent = () => {
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.typeList}
+                  nestedScrollEnabled={true}
                 />
               </View>
             </View>
@@ -1219,6 +1213,7 @@ const ContentWriterContent = () => {
                             </TouchableOpacity>
                           )}
                           keyExtractor={item => item.id}
+                          nestedScrollEnabled={true}
                         />
                       </View>
                     </TouchableOpacity>
@@ -1270,6 +1265,7 @@ const ContentWriterContent = () => {
                             </TouchableOpacity>
                           )}
                           keyExtractor={item => item.id}
+                          nestedScrollEnabled={true}
                         />
                       </View>
                     </TouchableOpacity>
@@ -1284,7 +1280,15 @@ const ContentWriterContent = () => {
               style={styles.standardContainer}
             >
               <View style={styles.promptContainer}>
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('whatToWriteAbout')}</Text>
+                <View style={styles.promptHeader}>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('whatToWriteAbout')}</Text>
+                  <TouchableOpacity 
+                    style={[styles.historyButton, { backgroundColor: colors.card }]} 
+                    onPress={toggleHistory}
+                  >
+                    <MaterialIcons name="history" size={20} color={colors.primary} />
+                  </TouchableOpacity>
+                </View>
                 <View style={[styles.promptInputWrapper, { 
                   backgroundColor: colors.card,
                   borderColor: colors.border
@@ -1593,6 +1597,7 @@ const ContentWriterContent = () => {
               keyExtractor={item => item.id}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.historyList}
+              nestedScrollEnabled={true}
             />
           ) : (
             <View style={styles.emptyHistoryContainer}>
@@ -1923,7 +1928,7 @@ const styles = StyleSheet.create({
   },
   historyItemTitle: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: 'bold',
     flex: 1,
   },
   historyItemDate: {
@@ -2088,26 +2093,20 @@ const styles = StyleSheet.create({
   modalItemText: {
     fontSize: 16,
   },
-  historyToggleButton: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? responsiveSpacing(50) : responsiveSpacing(40),
-    right: responsiveSpacing(16),
+  promptHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: responsiveSpacing(12),
-    paddingVertical: responsiveSpacing(8),
+    marginBottom: responsiveSpacing(12),
+  },
+  historyButton: {
+    padding: responsiveSpacing(8),
     borderRadius: responsiveSpacing(20),
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
-    zIndex: 10,
-  },
-  historyToggleText: {
-    fontSize: normalize(14),
-    fontWeight: '500',
-    marginLeft: responsiveSpacing(6),
+    shadowRadius: 2,
+    elevation: 2,
   },
 });
 

@@ -558,14 +558,7 @@ const DetectAIContent = ({ route }) => {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={currentTheme === 'dark' ? "light-content" : "dark-content"} backgroundColor="transparent" translucent />
       
-      {/* History Toggle Button */}
-      <TouchableOpacity 
-        style={[styles.historyToggleButton, { backgroundColor: colors.card,marginTop:-27,marginRight:10}]} 
-        onPress={toggleHistory}
-      >
-        <MaterialIcons name="history" size={24} color={colors.primary} />
-        <Text style={[styles.historyToggleText, { color: colors.text }]}>History</Text>
-      </TouchableOpacity>
+
       
       {/* Main container */}
       <KeyboardAvoidingView
@@ -674,8 +667,16 @@ const DetectAIContent = ({ route }) => {
             >
               <View style={styles.inputContainer}>
                 <View style={styles.sectionHeaderContainer}>
-                  <MaterialCommunityIcons name="text-box-search-outline" size={normalize(20)} color={colors.primary} />
-                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Text Analysis</Text>
+                  <View style={styles.sectionTitleContainer}>
+                    <MaterialCommunityIcons name="text-box-search-outline" size={normalize(20)} color={colors.primary} />
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>Text Analysis</Text>
+                  </View>
+                  <TouchableOpacity 
+                    style={[styles.historyButton, { backgroundColor: colors.card }]} 
+                    onPress={toggleHistory}
+                  >
+                    <MaterialIcons name="history" size={20} color={colors.primary} />
+                  </TouchableOpacity>
                 </View>
                 
                 <View style={[styles.textInputContainer, { 
@@ -1177,8 +1178,13 @@ const styles = StyleSheet.create({
   },
   sectionHeaderContainer: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: responsiveSpacing(12),
+  },
+  sectionTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   inputContainer: {
     marginTop: responsiveSpacing(24),
@@ -1561,7 +1567,7 @@ const styles = StyleSheet.create({
   },
   historyItemTitle: {
     fontSize: normalize(14),
-    fontWeight: '500',
+    fontWeight: 'bold',
     marginBottom: responsiveSpacing(4),
   },
   historyItemDate: {
@@ -1626,26 +1632,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     zIndex: 9,
   },
-  historyToggleButton: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? responsiveSpacing(50) : responsiveSpacing(40),
-    right: responsiveSpacing(16),
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: responsiveSpacing(12),
-    paddingVertical: responsiveSpacing(8),
+  historyButton: {
+    padding: responsiveSpacing(8),
     borderRadius: responsiveSpacing(20),
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
-    zIndex: 10,
-  },
-  historyToggleText: {
-    fontSize: normalize(14),
-    fontWeight: '500',
-    marginLeft: responsiveSpacing(6),
+    shadowRadius: 2,
+    elevation: 2,
   },
 });
 

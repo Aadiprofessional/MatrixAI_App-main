@@ -409,7 +409,9 @@ export const translations = {
     'allRightsReserved': '@All rights reserved to MatrixAI',
     
     // ContentWriterScreen
-    'contentWriter': 'Content Writer',
+    'contentWriter': 'Writer',
+    'aiDetector': 'AI Detector',
+    'humanizer': 'Humanizer',
     'selectContentType': 'Select Content Type',
     'writePrompt': 'Write Your Prompt',
     'enterPromptHere': 'Enter your prompt here...',
@@ -463,7 +465,7 @@ export const translations = {
     "presentationAI": "Presentation AI",
     "humaniseText": "Humanise Text",
     "detectAI": "Detect AI",
-    "contentWriter": "Content Writer",
+   
     "processAndAnalyzeVideos": "Generate videos",
     "generateImages": "Generate images",
     "createSlideDecksAutomatically": "Create slide decks automatically",
@@ -813,6 +815,8 @@ export const translations = {
     
     // ContentWriterScreen
     'contentWriter': '內容寫作',
+    'aiDetector': 'AI 檢測',
+    'humanizer': '人類化',
     'selectContentType': '選擇內容類型',
     'writePrompt': '寫下您的提示',
     'enterPromptHere': '在此輸入您的提示...',
@@ -907,7 +911,7 @@ export const translations = {
     "presentationAI": "演示文稿AI",
     "humaniseText": "人類化文本",
     "detectAI": "檢測AI",
-    "contentWriter": "內容寫作",
+
     "processAndAnalyzeVideos": "生成視頻",
     "generateImages": "生成圖像",
     "createSlideDecksAutomatically": "自動創建演示文稿",
@@ -1286,6 +1290,8 @@ export const translations = {
     
     // ContentWriterScreen
     'contentWriter': '内容写作',
+    'aiDetector': 'AI检测',
+    'humanizer': '人化',
     'selectContentType': '选择内容类型',
     'writePrompt': '写下您的提示',
     'enterPromptHere': '在此输入您的提示...',
@@ -1340,7 +1346,7 @@ export const translations = {
     "presentationAI": "演示文稿AI",
     "humaniseText": "人类化文本",
     "detectAI": "检测AI",
-    "contentWriter": "内容写作",
+  
     "processAndAnalyzeVideos": "生成视频",
     "generateImages": "生成图像",
     "createSlideDecksAutomatically": "自动创建演示文稿",
@@ -1353,7 +1359,6 @@ export const translations = {
     "presentationAI": "演示文稿AI",
     "humaniseText": "人类化文本",
     "detectAI": "检测AI",
-    "contentWriter": "内容写作",
     "processAndAnalyzeVideos": "生成视频",
   }
 };

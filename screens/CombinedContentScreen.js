@@ -100,14 +100,7 @@ const CombinedContentScreen = ({ route }) => {
         style={{ flex: 1, backgroundColor: colors.background }}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        <ScrollView 
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          bounces={true}
-        >
-          <View style={styles.contentWrapper}>
+        <View style={styles.contentWrapper}>
             {/* Tab Buttons */}
             <View style={styles.standardContainer}>
               <Animated.View style={[styles.tabButtonsContainer, { 
@@ -181,8 +174,7 @@ const CombinedContentScreen = ({ route }) => {
             {activeTab === 'humanizer' && (
               <HumaniseTextContent />
             )}
-          </View>
-        </ScrollView>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -221,14 +213,9 @@ const styles = StyleSheet.create({
   headerRightPlaceholder: {
     width: 40,
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: responsiveSpacing(40),
-  },
   contentWrapper: {
     flex: 1,
+    paddingBottom: responsiveSpacing(40),
   },
   standardContainer: {
     paddingHorizontal: responsiveSpacing(16),

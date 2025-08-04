@@ -1522,6 +1522,8 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
+  - react-native-segmented-control (2.5.7):
+    - React-Core
   - react-native-slider (4.5.6):
     - DoubleConversion
     - glog
@@ -2478,6 +2480,7 @@ DEPENDENCIES:
   - react-native-pdf (from `../node_modules/react-native-pdf`)
   - react-native-restart (from `../node_modules/react-native-restart`)
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
+  - "react-native-segmented-control (from `../node_modules/@react-native-segmented-control/segmented-control`)"
   - "react-native-slider (from `../node_modules/@react-native-community/slider`)"
   - react-native-video (from `../node_modules/react-native-video`)
   - react-native-view-shot (from `../node_modules/react-native-view-shot`)
@@ -2660,6 +2663,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-restart"
   react-native-safe-area-context:
     :path: "../node_modules/react-native-safe-area-context"
+  react-native-segmented-control:
+    :path: "../node_modules/@react-native-segmented-control/segmented-control"
   react-native-slider:
     :path: "../node_modules/@react-native-community/slider"
   react-native-video:
@@ -2833,6 +2838,7 @@ SPEC CHECKSUMS:
   react-native-pdf: e7980ebe741b1797f27ce451eab9dd9ca31484eb
   react-native-restart: 0bc732f4461709022a742bb29bcccf6bbc5b4863
   react-native-safe-area-context: 0f14bce545abcdfbff79ce2e3c78c109f0be283e
+  react-native-segmented-control: bf6e0032726727498e18dd437ae88afcdbc18e99
   react-native-slider: bb7eb4732940fab78217e1c096bb647d8b0d1cf3
   react-native-video: ebad7ae64c4d5302fd43ac76821d180adf4febd6
   react-native-view-shot: a38d952d5c7103b79a67c8aa82da95f98be6e5c2
