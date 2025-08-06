@@ -37,7 +37,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Markdown from 'react-native-markdown-display';
-import MathView from 'react-native-math-view';
+import KaTeX from 'react-native-katex';
 import { useCoinsSubscription } from '../hooks/useCoinsSubscription';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
@@ -49,6 +49,54 @@ const decode = (base64) => {
 
 // Add a module-scope variable to persist summary call status across mounts
 const summaryCalledForAudioId = {};
+
+// Helper function to render text with math expressions
+const renderTextWithMath = (text, textStyle) => {
+  if (!text) return null;
+  
+  // Split text by LaTeX expressions (both inline \(...\) and block \[...\])
+  const parts = text.split(/(\\\([^\)]*\\\)|\\\[[^\]]*\\\])/);
+  
+  return parts.map((part, index) => {
+    // Check if this part is a LaTeX expression
+    if (part.match(/^\\\([^\)]*\\\)$/)) {
+      // Inline math expression
+      const mathContent = part.slice(2, -2); // Remove \( and \)
+      return (
+        <MathView
+          key={index}
+          math={mathContent}
+          style={{
+            fontSize: 16,
+            color: textStyle?.color || '#333333',
+          }}
+        />
+      );
+    } else if (part.match(/^\\\[[^\]]*\\\]$/)) {
+      // Block math expression
+      const mathContent = part.slice(2, -2); // Remove \[ and \]
+      return (
+        <MathView
+          key={index}
+          math={mathContent}
+          style={{
+            fontSize: 18,
+            color: textStyle?.color || '#333333',
+            marginVertical: 8,
+            textAlign: 'center',
+          }}
+        />
+      );
+    } else {
+      // Regular text
+      return (
+        <Text key={index} style={textStyle}>
+          {part}
+        </Text>
+      );
+    }
+  });
+};
 
 const BotScreen2 = ({ navigation, route }) => {
   const { t } = useLanguage();
@@ -919,78 +967,7 @@ const BotScreen2 = ({ navigation, route }) => {
     setIsFullScreen(true);
   };
 
-  // Function to detect if the text is a mathematical expression
-  const isMathExpression = (text) => {
-    // Skip if text is too long (likely not a math expression)
-    if (text.length > 100) return false;
-    
-    // Skip if it's just a simple number
-    if (/^\d+$/.test(text)) return false;
-    
-    // Skip if it's a date
-    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(text) || /^\d{1,2}\-\d{1,2}\-\d{2,4}$/.test(text)) return false;
-    
-    // Skip if it's likely a list item with a number (e.g., "1. Item")
-    if (/^\d+\.\s+.+/.test(text) && !text.includes('=')) return false;
-    
-    // Skip if it's likely a normal sentence with numbers
-    if (text.split(' ').length > 8 && !/[\=\+\-\*\/\^\(\)]/.test(text)) return false;
-    
-    // Check for Pythagorean theorem pattern (3^2 + 4^2 = c^2)
-    if (/\d+\s*\^\s*\d+\s*[\+\-]\s*\d+\s*\^\s*\d+\s*=/.test(text)) {
-      return true;
-    }
-    
-    // Check for equation patterns (must have equals sign)
-    const hasEquation = /\=/.test(text);
-    
-    // Check for mathematical operators
-    const hasOperators = /[\+\-\*\/\(\)\[\]\{\}\^×÷]/.test(text);
-    
-    // Check for number patterns with operators (this is the strongest indicator)
-    const hasNumberWithOperator = /\d+\s*[\+\-\*\/\=\(\)\[\]\{\}\^×÷]\s*\d+/.test(text);
-    
-    // Check for common math expressions at the start of the text
-    const isCommonMathExpression = /^(solve|calculate|find|evaluate|simplify|compute)/.test(text.toLowerCase());
-    
-    // Check for fractions
-    const hasFraction = /\d+\s*\/\s*\d+/.test(text) && !/https?:\/\//.test(text); // Exclude URLs
-    
-    // Check for square roots or exponents or other math functions
-    const hasAdvancedMath = /sqrt|square root|\^|x\^2|x\^3|sin\(|cos\(|tan\(|log\(|π|pi/.test(text.toLowerCase());
-    
-    // Check for multiple numbers and operators (likely a calculation)
-    const hasMultipleOperations = /\d+\s*[\+\-\*\/]\s*\d+\s*[\+\-\*\/]\s*\d+/.test(text);
-    
-    // Check for specific equation patterns
-    const isEquation = /^\s*\d+\s*[\+\-\*\/]\s*\d+\s*\=/.test(text) || // 2 + 2 =
-                       /^\s*\d+\s*[\+\-\*\/\=]\s*\d+/.test(text) && text.length < 20; // Short expressions like 2+2
-    
-    // Check for common school math formulas
-    const hasCommonFormula = /(area|perimeter|volume|circumference|radius|diameter)\s*[\=:]/.test(text.toLowerCase()) ||
-                             /(a\^2\s*\+\s*b\^2\s*=\s*c\^2)|(E\s*=\s*mc\^2)|(F\s*=\s*ma)/.test(text);
-    
-    // Check for equations with variables
-    const hasVariables = /[a-z]\s*[\+\-\*\/\=]\s*\d+/.test(text.toLowerCase()) || 
-                         /\d+\s*[\+\-\*\/\=]\s*[a-z]/.test(text.toLowerCase()) ||
-                         /[a-z]\s*[\+\-\*\/\=]\s*[a-z]/.test(text.toLowerCase());
-    
-    // Return true if it looks like a math expression
-    return (isEquation ||
-            hasNumberWithOperator || 
-            (hasEquation && hasOperators) || 
-            (isCommonMathExpression && (hasOperators || hasEquation)) ||
-            hasFraction || 
-            hasAdvancedMath ||
-            hasMultipleOperations ||
-            hasCommonFormula ||
-            hasVariables);
-  };
 
-  // Function to detect if the text has math subscripts
-  const hasMathSubscripts = (text) => {
-    return /([a-zA-Z])_(\d)|([a-zA-Z])_n|([a-zA-Z])_i|([a-zA-Z])_j|([a-zA-Z])_k|([a-zA-Z])_a|([a-zA-Z])_x|([a-zA-Z])_\{([^}]+)\}/.test(text);
-  };
 
   // Function to detect ChatGPT style section titles and parse them properly
   const detectAndFormatTitles = (text) => {
@@ -1186,7 +1163,7 @@ const BotScreen2 = ({ navigation, route }) => {
             const line = item.text;
             const isHeading = /^#{1,3}\s.+/.test(line) || /^[A-Z].*:$/.test(line);
             const isSubheading = /^[\*\-•]\s+.+/.test(line) || /^\d+\.\s+.+/.test(line);
-            const hasMathExpression = isMathExpression(line) || /\$(.+?)\$/.test(line);
+            const hasMathExpression = false;
             const isChineseHeading = isChineseContent && (/^#+\s+.+/.test(line) || /^([\u4e00-\u9fa5]+[：:])$/.test(line));
             const isChineseSubheading = isChineseContent && (/^[•·◦◆■◉○●][\s]/.test(line) || /^[一二三四五六七八九十]、/.test(line) || /^\d+[、.．][\s]/.test(line));
             
@@ -1209,7 +1186,7 @@ const BotScreen2 = ({ navigation, route }) => {
         return lines.map(line => {
           const isHeading = /^#{1,3}\s.+/.test(line) || /^[A-Z].*:$/.test(line);
           const isSubheading = /^[\*\-•]\s+.+/.test(line) || /^\d+\.\s+.+/.test(line);
-          const hasMathExpression = isMathExpression(line) || /\$(.+?)\$/.test(line);
+          const hasMathExpression = false;
           const isChineseHeading = isChineseContent && (/^#+\s+.+/.test(line) || /^([\u4e00-\u9fa5]+[：:])$/.test(line));
           const isChineseSubheading = isChineseContent && (/^[•·◦◆■◉○●][\s]/.test(line) || /^[一二三四五六七八九十]、/.test(line) || /^\d+[、.．][\s]/.test(line));
           
@@ -1486,352 +1463,9 @@ const BotScreen2 = ({ navigation, route }) => {
       }
     };
 
-    // Function to detect if text has math subscripts
-    const hasMathSubscripts = (text) => {
-      return /([a-zA-Z])_(\d)|([a-zA-Z])_n|([a-zA-Z])_i|([a-zA-Z])_j|([a-zA-Z])_k|([a-zA-Z])_a|([a-zA-Z])_x|([a-zA-Z])_\{([^}]+)\}/.test(text);
-    };
 
-    // Function to render text with math expressions
-    const renderTextWithMath = (line, index) => {
-      const isBot = line.sender === 'bot';
-      
-      // Check for LaTeX-style formulas
-      if (line.text.startsWith('\\[') || line.text.startsWith('\\(')) {
-        return renderLatexFormula(line.text, index, line.sender);
-      }
-      
-      // Process dollar sign delimited LaTeX (like $x^2$)
-      if (line.text.includes('$')) {
-        const parts = [];
-        const dollarRegex = /\$(.*?)\$/g;
-        let lastIndex = 0;
-        let match;
-        
-        while ((match = dollarRegex.exec(line.text)) !== null) {
-          // Add text before the formula
-          if (match.index > lastIndex) {
-            parts.push({
-              type: 'text',
-              content: line.text.substring(lastIndex, match.index)
-            });
-          }
-          
-          // Add the formula
-          parts.push({
-            type: 'inline-math',
-            content: match[1]
-          });
-          
-          lastIndex = match.index + match[0].length;
-        }
-        
-        // Add any remaining text
-        if (lastIndex < line.text.length) {
-          parts.push({
-            type: 'text',
-            content: line.text.substring(lastIndex)
-          });
-        }
-        
-        return (
-          <View key={`math-line-${index}`} style={styles.textLine}>
-            {parts.map((part, partIndex) => {
-              if (part.type === 'text') {
-                return (
-                  <Text 
-                    key={`text-part-${index}-${partIndex}`} 
-                    style={[isBot ? styles.botText : styles.userText, isBot && { color: colors.botText }]}
-                  >
-                    {part.content}
-                  </Text>
-                );
-              } else if (part.type === 'inline-math') {
-                return (
-                  <View key={`inline-math-${index}-${partIndex}`} style={styles.inlineMathContainer}>
-                    <MathView
-                      math={part.content}
-                      style={[styles.mathView, { color: colors.botText }]}
-                      resizeMode="cover"
-                    />
-                  </View>
-                );
-              } else if (part.type === 'display-math') {
-                return (
-                  <View key={`display-math-${index}-${partIndex}`} style={styles.displayMathContainer}>
-                    <MathView
-                      math={part.content}
-                      style={[styles.mathView, { color: colors.botText }]}
-                      resizeMode="cover"
-                    />
-                  </View>
-                );
-              }
-              return null;
-            })}
-          </View>
-        );
-      }
-      
-      // Add support for subscript notation
-      if (hasMathSubscripts(line.text)) {
-        // Process subscripts and use MathView for rendering
-        const mathText = line.text
-          .replace(/([a-zA-Z])_(\d)/g, '$1_{$2}')
-          .replace(/([a-zA-Z])_n/g, '$1_{n}')
-          .replace(/([a-zA-Z])_i/g, '$1_{i}')
-          .replace(/([a-zA-Z])_j/g, '$1_{j}')
-          .replace(/([a-zA-Z])_k/g, '$1_{k}')
-          .replace(/([a-zA-Z])_a/g, '$1_{a}')
-          .replace(/([a-zA-Z])_x/g, '$1_{x}')
-          .replace(/([a-zA-Z])_\{([^}]+)\}/g, '$1_{$2}');
-        
-        return (
-          <View key={`math-line-${index}`} style={styles.mathContainer}>
-            <MathView
-              math={mathText}
-              style={[styles.mathView, { color: colors.botText }]}
-              resizeMode="cover"
-            />
-          </View>
-        );
-      }
-      
-      // Check for specific patterns like Pythagorean theorem (a^2 + b^2 = c^2)
-      if (/[a-z]\^2\s*[\+\-]\s*[a-z]\^2\s*=\s*[a-z]\^2/.test(line.text) ||
-          /\d+\^2\s*[\+\-]\s*\d+\^2\s*=\s*[a-z]\^2/.test(line.text) ||
-          /\d+\s*\^\s*2\s*\+\s*\d+\s*\^\s*2\s*=\s*[a-z]\s*\^\s*2/.test(line.text) ||
-          /\d+\s*\+\s*\d+\s*=\s*[a-z]\^2/.test(line.text) ||
-          /[a-z]\^2\s*[\+\-]\s*[a-z]\^2\s*=/.test(line.text)) {
-        // Format it as LaTeX
-        let latexFormula = line.text
-          .replace(/([a-z])\s*\^\s*(\d+)/g, '$1^{$2}')
-          .replace(/(\d+)\s*\^\s*(\d+)/g, '$1^{$2}')
-          .replace(/sqrt\(([^)]+)\)/g, '\\sqrt{$1}')
-          .replace(/√\s*([a-z0-9]+)/g, '\\sqrt{$1}');
-        
-        return (
-          <View key={`pythagorean-${index}`} style={styles.mathContainer}>
-            <MathView
-              math={latexFormula}
-              style={[styles.mathView, { color: colors.botText }]}
-              resizeMode="cover"
-            />
-          </View>
-        );
-      }
 
-      // Special case for c = sqrt{25} = 5 pattern
-      if (/[a-z]\s*=\s*\\?sqrt\{?\d+\}?\s*=\s*\d+/.test(line.text) || 
-          /[a-z]\s*=\s*\\?sqrt\{?\d+\}?/.test(line.text)) {
-        let latexFormula = line.text
-          .replace(/sqrt\{?(\d+)\}?/g, '\\sqrt{$1}');
-        
-        return (
-          <View key={`sqrt-result-${index}`} style={styles.mathContainer}>
-            <MathView
-              math={latexFormula}
-              style={[styles.mathView, { color: colors.botText }]}
-              resizeMode="cover"
-            />
-          </View>
-        );
-      }
-      
-      // Use regex to find math expressions in the text
-      const mathRegex = /(\d+\s*[\+\-\*\/\=\(\)\[\]\{\}\^×÷]\s*\d+)|(\b\d+\s*[×÷=]\s*\d+\b)|(sqrt\([^)]+\))|(sin\([^)]+\))|(cos\([^)]+\))|(tan\([^)]+\))|(log\([^)]+\))/g;
-      const matches = line.text.match(mathRegex) || [];
-      
-      // If we found math expressions, split and format them
-      if (matches.length > 0) {
-        const parts = line.text.split(mathRegex);
-        const elements = [];
-        
-        parts.forEach((part, i) => {
-          if (part) {
-            elements.push(
-              <Text key={`text-part-${index}-${i}`} style={[
-                isBot ? styles.botText : styles.userText,
-                isBot && { color: colors.botText }
-              ]}>
-                {part}
-              </Text>
-            );
-          }
-          
-          if (matches[i]) {
-            // Format the math expression for better readability
-            const latexExpression = formatMathToLatex(matches[i]);
-            
-            elements.push(
-              <View key={`math-part-${index}-${i}`} style={styles.mathContainer}>
-                <MathView
-                  math={latexExpression}
-                  style={[styles.mathView, { color: colors.botText }]}
-                  resizeMode="cover"
-                />
-              </View>
-            );
-          }
-        });
-        
-        return (
-          <View key={`line-${index}`} style={styles.textLine}>
-            {elements}
-          </View>
-        );
-      }
-      
-      // If line is a Chinese heading
-      if (line.isChineseHeading) {
-        return (
-          <View key={`chinese-heading-${index}`} style={styles.chineseHeadingContainer}>
-            <Text style={[styles.chineseHeadingText, {
-              color: isBot ? colors.botText : '#333333',
-              fontWeight: 'bold'
-            }]}>
-              {line.text.replace(/^##+\s+|\d+\.\s+/, '')}
-            </Text>
-          </View>
-        );
-      }
-      
-      // If line is a Chinese subheading
-      if (line.isChineseSubheading) {
-        return (
-          <View key={`chinese-subheading-${index}`} style={styles.chineseSubheadingContainer}>
-            <Text style={[styles.chineseSubheadingPointer, {color: '#2274F0'}]}>•</Text>
-            <Text style={[styles.chineseSubheadingText, {
-              color: isBot ? colors.botText : '#333333',
-              fontWeight: 'bold'
-            }]}>
-              {line.text.replace(/^[•·◦◆■◉○●][\s]+|^\d+[、.．][\s]+|^[一二三四五六七八九十]、/, '')}
-            </Text>
-          </View>
-        );
-      }
-      
-      // If no math expressions found, return regular text
-      return (
-        <Text key={`text-${index}`} style={[
-          isBot ? styles.botText : styles.userText,
-          isBot && { color: colors.botText }
-        ]}>
-          {line.text}
-        </Text>
-      );
-    };
 
-    // Function to convert regular math expressions to LaTeX format
-    const formatMathToLatex = (expression) => {
-      let latex = expression;
-      
-      // Handle simple arithmetic expressions with equals sign (3^2 + 4^2 = c^2)
-      if (/\d+\s*[\^]\s*\d+\s*[\+\-]\s*\d+\s*[\^]\s*\d+\s*=\s*[a-z]\s*[\^]\s*\d+/.test(expression)) {
-        latex = latex
-          .replace(/([a-z0-9])\s*\^(\s*\d+)/g, '$1^{$2}')
-          .replace(/(\d+)\s*\^(\s*\d+)/g, '$1^{$2}');
-        return latex;
-      }
-      
-      // Handle result formulas (c^2 = 25 or c = sqrt{25} = 5)
-      if (/[a-z]\s*\^2\s*=\s*\d+/.test(expression) || 
-          /[a-z]\s*=\s*\\?sqrt\{?\d+\}?\s*=\s*\d+/.test(expression) ||
-          /[a-z]\s*=\s*\\?sqrt\{?\d+\}?/.test(expression)) {
-        latex = latex
-          .replace(/([a-z])\s*\^(\s*\d+)/g, '$1^{$2}')
-          .replace(/sqrt\{?(\d+)\}?/g, '\\sqrt{$1}');
-        return latex;
-      }
-      
-      // Handle simple arithmetic expressions (9 + 16 = 25)
-      if (/\d+\s*[\+\-\*\/]\s*\d+\s*=\s*\d+/.test(expression)) {
-        return latex;
-      }
-      
-      // Convert regular math operations to LaTeX
-      latex = latex.replace(/\*/g, '\\times ');
-      latex = latex.replace(/\//g, '\\div ');
-      latex = latex.replace(/sqrt\(([^)]+)\)/g, '\\sqrt{$1}');
-      latex = latex.replace(/square root of (\d+)/gi, '\\sqrt{$1}');
-      latex = latex.replace(/square root/gi, '\\sqrt{}');
-      
-      // Convert fractions
-      latex = latex.replace(/(\d+)\s*\/\s*(\d+)/g, '\\frac{$1}{$2}');
-      
-      // Convert trigonometric functions
-      latex = latex.replace(/sin\(([^)]+)\)/g, '\\sin($1)');
-      latex = latex.replace(/cos\(([^)]+)\)/g, '\\cos($1)');
-      latex = latex.replace(/tan\(([^)]+)\)/g, '\\tan($1)');
-      
-      // Convert logarithmic functions
-      latex = latex.replace(/log\(([^)]+)\)/g, '\\log($1)');
-      
-      // Replace ^ with LaTeX power notation
-      latex = latex.replace(/([a-zA-Z0-9])\s*\^(\s*\d+)/g, '$1^{$2}');
-      latex = latex.replace(/([a-zA-Z0-9])\s*\^([a-zA-Z0-9])/g, '$1^{$2}');
-      
-      // Format pi
-      latex = latex.replace(/\bpi\b/gi, '\\pi ');
-      
-      return latex;
-    };
-    
-    // Render square root notation using MathView
-    const renderSquareRoot = (formula, sender) => {
-      // Extract the content inside the square root
-      const rootMatch = formula.match(/√\(([^)]+)\)/);
-      const rootContent = rootMatch ? rootMatch[1] : formula.replace(/√/g, '').trim();
-      const isBot = sender === 'bot';
-      
-      return (
-        <View style={styles.sqrtContainer}>
-          <MathView
-            math={`\\sqrt{${rootContent}}`}
-            style={[styles.mathView, { color: colors.botText }]}
-            resizeMode="cover"
-          />
-        </View>
-      );
-    };
-    
-    // Function to format math expressions to LaTeX format
-    const formatMathExpression = (expression) => {
-      // Convert to LaTeX format
-      let latex = expression;
-      
-      // Replace * with × for multiplication
-      latex = latex.replace(/\*/g, '\\times ');
-      
-      // Format fractions
-      latex = latex.replace(/(\d+)\s*\/\s*(\d+)/g, '\\frac{$1}{$2}');
-      
-      // Format square roots
-      latex = latex.replace(/sqrt\(([^)]+)\)/g, '\\sqrt{$1}');
-      latex = latex.replace(/square root of (\d+)/gi, '\\sqrt{$1}');
-      latex = latex.replace(/square root/gi, '\\sqrt{}');
-      
-      // Format pi
-      latex = latex.replace(/\bpi\b/gi, '\\pi ');
-      
-      // Format trigonometric functions
-      latex = latex.replace(/\b(sin|cos|tan)\(/g, '\\$1(');
-      
-      // Format logarithmic functions
-      latex = latex.replace(/\blog\(/g, '\\log(');
-      
-      // Handle exponents
-      latex = latex.replace(/\^2/g, '^{2}');
-      latex = latex.replace(/\^3/g, '^{3}');
-      latex = latex.replace(/\^(\d+)/g, '^{$1}');
-      
-      // Check if the expression has fractions
-      const hasFraction = /\\frac\{.+\}\{.+\}/.test(latex);
-      
-      // Check if the expression has square roots
-      const hasSquareRoot = /\\sqrt\{.+\}/.test(latex);
-      
-      return { formattedMath: latex, hasFraction, hasSquareRoot };
-    };
 
     const renderLeftActions = () => {
       return (
@@ -1890,240 +1524,181 @@ const BotScreen2 = ({ navigation, route }) => {
                     </TouchableOpacity>
                   ) : (
                     <View style={isBot ? styles.botTextContainer : styles.userTextContainer}>
-                      {formatMessageText(item.text, item.sender).map((line, index) => {
-                        if (line.isMarkdown) {
-                          return (
-                            <Markdown 
-                              key={`markdown-${index}`}
-                              style={{
-                                body: {
-                                  color: isBot ? colors.botText : '#333333',
-                                  fontSize: 16,
-                                },
-                                heading1: {
-                                  color: isBot ? colors.primary : '#333333',
-                                  fontWeight: 'bold',
-                                  fontSize: 22,
-                                  marginTop: 12,
-                                  marginBottom: 6,
-                                  borderBottomWidth: 1,
-                                  borderBottomColor: colors.border,
-                                  paddingBottom: 6,
-                                },
-                                heading2: {
-                                  color: isBot ? colors.primary : '#333333',
-                                  fontWeight: 'bold',
-                                  fontSize: 18,
-                                  marginTop: 10,
-                                  marginBottom: 5,
-                                  paddingBottom: 4,
-                                },
-                                heading3: {
-                                  color: isBot ? colors.primary : '#333333',
-                                  fontWeight: 'bold',
-                                  fontSize: 16,
-                                  marginTop: 8,
-                                  marginBottom: 4,
-                                },
-                                paragraph: {
-                                  color: isBot ? colors.botText : '#333333',
-                                  fontSize: 16,
-                                  marginTop: 4,
-                                  marginBottom: 4,
-                                },
-                                list_item: {
-                                  color: isBot ? colors.botText : '#333333',
-                                  fontSize: 16,
-                                  marginTop: 4,
-                                },
-                                bullet_list: {
-                                  color: isBot ? colors.botText : '#333333',
-                                },
-                                ordered_list: {
-                                  marginLeft: 10,
-                                },
-                                ordered_list_item: {
-                                  flexDirection: 'row',
-                                  alignItems: 'flex-start',
-                                  marginBottom: 4,
-                                },
-                                ordered_list_icon: {
-                                  marginRight: 5,
-                                  fontWeight: 'bold',
-                                  color: colors.botText,
-                                },
-                                list_item_number: {
-                                  marginRight: 5,
-                                  fontWeight: 'bold',
-                                  fontSize: 16,
-                                  color: colors.botText,
-                                  width: 20,
-                                  textAlign: 'right',
-                                },
-                                list_item_content: {
-                                  flex: 1,
-                                  fontSize: 16,
-                                  color: colors.botText,
-                                },
-                                list_item_bullet: {
-                                  marginRight: 5,
-                                  fontSize: 16,
-                                  color: colors.botText,
-                                },
-                                blockquote: {
-                                  backgroundColor: 'rgba(128, 128, 128, 0.1)',
-                                  borderLeftWidth: 4,
-                                  borderLeftColor: colors.primary,
-                                  paddingLeft: 8,
-                                  paddingVertical: 4,
-                                  color: colors.botText,
-                                },
-                                code_block: {
-                                  backgroundColor: 'rgba(128, 128, 128, 0.1)',
-                                  padding: 8,
-                                  borderRadius: 4,
-                                  color: colors.botText,
-                                },
-                                code_inline: {
-                                  backgroundColor: 'rgba(128, 128, 128, 0.1)',
-                                  padding: 2,
-                                  borderRadius: 2,
-                                  color: colors.botText,
-                                },
-                                link: {
-                                  color: colors.primary,
-                                  textDecorationLine: 'underline',
-                                },
-                                table: {
-                                  borderWidth: 1,
-                                  borderColor: '#E0E0E0',
-                                  marginVertical: 10,
-                                },
-                                tr: {
-                                  borderBottomWidth: 1,
-                                  borderBottomColor: '#E0E0E0',
-                                  flexDirection: 'row',
-                                },
-                                th: {
-                                  padding: 8,
-                                  fontWeight: 'bold',
-                                  borderRightWidth: 1,
-                                  borderRightColor: '#E0E0E0',
-                                  backgroundColor: '#F5F5F5',
-                                  color: '#333333', // Keep tables with standard color
-                                },
-                                td: {
-                                  padding: 8,
-                                  borderRightWidth: 1,
-                                  borderRightColor: '#E0E0E0',
-                                  color: '#333333', // Keep tables with standard color
-                                },
-                                text: {
-                                  color: colors.botText,
-                                }
-                              }}
-                              // Adding custom renderers for better ordered lists
-                              rules={{
-                                // Custom ordered list renderer
-                                list: (node, children, parent, styles) => {
-                                  if (node.ordered) {
-                                    return (
-                                      <View key={node.key} style={styles.ordered_list}>
-                                        {children}
-                                      </View>
-                                    );
-                                  }
-                                  return (
-                                    <View key={node.key} style={styles.bullet_list}>
-                                      {children}
-                                    </View>
-                                  );
-                                },
-                                // Custom ordered list item renderer
-                                list_item: (node, children, parent, styles) => {
-                                  if (parent.ordered) {
-                                    return (
-                                      <View key={node.key} style={styles.ordered_list_item}>
-                                        <Text style={[styles.list_item_number, {color: '#2274F0'}]}>{node.index + 1}.</Text>
-                                        <View style={styles.list_item_content}>
-                                          {children}
-                                        </View>
-                                      </View>
-                                    );
-                                  }
-                                  return (
-                                    <View key={node.key} style={styles.list_item}>
-                                      <Text style={[styles.list_item_bullet, {color: '#2274F0'}]}>•</Text>
-                                      <View style={{ flex: 1 }}>
-                                        {children}
-                                      </View>
-                                    </View>
-                                  );
-                                },
-                                // Custom text renderer to ensure text color
-                                text: (node, children, parent, styles) => {
-                                  // Use dynamic color based on sender
-                                  return (
-                                    <Text key={node.key} style={[styles.text, {color: isBot ? colors.botText : '#333333'}]}>
-                                      {node.content}
-                                    </Text>
-                                  );
-                                }
-                              }}
-                            >
-                              {isCollapsed && shouldTruncate ? line.text.substring(0, 100) + '...' : line.text}
-                            </Markdown>
-                          );
-                        } else if (line.isTable) {
-                          return !isCollapsed ? renderTable(line, index) : null;
-                        } else if (line.isChineseHeading) {
-                          return (
-                            <View key={`chinese-heading-${index}`} style={styles.chineseHeadingContainer}>
-                              <Text style={[styles.chineseHeadingText, {
-                                color: isBot ? colors.botText : '#333333',
-                                fontWeight: 'bold'
-                              }]}>
-                                {line.text.replace(/^##+\s+|\d+\.\s+/, '')}
-                              </Text>
-                            </View>
-                          );
-                        } else if (line.isChineseSubheading) {
-                          return (
-                            <View key={`chinese-subheading-${index}`} style={styles.chineseSubheadingContainer}>
-                              <Text style={[styles.chineseSubheadingPointer, {color: '#2274F0'}]}>•</Text>
-                              <Text style={[styles.chineseSubheadingText, {
-                                color: isBot ? colors.botText : '#333333',
-                                fontWeight: 'bold'
-                              }]}>
-                                {line.text.replace(/^[•·◦◆■◉○●][\s]+|^\d+[、.．][\s]+|^[一二三四五六七八九十]、/, '')}
-                              </Text>
-                            </View>
-                          );
-                        } else if (line.isChineseSubSubheading) {
-                          return (
-                            <View key={`chinese-subsubheading-${index}`} style={styles.chineseSubSubheadingContainer}>
-                              <Text style={[styles.chineseSubSubheadingPointer, {color: '#2274F0'}]}>-</Text>
-                              <Text style={[styles.chineseSubSubheadingText, {
-                                color: colors.botText,
-                                fontWeight: 'bold'
-                              }]}>
-                                {line.text.trim()}
-                              </Text>
-                            </View>
-                          );
-                        } else if (line.hasMathExpression) {
-                          return !isCollapsed ? renderTextWithMath(line, index) : null;
-                        } else {
-                          return (
-                            <Text key={`text-${index}`} style={[
-                              isBot ? styles.botText : styles.userText,
-                              isBot && { color: colors.botText }
-                            ]}>
-                              {isCollapsed && shouldTruncate ? line.text.substring(0, 100) + '...' : line.text}
-                            </Text>
-                          );
-                        }
-                      })}
+                      <Markdown 
+                        style={{
+                          body: {
+                            color: isBot ? colors.botText : '#333333',
+                            fontSize: 16,
+                          },
+                          heading1: {
+                            color: isBot ? colors.primary : '#333333',
+                            fontWeight: 'bold',
+                            fontSize: 22,
+                            marginTop: 12,
+                            marginBottom: 6,
+                            borderBottomWidth: 1,
+                            borderBottomColor: colors.border,
+                            paddingBottom: 6,
+                          },
+                          heading2: {
+                            color: isBot ? colors.primary : '#333333',
+                            fontWeight: 'bold',
+                            fontSize: 18,
+                            marginTop: 10,
+                            marginBottom: 5,
+                            paddingBottom: 4,
+                          },
+                          heading3: {
+                            color: isBot ? colors.primary : '#333333',
+                            fontWeight: 'bold',
+                            fontSize: 16,
+                            marginTop: 8,
+                            marginBottom: 4,
+                          },
+                          paragraph: {
+                            color: isBot ? colors.botText : '#333333',
+                            fontSize: 16,
+                            marginTop: 4,
+                            marginBottom: 4,
+                          },
+                          list_item: {
+                            color: isBot ? colors.botText : '#333333',
+                            fontSize: 16,
+                            marginTop: 4,
+                          },
+                          bullet_list: {
+                            color: isBot ? colors.botText : '#333333',
+                          },
+                          ordered_list: {
+                            marginLeft: 10,
+                          },
+                          ordered_list_item: {
+                            flexDirection: 'row',
+                            alignItems: 'flex-start',
+                            marginBottom: 4,
+                          },
+                          ordered_list_icon: {
+                            marginRight: 5,
+                            fontWeight: 'bold',
+                            color: colors.botText,
+                          },
+                          list_item_number: {
+                            marginRight: 5,
+                            fontWeight: 'bold',
+                            fontSize: 16,
+                            color: colors.botText,
+                            width: 20,
+                            textAlign: 'right',
+                          },
+                          list_item_content: {
+                            flex: 1,
+                            fontSize: 16,
+                            color: colors.botText,
+                          },
+                          list_item_bullet: {
+                            marginRight: 5,
+                            fontSize: 16,
+                            color: colors.botText,
+                          },
+                          blockquote: {
+                            backgroundColor: 'rgba(128, 128, 128, 0.1)',
+                            borderLeftWidth: 4,
+                            borderLeftColor: colors.primary,
+                            paddingLeft: 8,
+                            paddingVertical: 4,
+                            color: colors.botText,
+                          },
+                          code_block: {
+                            backgroundColor: 'rgba(128, 128, 128, 0.1)',
+                            padding: 8,
+                            borderRadius: 4,
+                            color: colors.botText,
+                          },
+                          code_inline: {
+                            backgroundColor: 'rgba(128, 128, 128, 0.1)',
+                            padding: 2,
+                            borderRadius: 2,
+                            color: colors.botText,
+                          },
+                          link: {
+                            color: colors.primary,
+                            textDecorationLine: 'underline',
+                          },
+                          table: {
+                            borderWidth: 1,
+                            borderColor: '#E0E0E0',
+                            marginVertical: 10,
+                          },
+                          tr: {
+                            borderBottomWidth: 1,
+                            borderBottomColor: '#E0E0E0',
+                            flexDirection: 'row',
+                          },
+                          th: {
+                            padding: 8,
+                            fontWeight: 'bold',
+                            borderRightWidth: 1,
+                            borderRightColor: '#E0E0E0',
+                            backgroundColor: '#F5F5F5',
+                            color: '#333333',
+                          },
+                          td: {
+                            padding: 8,
+                            borderRightWidth: 1,
+                            borderRightColor: '#E0E0E0',
+                            color: '#333333',
+                          },
+                          text: {
+                            color: colors.botText,
+                          }
+                        }}
+                        rules={{
+                          list: (node, children, parent, styles) => {
+                            if (node.ordered) {
+                              return (
+                                <View key={node.key} style={styles.ordered_list}>
+                                  {children}
+                                </View>
+                              );
+                            }
+                            return (
+                              <View key={node.key} style={styles.bullet_list}>
+                                {children}
+                              </View>
+                            );
+                          },
+                          list_item: (node, children, parent, styles) => {
+                            if (parent.ordered) {
+                              return (
+                                <View key={node.key} style={styles.ordered_list_item}>
+                                  <Text style={[styles.list_item_number, {color: '#2274F0'}]}>{node.index + 1}.</Text>
+                                  <View style={styles.list_item_content}>
+                                    {children}
+                                  </View>
+                                </View>
+                              );
+                            }
+                            return (
+                              <View key={node.key} style={styles.list_item}>
+                                <Text style={[styles.list_item_bullet, {color: '#2274F0'}]}>•</Text>
+                                <View style={{ flex: 1 }}>
+                                  {children}
+                                </View>
+                              </View>
+                            );
+                          },
+                          text: (node, children, parent, styles) => {
+  const textStyle = [styles.text, {color: isBot ? colors.botText : '#333333'}];
+  return (
+    <View key={node.key} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
+      {renderTextWithMath(node.content, textStyle)}
+    </View>
+  );
+}
+                        }}
+                      >
+                        {item.text}
+                      </Markdown>
                     </View>
                   )}
                   {shouldTruncate && (
@@ -2185,167 +1760,7 @@ const BotScreen2 = ({ navigation, route }) => {
     setFullScreenImage(imageUri);
   };
 
-  // Render a formula with proper fractions
-  const renderFractionFormula = (parts, sender) => {
-    const isBot = sender === 'bot';
-    return (
-      <View style={styles.formulaContainer}>
-        {parts.map((part, i) => {
-          if (part.type === 'text') {
-            return (
-              <Text key={`formula-part-${i}`} style={[styles.mathText, { color: isBot ? colors.botText : '#fff' }]}>
-                {part.content}
-              </Text>
-            );
-          } else if (part.type === 'fraction') {
-            return (
-              <View key={`fraction-${i}`} style={styles.fractionContainer}>
-                <Text style={[styles.numerator, { color: isBot ? colors.botText : '#fff' }]}>{part.numerator}</Text>
-                <View style={[styles.fractionLine, { backgroundColor: isBot ? colors.botText : '#fff' }]} />
-                <Text style={[styles.denominator, { color: isBot ? colors.botText : '#fff' }]}>{part.denominator}</Text>
-              </View>
-            );
-          }
-          return null;
-        })}
-      </View>
-    );
-  };
 
-  // Parse a math formula to identify fractions
-  const parseFractionFormula = (formula) => {
-    // Split the formula into parts - operators, numbers, and fractions
-    const fractionRegex = /(\d+)\s*\/\s*(\d+)/g;
-    const parts = [];
-    let lastIndex = 0;
-    let match;
-    
-    while ((match = fractionRegex.exec(formula)) !== null) {
-      // Add the text before the fraction
-      if (match.index > lastIndex) {
-        parts.push({
-          type: 'text',
-          content: formula.substring(lastIndex, match.index).trim()
-        });
-      }
-      
-      // Add the fraction
-      parts.push({
-        type: 'fraction',
-        numerator: match[1].trim(),
-        denominator: match[2].trim()
-      });
-      
-      lastIndex = match.index + match[0].length;
-    }
-    
-    // Add any remaining text
-    if (lastIndex < formula.length) {
-      parts.push({
-        type: 'text',
-        content: formula.substring(lastIndex).trim()
-      });
-    }
-    
-    return parts.length > 0 ? parts : [{ type: 'text', content: formula }];
-  };
-
-  // Render LaTeX style formulas
-  const renderLatexFormula = (formula, index, sender) => {
-    const isBot = sender === 'bot';
-    
-    // Remove the LaTeX delimiters
-    let cleanFormula = formula.replace(/\\\[|\\\]|\\\(|\\\)/g, '');
-    
-    // Handle subscripts like a_{n} before other replacements
-    cleanFormula = cleanFormula.replace(/([a-zA-Z])_{([^}]+)}/g, '$1ₙ');
-    cleanFormula = cleanFormula.replace(/([a-zA-Z])_(\d)/g, (match, p1, p2) => {
-      const subscripts = {
-        '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
-        '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉'
-      };
-      return p1 + subscripts[p2];
-    });
-    
-    // Replace LaTeX-style commands with proper math notation
-    cleanFormula = cleanFormula
-      .replace(/\\sqrt\{([^}]+)\}/g, '√($1)')
-      .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '$1/$2')
-      .replace(/\\int/g, '∫')
-      .replace(/\\sum/g, '∑')
-      .replace(/\\prod/g, '∏')
-      .replace(/\\infty/g, '∞')
-      .replace(/\\rightarrow/g, '→')
-      .replace(/\\leftarrow/g, '←')
-      .replace(/\\Rightarrow/g, '⇒')
-      .replace(/\\Leftarrow/g, '⇐')
-      .replace(/\\alpha/g, 'α')
-      .replace(/\\beta/g, 'β')
-      .replace(/\\gamma/g, 'γ')
-      .replace(/\\delta/g, 'δ')
-      .replace(/\\epsilon/g, 'ε')
-      .replace(/\\zeta/g, 'ζ')
-      .replace(/\\eta/g, 'η')
-      .replace(/\\theta/g, 'θ')
-      .replace(/\\iota/g, 'ι')
-      .replace(/\\kappa/g, 'κ')
-      .replace(/\\lambda/g, 'λ')
-      .replace(/\\mu/g, 'μ')
-      .replace(/\\nu/g, 'ν')
-      .replace(/\\xi/g, 'ξ')
-      .replace(/\\pi/g, 'π')
-      .replace(/\\rho/g, 'ρ')
-      .replace(/\\sigma/g, 'σ')
-      .replace(/\\tau/g, 'τ')
-      .replace(/\\upsilon/g, 'υ')
-      .replace(/\\phi/g, 'φ')
-      .replace(/\\chi/g, 'χ')
-      .replace(/\\psi/g, 'ψ')
-      .replace(/\\omega/g, 'ω')
-      .replace(/\\_\{([^}]+)\}/g, '_$1')
-      .replace(/\\in/g, '∈')
-      .replace(/\\subset/g, '⊂')
-      .replace(/\\supset/g, '⊃')
-      .replace(/\\cup/g, '∪')
-      .replace(/\\cap/g, '∩')
-      .replace(/\\cdot/g, '·')
-      .replace(/\\times/g, '×')
-      .replace(/\\div/g, '÷')
-      .replace(/\\equiv/g, '≡')
-      .replace(/\\approx/g, '≈')
-      .replace(/\\neq/g, '≠')
-      .replace(/\\leq/g, '≤')
-      .replace(/\\geq/g, '≥')
-      .replace(/\\partial/g, '∂')
-      .replace(/\\nabla/g, '∇')
-      .replace(/\\forall/g, '∀')
-      .replace(/\\exists/g, '∃');
-    
-    // Check if we need to handle fractions or square roots
-    const hasFraction = /\d+\s*\/\s*\d+/.test(cleanFormula);
-    const hasSquareRoot = /√\(([^)]+)\)/.test(cleanFormula) || /√\d+/.test(cleanFormula);
-    
-    if (hasFraction) {
-      const fractionParts = parseFractionFormula(cleanFormula);
-      return (
-        <View key={`latex-formula-${index}`} style={styles.complexMathContainer}>
-          {renderFractionFormula(fractionParts, sender)}
-        </View>
-      );
-    } else if (hasSquareRoot) {
-      return (
-        <View key={`latex-formula-${index}`} style={styles.complexMathContainer}>
-          {renderSquareRoot(cleanFormula, sender)}
-        </View>
-      );
-    } else {
-      return (
-        <View key={`latex-formula-${index}`} style={styles.complexMathContainer}>
-          <Text style={styles.complexMathText}>{cleanFormula}</Text>
-        </View>
-      );
-    }
-  };
 
   useEffect(() => {
     // This will ensure the FlatList scrolls to the end when a new message is added
@@ -2477,13 +1892,14 @@ const BotScreen2 = ({ navigation, route }) => {
           maxLength={2000}
           scrollEnabled={true}
         />
-        <TouchableOpacity onPress={handleAttach} style={styles.sendButton}>
+        {/* Upload button commented out */}
+        {/* <TouchableOpacity onPress={handleAttach} style={styles.sendButton}>
           {showAdditionalButtons ? (
             <Ionicons name="close" size={28} color="#4C8EF7" />
           ) : (
             <Ionicons name="add" size={28} color="#4C8EF7" />
           )}
-        </TouchableOpacity>
+        </TouchableOpacity> */}
        
         <TouchableOpacity 
           onPress={handleSendMessage} 
@@ -2515,7 +1931,8 @@ const BotScreen2 = ({ navigation, route }) => {
         </TouchableOpacity>
       </View>
       </ScrollView>
-      {showAdditionalButtons && (
+      {/* Additional upload buttons commented out */}
+      {/* {showAdditionalButtons && (
              <View style={[styles.additionalButtonsContainer, {backgroundColor: colors.background2}]  }>
                 <View style={styles.buttonRow}>
                     <TouchableOpacity style={styles.additionalButton2} onPress={() => handleImageOCR('camera')}>
@@ -2540,7 +1957,7 @@ const BotScreen2 = ({ navigation, route }) => {
                     </TouchableOpacity>
                 </View>
             </View>
-        )}
+        )} */}
 </KeyboardAvoidingView>
 
       <Modal
@@ -3475,36 +2892,7 @@ marginBottom:-10,
     color: '#333333', // Default color that will be overridden with inline style
   },
   // MathView styles
-  mathView: {
-    minHeight: 30,
-    alignSelf: 'center',
-    margin: 5,
-    fontFamily: 'monospace',
-    fontWeight: 'bold',
-  },
-  mathContainer: {
-    marginVertical: 5,
-    padding: 5,
-    backgroundColor: 'rgba(240, 240, 240, 0.3)',
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  inlineMathContainer: {
-    marginHorizontal: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  displayMathContainer: {
-    marginVertical: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    backgroundColor: 'rgba(240, 240, 240, 0.3)',
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
-  },
+
   
   // Table styles
   tableContainer: {
@@ -3659,51 +3047,7 @@ marginBottom:-10,
     borderBottomWidth: 0,
   },
   // ... existing code ...
-  fractionContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: 2,
-  },
-  numerator: {
-    fontSize: 16,
-    textAlign: 'center',
-  },
-  fractionLine: {
-    height: 1,
-    width: '100%',
-    backgroundColor: '#333',
-    marginVertical: 2,
-  },
-  denominator: {
-    fontSize: 16,
-    textAlign: 'center',
-  },
-  formulaContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    padding: 5,
-  },
-  sqrtContainer: {
-    padding: 5,
-    alignItems: 'center',
-  },
-  textLine: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginVertical: 2,
-  },
-  complexMathContainer: {
-    marginVertical: 5,
-    backgroundColor: 'rgba(240, 240, 240, 0.2)',
-    borderRadius: 8,
-    padding: 10,
-    alignItems: 'center',
-  },
-  complexMathText: {
-    fontSize: 16,
-    fontFamily: 'monospace',
-  },
+
   
   // Chinese content styles
   chineseHeadingContainer: {

@@ -541,7 +541,15 @@ const LoginScreen = ({ navigation }) => {
       }
     } catch (error) {
       console.error('Social login error:', error);
-      showError(error.message || 'Failed to login with social provider');
+      
+      // Handle specific Apple authentication errors
+      if (error.message && error.message.includes('AuthenticationServices.AuthorizationError error 1000')) {
+        showError('Apple Sign-In configuration error. Please try again or contact support if the issue persists.');
+      } else if (error.message && error.message.includes('AuthenticationServices.AuthorizationError error 1001')) {
+        showError('Apple Sign-In was cancelled. Please try again.');
+      } else {
+        showError(error.message || 'Failed to login with social provider');
+      }
     } finally {
       setIsLoading(false);
     }

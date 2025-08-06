@@ -19,6 +19,7 @@
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = MatrixAI/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = MatrixAI/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = MatrixAI/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		13B07FB91A68108700A75B9A /* MatrixAI.entitlements */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.entitlements; name = MatrixAI.entitlements; path = MatrixAI/MatrixAI.entitlements; sourceTree = "<group>"; };
 		1E4376214F3709132D9A1A75 /* libPods-MatrixAI.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-MatrixAI.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2F24B502642BA6606B3146D1 /* Pods-MatrixAI.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MatrixAI.release.xcconfig"; path = "Target Support Files/Pods-MatrixAI/Pods-MatrixAI.release.xcconfig"; sourceTree = "<group>"; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = MatrixAI/AppDelegate.swift; sourceTree = "<group>"; };
@@ -47,6 +48,7 @@
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
+				13B07FB91A68108700A75B9A /* MatrixAI.entitlements */,
 			);
 			name = MatrixAI;
 			sourceTree = "<group>";
@@ -256,7 +258,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Check if we're building for device or simulator\nif [[ \"$EFFECTIVE_PLATFORM_NAME\" != *simulator* ]]; then\n  # Only run for archive builds (Release builds for actual devices)\n  if [ \"$CONFIGURATION\" == \"Release\" ]; then\n    # Execute the fix_hermes_dsym.sh script\n    \"${SRCROOT}/fix_hermes_dsym.sh\"\n    \n    # Also execute the ensure_hermes_dsym.sh script for extra protection\n    \"${SRCROOT}/scripts/ensure_hermes_dsym.sh\"\n  fi\nfi\n";
+			shellScript = "# Fix Hermes dSYM for App Store submission\nset -e\n\necho \"Starting Hermes dSYM fix script...\"\n\n# Only run for device builds (not simulator)\nif [[ \"$EFFECTIVE_PLATFORM_NAME\" == *simulator* ]]; then\n  echo \"Skipping dSYM generation for simulator build\"\n  exit 0\nfi\n\n# Find Hermes framework in built products\nHERMES_FRAMEWORK=\"$BUILT_PRODUCTS_DIR/hermes.framework\"\n\nif [ ! -d \"$HERMES_FRAMEWORK\" ]; then\n  echo \"Hermes framework not found at: $HERMES_FRAMEWORK\"\n  exit 0\nfi\n\necho \"Found Hermes framework at: $HERMES_FRAMEWORK\"\n\n# Generate dSYM for Hermes\nHERMES_BINARY=\"$HERMES_FRAMEWORK/hermes\"\nHERMES_DSYM=\"$HERMES_FRAMEWORK.dSYM\"\n\nif [ -f \"$HERMES_BINARY\" ]; then\n  echo \"Generating dSYM for Hermes...\"\n  \n  # Remove existing dSYM if it exists\n  if [ -d \"$HERMES_DSYM\" ]; then\n    rm -rf \"$HERMES_DSYM\"\n  fi\n  \n  # Generate new dSYM\n  xcrun dsymutil \"$HERMES_BINARY\" -o \"$HERMES_DSYM\"\n  \n  if [ -d \"$HERMES_DSYM\" ]; then\n    echo \"Successfully generated Hermes dSYM at: $HERMES_DSYM\"\n    \n    # Verify UUIDs match\n    BINARY_UUID=$(xcrun dwarfdump --uuid \"$HERMES_BINARY\" | awk '{print $2}')\n    DSYM_UUID=$(xcrun dwarfdump --uuid \"$HERMES_DSYM/Contents/Resources/DWARF/hermes\" | awk '{print $2}')\n    \n    echo \"Binary UUID: $BINARY_UUID\"\n    echo \"dSYM UUID: $DSYM_UUID\"\n    \n    if [ \"$BINARY_UUID\" == \"$DSYM_UUID\" ]; then\n      echo \"UUID verification successful\"\n    else\n      echo \"WARNING: UUIDs do not match\"\n    fi\n  else\n    echo \"Failed to generate Hermes dSYM\"\n  fi\nelse\n  echo \"Hermes binary not found at: $HERMES_BINARY\"\nfi\n\necho \"Hermes dSYM fix script completed\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -278,6 +280,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = MatrixAI/MatrixAI.entitlements;
 				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = 75NR4WL287;
 				ENABLE_BITCODE = NO;
@@ -309,6 +312,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = MatrixAI/MatrixAI.entitlements;
 				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = 75NR4WL287;
 				INFOPLIST_FILE = MatrixAI/Info.plist;

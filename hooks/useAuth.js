@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabaseClient';
 import NetInfo from '@react-native-community/netinfo';
+import { handleAuthError, withAuthErrorHandling } from '../utils/authErrorHandler';
 
 export const useAuth = () => {
     const [uid, setUid] = useState(null);
@@ -81,26 +82,27 @@ export const useAuth = () => {
                             // Try to verify this UID with Supabase before using it
                             try {
                                 // Try to refresh the session
-                                const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+                                const result = await withAuthErrorHandling(
+                                    () => supabase.auth.refreshSession(),
+                                    setUid
+                                );
                                 
-                                if (refreshData?.session?.user?.id) {
-                                    // Use the refreshed session UID
-                                    userId = refreshData.session.user.id;
-                                    console.log("Refreshed session, using UID:", userId);
-                                    await AsyncStorage.setItem('uid', userId);
-                                } else if (!refreshError) {
-                                    // No error but no session either - use stored UID
-                                    userId = storedUid;
+                                if (result.authCleared) {
+                                    console.log("Authentication was cleared due to invalid session");
+                                    userId = null;
                                 } else {
-                                    console.log("Session refresh failed:", refreshError?.message);
-                                    // If refresh fails, check if the session was removed
-                                    if (refreshError.message.includes('session not found')) {
-                                        // Session is invalid, clear stored UID
-                                        console.log("Invalid session, clearing UID");
-                                        await AsyncStorage.removeItem('uid');
-                                        await AsyncStorage.removeItem('userLoggedIn');
-                                        userId = null;
+                                    const { data: refreshData, error: refreshError } = result;
+                                    
+                                    if (refreshData?.session?.user?.id) {
+                                        // Use the refreshed session UID
+                                        userId = refreshData.session.user.id;
+                                        console.log("Refreshed session, using UID:", userId);
+                                        await AsyncStorage.setItem('uid', userId);
+                                    } else if (!refreshError) {
+                                        // No error but no session either - use stored UID
+                                        userId = storedUid;
                                     } else {
+                                        console.log("Session refresh failed:", refreshError?.message);
                                         // Some other error, use stored UID but log warning
                                         console.log("Warning: using stored UID without verification");
                                         userId = storedUid;
@@ -109,13 +111,17 @@ export const useAuth = () => {
                             } catch (verifyError) {
                                 console.error("Error verifying stored UID:", verifyError);
                                 
-                                if (!isConnected) {
+                                if (verifyError.authCleared) {
+                                    console.log("Authentication was cleared due to error");
+                                    userId = null;
+                                } else if (!isConnected) {
                                     // If offline, use stored UID anyway
                                     console.log("Offline mode - using stored UID without verification");
                                     userId = storedUid;
                                     setIsOffline(true);
                                 } else {
-                                    // Use stored UID anyway as fallback
+                                    // Handle other types of errors
+                                    await handleAuthError(verifyError, setUid);
                                     userId = storedUid;
                                 }
                             }
@@ -173,11 +179,26 @@ export const useAuth = () => {
             // If we transition from offline to online and have a UID, 
             // try to verify the session and sync with server
             if (state.isConnected && uid) {
-                supabase.auth.refreshSession().then(({ data, error }) => {
-                    if (error) {
-                        console.log("Failed to refresh session on reconnect:", error.message);
-                    } else if (data?.session) {
-                        console.log("Successfully refreshed session on reconnect");
+                withAuthErrorHandling(
+                    () => supabase.auth.refreshSession(),
+                    setUid
+                ).then(async (result) => {
+                    if (result.authCleared) {
+                        console.log("Authentication was cleared due to invalid session on reconnect");
+                    } else {
+                        const { data, error } = result;
+                        if (error) {
+                            console.log("Failed to refresh session on reconnect:", error.message);
+                        } else if (data?.session) {
+                            console.log("Successfully refreshed session on reconnect");
+                        }
+                    }
+                }).catch(async (error) => {
+                    if (error.authCleared) {
+                        console.log("Authentication was cleared due to error on reconnect");
+                    } else {
+                        console.log("Error refreshing session on reconnect:", error);
+                        await handleAuthError(error, setUid);
                     }
                 });
             }
@@ -190,4 +211,4 @@ export const useAuth = () => {
     }, []);
 
     return { uid, loading, isOffline };
-}; 
+};

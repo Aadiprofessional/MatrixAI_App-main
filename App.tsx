@@ -5,6 +5,8 @@ import { enableScreens } from 'react-native-screens';
 import NetInfo from '@react-native-community/netinfo';
 import { Linking, Platform } from 'react-native';
 import { supabase } from './supabaseClient';
+import ProtectedRoute, { PROTECTED_SCREENS } from './components/ProtectedRoute';
+import { handleAuthError } from './utils/authErrorHandler';
 
 
 // Import i18n configuration
@@ -145,51 +147,47 @@ const App = () => {
                 }
                 
                 // If online, check if we have a valid Supabase session
-                const { data: { session } } = await supabase.auth.getSession();
+                const { data: { session }, error: sessionError } = await supabase.auth.getSession();
                 const hasValidSession = !!session?.user?.id;
                 
-                // Update login status based on both local storage and session
-                const shouldBeLoggedIn = userStatus === 'true' && hasValidSession;
-                setIsLoggedIn(shouldBeLoggedIn);
+                console.log('Session check:', { hasValidSession, userStatus, sessionError: sessionError?.message });
                 
                 // If sessions don't match, update localStorage
                 if (userStatus === 'true' && !hasValidSession) {
-                    console.log('Session expired or invalid, updating login status');
+                    console.log('Session expired or invalid, attempting refresh');
                     
                     // Try to refresh the session first
                     const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
                     
-                    if (refreshData?.session) {
+                    if (refreshData?.session?.user?.id) {
                         console.log('Successfully refreshed expired session');
                         await AsyncStorage.setItem('uid', refreshData.session.user.id);
                         setIsLoggedIn(true);
                     } else {
                         console.log('Could not refresh session:', refreshError?.message);
-                        await AsyncStorage.setItem('userLoggedIn', 'false');
+                        // Use auth error handler for better error handling
+                        const wasCleared = await handleAuthError(refreshError);
+                        if (wasCleared) {
+                            setIsLoggedIn(false);
+                        }
                     }
                 } else if (userStatus !== 'true' && hasValidSession) {
                     console.log('Found valid session, updating login status');
                     await AsyncStorage.setItem('userLoggedIn', 'true');
                     await AsyncStorage.setItem('uid', session.user.id);
                     setIsLoggedIn(true);
+                } else {
+                    // Both match - use the current state
+                    setIsLoggedIn(userStatus === 'true' && hasValidSession);
                 }
                 
-                // Pre-load language preference (LanguageContext will handle this)
-                console.log('App initialized, logged in:', shouldBeLoggedIn);
+                console.log('App initialized, logged in:', isLoggedIn);
             } catch (error) {
                 console.error('Error initializing app:', error);
-                // On error, check if we have valid offline credentials
+                // On error, clear authentication state to be safe
                 try {
-                    const userStatus = await AsyncStorage.getItem('userLoggedIn');
-                    const storedUid = await AsyncStorage.getItem('uid');
-                    
-                    if (userStatus === 'true' && storedUid) {
-                        console.log('Using offline authentication due to initialization error');
-                        setIsLoggedIn(true);
-                    } else {
-                        // Assume not logged in if no valid offline credentials
-                        setIsLoggedIn(false);
-                    }
+                    await AsyncStorage.multiRemove(['userLoggedIn', 'uid', 'supabase-session', 'user']);
+                    setIsLoggedIn(false);
                 } catch (finalError) {
                     console.error('Critical error during initialization:', finalError);
                     setIsLoggedIn(false);
@@ -200,6 +198,39 @@ const App = () => {
         };
 
         initializeApp();
+    }, []);
+
+    // Listen for auth state changes from Supabase
+    useEffect(() => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+            async (event: any, session: any) => {
+                console.log('App.tsx: Auth state changed:', event, !!session);
+                
+                if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !session)) {
+                    console.log('User signed out or token refresh failed, clearing state');
+                    // Clear all authentication data
+                    await AsyncStorage.multiRemove(['userLoggedIn', 'uid', 'supabase-session', 'user']);
+                    await AsyncStorage.removeItem('supabase.auth.token');
+                    const keys = await AsyncStorage.getAllKeys();
+                    const authKeys = keys.filter(key => key.includes('auth') || key.includes('session'));
+                    if (authKeys.length > 0) {
+                        await AsyncStorage.multiRemove(authKeys);
+                    }
+                    setIsLoggedIn(false);
+                } else if (event === 'SIGNED_IN' || (event === 'TOKEN_REFRESHED' && session)) {
+                    console.log('User signed in or token refreshed successfully');
+                    if (session?.user?.id) {
+                        await AsyncStorage.setItem('userLoggedIn', 'true');
+                        await AsyncStorage.setItem('uid', session.user.id);
+                        setIsLoggedIn(true);
+                    }
+                }
+            }
+        );
+
+        return () => {
+            subscription?.unsubscribe();
+        };
     }, []);
 
     // If still loading, show a spinner
@@ -242,6 +273,19 @@ const App = () => {
                                         if (path.includes('auth/callback') || path.includes('access_token') || path.includes('code=')) {
                                             console.log('Auth callback detected in NavigationContainer');
                                             // Return the user to the Login screen where the deep link handler will process the auth
+                                            return {
+                                                routes: [{ name: 'Login' }]
+                                            };
+                                        }
+                                        
+                                        // Check if user is trying to access protected routes without authentication
+                                        const protectedRoutes = ['home', 'profile', 'aishop', 'botscreen', 'speechtotextscreen', 'translatescreen', 'imagetextscreen', 'createimagescreen', 'videoupload', 'imageselectscreen', 'createvideoscreen', 'pptgeneratescreen', 'createpptscreen', 'productdetail', 'fillinformationscreen', 'paymentsuccess', 'referralscreen', 'subscriptionscreen', 'transactionscreen', 'settingsscreen', 'timescreen', 'removebackground', 'editprofile', 'callscreen', 'buysubscription', 'combinedcontentscreen', 'antompaymentscreen', 'paymentwebview', 'paymentsuccessscreen', 'customersupportscreen', 'orderhistoryscreen', 'helpscreen', 'addonscreen', 'feedbackscreen', 'stories'];
+                                        
+                                        const pathLower = path.toLowerCase();
+                                        const isProtectedRoute = protectedRoutes.some(route => pathLower.includes(route));
+                                        
+                                        if (isProtectedRoute && !isLoggedIn) {
+                                            console.log('Protected route accessed without authentication, redirecting to login');
                                             return {
                                                 routes: [{ name: 'Login' }]
                                             };
@@ -322,7 +366,7 @@ const App = () => {
                                     console.log('=== NAVIGATION STATE CHANGE END ===');
                                 }}
                             >
-                                <Stack.Navigator>
+                                <Stack.Navigator initialRouteName={isLoggedIn ? "Home" : (!onboardingCompleted ? "Onboarding" : "Login")}>
                                     {/* Onboarding Screen */}
                                     {!onboardingCompleted && !isLoggedIn && (
                                         <Stack.Screen 
@@ -338,7 +382,7 @@ const App = () => {
                                         </Stack.Screen>
                                     )}
 
-                                    {/* Login Screens */}
+                                    {/* Login Screens - Always available but only shown when not logged in */}
                                     {!isLoggedIn && (
                                         <>
                                             <Stack.Screen 

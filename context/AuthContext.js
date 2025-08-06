@@ -60,6 +60,13 @@ export const AuthProvider = ({ children }) => {
             await AsyncStorage.removeItem('userLoggedIn');
             await AsyncStorage.removeItem('supabase-session');
             await AsyncStorage.removeItem('user');
+            await AsyncStorage.removeItem('supabase.auth.token');
+            // Clear any other auth-related storage
+            const keys = await AsyncStorage.getAllKeys();
+            const authKeys = keys.filter(key => key.includes('auth') || key.includes('session'));
+            if (authKeys.length > 0) {
+              await AsyncStorage.multiRemove(authKeys);
+            }
             console.log("AuthContext: UID and session data cleared successfully");
           } catch (error) {
             console.error("AuthContext: Error clearing auth data:", error);
@@ -221,8 +228,43 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const clearUID = async () => {
+    try {
+      setUid(null);
+      setIsOffline(false);
+      await AsyncStorage.removeItem('uid');
+      await AsyncStorage.removeItem('userLoggedIn');
+      await AsyncStorage.removeItem('supabase-session');
+      await AsyncStorage.removeItem('user');
+      await AsyncStorage.removeItem('supabase.auth.token');
+      // Clear any other auth-related storage
+      const keys = await AsyncStorage.getAllKeys();
+      const authKeys = keys.filter(key => key.includes('auth') || key.includes('session'));
+      if (authKeys.length > 0) {
+        await AsyncStorage.multiRemove(authKeys);
+      }
+      console.log("AuthContext: UID and session data cleared successfully");
+    } catch (error) {
+      console.error("AuthContext: Error clearing UID:", error);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      // Sign out from Supabase first
+      await supabase.auth.signOut();
+      // Clear all local storage
+      await clearUID();
+      console.log("AuthContext: User logged out successfully");
+    } catch (error) {
+      console.error("AuthContext: Error during logout:", error);
+      // Even if Supabase signout fails, clear local storage
+      await clearUID();
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ uid, loading, isOffline, updateUid }}>
+    <AuthContext.Provider value={{ uid, loading, isOffline, updateUid, clearUID, logout }}>
       {children}
     </AuthContext.Provider>
   );

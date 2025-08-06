@@ -236,10 +236,21 @@ const generateNonce = (length = 32) => {
             
         } catch (error) {
             console.error('Error during Apple login:', error);
+            
+            // Handle specific Apple authentication errors
+            let errorMessage = 'Failed to login with Apple';
+            if (error.message && error.message.includes('AuthenticationServices.AuthorizationError error 1000')) {
+                errorMessage = 'Apple Sign-In configuration error. Please try again or contact support if the issue persists.';
+            } else if (error.message && error.message.includes('AuthenticationServices.AuthorizationError error 1001')) {
+                errorMessage = 'Apple Sign-In was cancelled. Please try again.';
+            } else if (error.message) {
+                errorMessage = error.message;
+            }
+            
             Toast.show({
                 type: 'error',
                 text1: 'Login Failed',
-                text2: error.message || 'Failed to login with Apple',
+                text2: errorMessage,
                 position: 'bottom'
             });
         } finally {
