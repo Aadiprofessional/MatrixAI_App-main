@@ -5,6 +5,7 @@ import { WebView } from 'react-native-webview';
 import axios from 'axios';
 import { XMLParser } from 'fast-xml-parser';
 import { useTheme } from '../context/ThemeContext';
+import { DASHSCOPE_API_KEY } from '@env';
 const ForceDirectedGraph2 = ({ transcription, uid, audioid, xmlData }) => {
   const { getThemeColors } = useTheme();
   const colors = getThemeColors() || {
@@ -14,10 +15,7 @@ const ForceDirectedGraph2 = ({ transcription, uid, audioid, xmlData }) => {
     border: '#E0E0E0'
   };
   const [graphData, setGraphData] = useState(null);
-  const openai = new OpenAI({
-    baseURL: 'https://api.deepseek.com',
-    apiKey: process.env.DEEPSEEK_API_KEY || '',
-  });
+  // Removed OpenAI client - using direct API calls instead
 
   const parseXMLData = (xmlString) => {
     const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, parseTagValue: true });
@@ -74,8 +72,37 @@ const ForceDirectedGraph2 = ({ transcription, uid, audioid, xmlData }) => {
 
   const fetchGraphData = async (transcription) => {
     try {
-      const response = await openai.chat.completions.create({
-        model: "deepseek-chat",
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions', true);
+      xhr.setRequestHeader('Authorization', `Bearer ${DASHSCOPE_API_KEY}`);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+
+      let fullContent = '';
+
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+          if (xhr.status === 200) {
+            try {
+              const response = JSON.parse(xhr.responseText);
+              const content = response.choices[0]?.message?.content;
+              if (content) {
+                console.log('XML Response from API:', content);
+                sendXmlGraphData(content);
+                parseXMLData(content);
+              } else {
+                console.error('No valid response from API');
+              }
+            } catch (parseError) {
+              console.error('Error parsing response:', parseError);
+            }
+          } else {
+            console.error('API request failed:', xhr.status, xhr.statusText);
+          }
+        }
+      };
+
+      const requestBody = JSON.stringify({
+       model: "qwen-vl-max",
         messages: [
           {
             role: "user",
@@ -98,26 +125,17 @@ const ForceDirectedGraph2 = ({ transcription, uid, audioid, xmlData }) => {
               <topic name="Main Topic 2">
                 <description>Overall description of topic</description>
               </topic>
-            </meeting>`
-            + `
-            Make sure the XML is in the same language as the transcript.
-            `
+            </meeting>
+            Make sure the XML is in the same language as the transcript.`
           }
         ],
         temperature: 0.7,
         max_tokens: 2048
       });
 
-      const content = response.choices[0]?.message?.content;
-      if (content) {
-        console.log('XML Response from API:', content);
-        sendXmlGraphData(content);
-        parseXMLData(content);
-      } else {
-        console.error('No valid response from API');
-      }
+      xhr.send(requestBody);
     } catch (error) {
-      console.error('Error fetching graph data:', error.response?.data || error.message);
+      console.error('Error fetching graph data:', error.message);
     }
   };
 

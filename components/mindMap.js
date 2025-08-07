@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, PermissionsAndroid, ActivityIndicator, Alert } from 'react-native';
 import OpenAI from 'openai';
 import { WebView } from 'react-native-webview';
@@ -10,8 +10,9 @@ import ViewShot from 'react-native-view-shot';
 import RNFS from 'react-native-fs';
 import { useTheme } from '../context/ThemeContext';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import { DASHSCOPE_API_KEY } from '@env';
 
-const ForceDirectedGraph = ({ transcription, uid, audioid, xmlData }) => {
+const ForceDirectedGraph = forwardRef(({ transcription, uid, audioid, xmlData }, ref) => {
   const { getThemeColors } = useTheme();
   const colors = getThemeColors() || {
     background: '#FFFFFF',
@@ -25,10 +26,7 @@ const ForceDirectedGraph = ({ transcription, uid, audioid, xmlData }) => {
   const [loading, setLoading] = useState(false);
   const [tempWebView, setTempWebView] = useState(null);
   const webViewRef = useRef(null);
-  const openai = new OpenAI({
-    baseURL: 'https://api.deepseek.com',
-    apiKey: process.env.DEEPSEEK_API_KEY || '',
-  });
+  // Removed OpenAI client - using direct API calls instead
 
   const parseXMLData = (xmlString) => {
     const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, parseTagValue: true });
@@ -85,8 +83,37 @@ const ForceDirectedGraph = ({ transcription, uid, audioid, xmlData }) => {
 
   const fetchGraphData = async (transcription) => {
     try {
-      const response = await openai.chat.completions.create({
-        model: "deepseek-chat",
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions', true);
+      xhr.setRequestHeader('Authorization', `Bearer ${DASHSCOPE_API_KEY}`);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+
+      let fullContent = '';
+
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+          if (xhr.status === 200) {
+            try {
+              const response = JSON.parse(xhr.responseText);
+              const content = response.choices[0]?.message?.content;
+              if (content) {
+                console.log('XML Response from API:', content);
+                sendXmlGraphData(content);
+                parseXMLData(content);
+              } else {
+                console.error('No valid response from API');
+              }
+            } catch (parseError) {
+              console.error('Error parsing response:', parseError);
+            }
+          } else {
+            console.error('API request failed:', xhr.status, xhr.statusText);
+          }
+        }
+      };
+
+      const requestBody = JSON.stringify({
+        model: "qwen-vl-max",
         messages: [
           {
             role: "user",
@@ -109,26 +136,17 @@ const ForceDirectedGraph = ({ transcription, uid, audioid, xmlData }) => {
               <topic name="Main Topic 2">
                 <description>Overall description of topic</description>
               </topic>
-            </meeting>`
-            + `
-            Make sure the XML is in the same language as the transcript.
-            `
+            </meeting>
+            Make sure the XML is in the same language as the transcript.`
           }
         ],
         temperature: 0.7,
         max_tokens: 2048
       });
 
-      const content = response.choices[0]?.message?.content;
-      if (content) {
-        console.log('XML Response from API:', content);
-        sendXmlGraphData(content);
-        parseXMLData(content);
-      } else {
-        console.error('No valid response from API');
-      }
+      xhr.send(requestBody);
     } catch (error) {
-      console.error('Error fetching graph data:', error.response?.data || error.message);
+      console.error('Error fetching graph data:', error.message);
     }
   };
 
@@ -140,7 +158,7 @@ const ForceDirectedGraph = ({ transcription, uid, audioid, xmlData }) => {
     }
 
     try {
-      const response = await axios.post('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/sendXmlGraph', {
+      const response = await axios.post('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/audio/sendXmlGraph', {
         uid,
         audioid,
         xmlData,
@@ -162,6 +180,10 @@ const ForceDirectedGraph = ({ transcription, uid, audioid, xmlData }) => {
     if (xmlData) parseXMLData(xmlData);
     else if (transcription) fetchGraphData(transcription);
   }, [transcription, xmlData]);
+
+  useImperativeHandle(ref, () => ({
+    handleDownload
+  }));
 
   if (!graphData) {
     return (
@@ -712,24 +734,10 @@ const handleDownload = async () => {
 
       {tempWebView}  {/* Render temporary WebView when needed */}
 
-      <TouchableOpacity 
-      style={[
-        styles.iconButton,
-        loading && styles.iconButtonDisabled,
-        { backgroundColor: loading ? (colors?.border || '#cccccc') : (colors?.primary || '#007bff') }
-      ]}
-      onPress={handleDownload}
-      disabled={loading}
-    >
-      {loading ? (
-        <ActivityIndicator color={colors?.text || '#000000'} style={styles.loader} />
-      ) : (
-        <MaterialIcons name="file-download" size={28} color= '#fff' />
-      )}
-    </TouchableOpacity>
+ 
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

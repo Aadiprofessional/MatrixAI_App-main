@@ -30,7 +30,7 @@ const authConfig = {
   persistSession: true,
   detectSessionInUrl: true,
   flowType: 'pkce',
-  debug: __DEV__, // Enable debug mode in development
+  debug: false, // Disable debug mode to prevent Error.stack getter issues
   // Define the URL scheme for deep linking
   url: {
     resetPassword: 'matrixai://auth/reset-password',
@@ -49,11 +49,31 @@ console.log('Supabase auth configuration:', JSON.stringify({
   flowType: authConfig.flowType,
   debug: authConfig.debug,
   urls: authConfig.url
-}));
+}, null, 2));
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: authConfig,
+  global: {
+    headers: {
+      'X-Client-Info': 'matrixai-mobile',
+    },
+  },
 });
+
+// Add error handler to prevent stack trace issues
+if (typeof global !== 'undefined' && global.ErrorUtils) {
+  const originalHandler = global.ErrorUtils.getGlobalHandler();
+  global.ErrorUtils.setGlobalHandler((error, isFatal) => {
+    // Filter out Error.stack getter issues
+    if (error && error.message && error.message.includes('Error.stack getter called with an invalid receiver')) {
+      console.warn('Suppressed Error.stack getter issue:', error.message);
+      return;
+    }
+    if (originalHandler) {
+      originalHandler(error, isFatal);
+    }
+  });
+}
 
 // Export helper function to get the appropriate callback URL
 export const getAuthCallbackUrl = getCallbackUrl;

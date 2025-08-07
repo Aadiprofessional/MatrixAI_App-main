@@ -145,19 +145,7 @@ const VideoGenerateScreen = () => {
 
     // Cleanup function to remove temporary files and reset state on unmount
     return () => {
-      // Clean up temporary video files
-      if (localVideoPath) {
-        const filePath = localVideoPath.replace('file://', '');
-        RNFS.exists(filePath).then(exists => {
-          if (exists) {
-            RNFS.unlink(filePath).catch(error => {
-              console.log('Could not clean up video file on unmount:', error);
-            });
-          }
-        });
-      }
-      
-      // Reset all state variables
+      // Reset all state variables (but preserve video history)
       setUserText('');
       setIsFinished(false);
       setTranscription(t('startWritingToGenerateVideos'));
@@ -170,14 +158,33 @@ const VideoGenerateScreen = () => {
       setShowOptionsDropdown(false);
       setShowTemplateOptions(false);
       setHistoryOpen(false);
-      setVideoHistory([]);
+      // Don't clear video history on component updates
+      // setVideoHistory([]);
       setHistoryPage(1);
       setDownloadingVideoId(null);
       setVideoPreviewModalVisible(false);
       setPreviewVideoUrl(null);
-      setLocalVideoPath(null);
+      // Don't reset localVideoPath here as it causes the effect to re-run
+      // setLocalVideoPath(null);
     };
-  }, [fadeAnim, scaleAnim, sendRotation, localVideoPath, t]);
+  }, [fadeAnim, scaleAnim, sendRotation, t]);
+  
+  // Cleanup temporary video files on component unmount
+  useEffect(() => {
+    return () => {
+      // Clean up temporary video files when component unmounts
+      if (localVideoPath) {
+        const filePath = localVideoPath.replace('file://', '');
+        RNFS.exists(filePath).then(exists => {
+          if (exists) {
+            RNFS.unlink(filePath).catch(error => {
+              console.log('Could not clean up video file on unmount:', error);
+            });
+          }
+        });
+      }
+    };
+  }, []); // Empty dependency array means this only runs on unmount
   
   // Fetch video history when history panel is opened
   useEffect(() => {

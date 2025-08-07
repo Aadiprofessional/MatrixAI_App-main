@@ -39,7 +39,6 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
   import { useNavigation } from '@react-navigation/native';
   import Sound from 'react-native-sound';
   import ForceDirectedGraph from '../components/mindMap';
-  import ForceDirectedGraph2 from '../components/mindMap2';
   import { Picker } from '@react-native-picker/picker';
   import DropDownPicker from 'react-native-dropdown-picker';
   import Svg, { Path } from 'react-native-svg';
@@ -47,6 +46,9 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
   import { useTheme } from '../context/ThemeContext';
   import { useLanguage } from '../context/LanguageContext';
   import audioService from '../services/audioService'; // Import audioService
+  import paymentService from '../services/paymentService'; // Import payment service
+  import { useCoinsSubscription } from '../hooks/useCoinsSubscription'; // Import useCoinsSubscription hook
+  import SRTSubtitleModal from '../components/SRTSubtitleModal'; // Import SRT Subtitle Modal
 
     const TranslateScreen = ({ route }) => {
     const { getThemeColors } = useTheme();
@@ -89,6 +91,9 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
       const audioPlayerRef = useRef(null);
       const [isFullScreen, setIsFullScreen] = useState(false);
       const [showMindMap, setShowMindMap] = useState(false);
+      const [isMindMapGenerated, setIsMindMapGenerated] = useState(false);
+      const [isMindMapGenerating, setIsMindMapGenerating] = useState(false);
+      const coinCount = useCoinsSubscription(uid);
       const scrollViewRef = useRef(null);
       const [isSeeking, setIsSeeking] = useState(false);
       const userScrollTimeoutRef = useRef(null);
@@ -108,6 +113,11 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
           wordIndex: 0,
           word: ''
       });
+      
+      // SRT Subtitle Modal states
+      const [isSRTModalVisible, setIsSRTModalVisible] = useState(false);
+      const [wordsData, setWordsData] = useState([]);
+      const [currentTime, setCurrentTime] = useState(0);
 
       // Add helper function to centralize scroll decision logic
       const canScrollToCurrentParagraph = () => {
@@ -495,6 +505,42 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
 
 
     const toggleSlider = () => setSliderVisible(!isSliderVisible);
+
+    // Function to handle mind map generation with coin deduction
+    const handleGenerateMindMap = async () => {
+        try {
+            // Check if user has at least 3 coins
+            if (coinCount < 3) {
+                Alert.alert(
+                    'Insufficient Coins',
+                    'You need at least 3 coins to generate a mind map.',
+                    [{ text: 'OK' }]
+                );
+                return;
+            }
+
+            setIsMindMapGenerating(true);
+
+            // Deduct 3 coins
+            await paymentService.subtractCoins(uid, 3, 'Mind Map Generation');
+            // Note: coinCount will be automatically updated by useCoinsSubscription hook
+            
+            // Set mind map as generated
+            setIsMindMapGenerated(true);
+            
+        } catch (error) {
+            console.error('Error generating mind map:', error);
+            Alert.alert(
+                'Error',
+                'Failed to generate mind map. Please try again.',
+                [{ text: 'OK' }]
+            );
+        } finally {
+            setIsMindMapGenerating(false);
+        }
+    };
+
+    // Note: Coin count is now managed by useCoinsSubscription hook
 
  
 
@@ -1360,6 +1406,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                         // Only update if not seeking to prevent jumps
                         if (!isSeeking) {
                             setAudioPosition(seconds);
+                            setCurrentTime(seconds); // Update current time for SRT modal
                             onAudioProgress({
                                 currentTime: seconds,
                                 duration: audioDuration
@@ -1732,6 +1779,9 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                     // Store the words data for highlighting
                     setWordTimings(processWordTimings(data.words_data));
                     
+                    // Set words data for SRT subtitle modal
+                    setWordsData(data.words_data);
+                    
                     // Create paragraphs from words_data (100 words per paragraph)
                     const { paragraphs, words } = createParagraphsFromWordsData(data.words_data);
                     setParagraphs(paragraphs);
@@ -1895,12 +1945,25 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
         return { paragraphs, words };
     };
 
-    const toggleTranscriptionVisibility = () => {
-        setTranscriptionVisible(!isTranscriptionVisible);
-        
-        // If turning on translations, translate all paragraphs
+    const toggleTranscriptionVisibility = async () => {
+        // If turning on translations, check coins and deduct
         if (!isTranscriptionVisible) {
-            paragraphs.forEach((_, index) => handleTranslateParagraph(index));
+            if (coinCount < 1) {
+                Alert.alert('Insufficient Coins', 'You need at least 1 coin to show translations.');
+                return;
+            }
+            
+            try {
+                await paymentService.subtractCoins(uid, 1, 'Show Translation');
+                // Note: coinCount will be automatically updated by useCoinsSubscription hook
+                setTranscriptionVisible(true);
+                paragraphs.forEach((_, index) => handleTranslateParagraph(index));
+            } catch (error) {
+                Alert.alert('Error', 'Failed to process payment. Please try again.');
+                console.error('Error deducting coins:', error);
+            }
+        } else {
+            setTranscriptionVisible(false);
         }
     };
 
@@ -2534,33 +2597,59 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
 
 
 {selectedButton === 'mindMap' && (
-    <View style={styles.contentContainer}>
-                   <ForceDirectedGraph 
-                     ref={graphRef}
-                     transcription={transcription} 
-                     uid={uid} 
-                     audioid={audioid} 
-                     xmlData={XMLData} 
-                   />
+   <View style={styles.contentContainer}>
+  {(!XMLData || XMLData === '') && !isMindMapGenerated ? (
+    <View style={styles.mindMapContainer}>
+      {isMindMapGenerating ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#007BFF" />
+          <Text style={styles.loadingText}>Generating Mind Map...</Text>
+        </View>
+      ) : (
+        <View >
+          <TouchableOpacity 
+            onPress={handleGenerateMindMap}
+            style={styles.generateMindMapButton}
+          >
+            <Text style={styles.generateButtonText}>Generate Mindmap -3</Text>
+            <Image source={coin} style={styles.coinIcon} />
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  ) : (
+    <>
+      <ForceDirectedGraph 
+        ref={graphRef}
+        transcription={transcription} 
+        uid={uid} 
+        audioid={audioid} 
+        xmlData={XMLData} 
+      />
 
+      <View style={{flexDirection: 'row', position: 'absolute', bottom: 10, left: 10}}>
+        <TouchableOpacity 
+          onPress={() => setIsFullScreen(true)} 
+          style={[styles.centerFloatingButton ,{left: 30}]}
+        >
+          <Image
+            source={require('../assets/maximize.png')}
+            style={styles.buttonImage3}
+          />
+        </TouchableOpacity>
 
+        <TouchableOpacity 
+          onPress={() => graphRef.current?.handleDownload()}
+          style={[styles.centerFloatingButton, {left: 90}]}
+        >
+          <MaterialIcons name="file-download" size={20} color="#fff" />
+        </TouchableOpacity>
+      </View>
+    </>
+  )}
+</View>
 
-                   <View style={{flexDirection: 'row', position: 'absolute', bottom: 10, left: '15%'}}>
-           
-            <TouchableOpacity 
-                onPress={() => setIsFullScreen(true)} 
-                style={styles.centerFloatingButton}
-            >
-                <Image
-                    source={require('../assets/maximize.png')}
-                    style={styles.buttonImage3}
-                />
-            </TouchableOpacity>
-       
-            </View>
-                </View>
-
-            )}
+)}
 
 
             {/* Floating Buttons */}
@@ -2578,7 +2667,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
             >
                 <View style={[styles.fullScreenContainer, {backgroundColor: colors.background}]}>
                     <View style={styles.fullScreenGraphContainer}>
-                        <ForceDirectedGraph2 transcription={transcription} uid={uid} audioid={audioid} xmlData={XMLData} />
+                        <ForceDirectedGraph transcription={transcription} uid={uid} audioid={audioid} xmlData={XMLData} />
                     </View>
                     <TouchableOpacity 
                         onPress={() => setIsFullScreen(false)} 
@@ -2610,7 +2699,10 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
         <View style={styles.sliderContainer}>
             {/* Show Translation Section */}
             <View style={styles.sliderContent}>
-                <Text style={styles.sliderText}>Show Translation</Text>
+                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                    <Text style={styles.sliderText}>Show Translation -1</Text>
+                    <Image source={coin} style={[styles.coinIcon, {marginLeft: 5}]} />
+                </View>
                 
                 {/* Language Dropdown */}
                 <View style={styles.pickerContainer2}>
@@ -2679,6 +2771,24 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
         </View>
     </View>
 )}
+
+            {/* SRT Subtitle Button */}
+            <TouchableOpacity 
+                style={styles.srtButton}
+                onPress={() => setIsSRTModalVisible(true)}
+            >
+                <MaterialIcons name="subtitles" size={24} color="#fff" />
+            </TouchableOpacity>
+
+            {/* SRT Subtitle Modal */}
+            <SRTSubtitleModal
+                visible={isSRTModalVisible}
+                onClose={() => setIsSRTModalVisible(false)}
+                wordsData={wordsData}
+                currentTime={currentTime}
+                isDarkMode={colors.isDarkMode}
+                uid={uid}
+            />
 
             {/* Display the Mind Map if it's toggled on */}
             {isLoading ? (
@@ -3225,7 +3335,7 @@ flexDirection:'row',
     
     mindMapContainer: {
         padding: 20,
-        backgroundColor: '#f1f1f1',
+       
         borderRadius: 10,
         marginTop: 10,
     },
@@ -3357,6 +3467,23 @@ zIndex:101,
         alignItems: 'center',
         zIndex: 101,
         shadowColor: '#007BFF',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 1,
+        shadowRadius: 10,
+        elevation: 10,
+    },
+    srtButton: {
+        position: 'absolute',
+        bottom: 120,
+        right: 30,
+        width: 60,
+        height: 60,
+        borderRadius: 30,
+        backgroundColor: '#FF6600',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 101,
+        shadowColor: '#FF6600',
         shadowOffset: { width: 0, height: 0 },
         shadowOpacity: 1,
         shadowRadius: 10,
@@ -3615,6 +3742,58 @@ zIndex:101,
         justifyContent: 'center',
         alignItems: 'center',
         zIndex: 1000,
+    },
+    generateButtonContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+   centeredButtonWrapper: {
+  flex: 1,
+  justifyContent: 'center',
+  alignItems: 'center',
+},
+
+generateMindMapButton: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent:'center',
+  backgroundColor: '#007BFF',
+  paddingVertical: 14,
+  paddingHorizontal: 24,
+  borderRadius: 12,
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.25,
+  shadowRadius: 3.84,
+  elevation: 5,
+},
+
+
+    coinIcon: {
+        width: 20,
+        height: 20,
+      
+        resizeMode: 'contain',
+    },
+    generateButtonText: {
+        color: '#fff',
+        fontSize: 16,
+      
+        fontWeight: '600',
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    loadingText: {
+        marginTop: 10,
+        fontSize: 16,
+        color: '#666',
+        textAlign: 'center',
     },
 });
 

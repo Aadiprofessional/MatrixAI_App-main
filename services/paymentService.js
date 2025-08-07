@@ -72,6 +72,35 @@ class PaymentService {
   }
 
   /**
+   * Subtract coins from user account
+   */
+  async subtractCoins(uid, coinAmount, transactionName) {
+    try {
+      const response = await fetch('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/user/subtractCoins', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          uid,
+          coinAmount,
+          transaction_name: transactionName
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || 'Failed to subtract coins');
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error('Subtract coins error:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Query payment status
    */
   async queryPaymentStatus(paymentRequestId, session) {

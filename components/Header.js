@@ -139,7 +139,12 @@ const Header = ({ navigation, uid, openDrawer }) => {
         return (
             <View style={[styles.header]}>
                 <View style={[styles.rowContainer]}>
-                    <View style={[styles.icon, {backgroundColor: '#F0F0F0'}]} />
+                    <View style={[styles.icon, {backgroundColor: '#F0F0F0'}]}>
+                        <Image 
+                            source={require('../assets/avatar.png')} 
+                            style={[styles.icon, {opacity: 0.5}]} 
+                        />
+                    </View>
                     <Text style={[styles.welcomeText, {color: colors.text}]}>Welcome!</Text>
                 </View>
                 
@@ -163,11 +168,15 @@ const Header = ({ navigation, uid, openDrawer }) => {
                 <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
                     {loading && !dpUrl ? (
                         <View style={[styles.icon, {backgroundColor: '#F0F0F0'}]}>
-                            <ActivityIndicator size="small" color="#666" />
+                            <Image 
+                                source={require('../assets/avatar.png')} 
+                                style={[styles.icon, {opacity: 0.5}]} 
+                            />
+                            <ActivityIndicator size="small" color="#666" style={{position: 'absolute'}} />
                         </View>
                     ) : (
                         <Image 
-                            source={dpUrl ? { uri: dpUrl } : require('../assets/Avatar/Cat.png')} 
+                            source={dpUrl ? { uri: dpUrl } : require('../assets/avatar.png')} 
                             style={[styles.icon]} 
                         />
                     )}
@@ -239,6 +248,7 @@ const styles = StyleSheet.create({
     icon: {
         width: 40,
         height: 40,
+        marginLeft: 15,
         marginRight: 10,
         borderRadius: 20,
         justifyContent: 'center',

@@ -19,7 +19,7 @@ const OnboardingScreen = ({ navigation,onFinish }) => {
             image: require('../assets/matrix.png'),
         },
         {
-            title: "Generate with 150 Languages, AI Voices",
+            title: "Generate with 150 Languages",
           
             image: require('../assets/OnBoard/2.png'),
         },
@@ -27,6 +27,11 @@ const OnboardingScreen = ({ navigation,onFinish }) => {
             title: "Generate Video, Image With AI",
         
             image: require('../assets/OnBoard/3.png'),
+        },
+        {
+            title: "Speech to Text with AI",
+        
+            image: require('../assets/s22t.png'),
         },
        
     ];

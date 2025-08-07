@@ -35,6 +35,7 @@ import { supabase } from '../supabaseClient';
 import MathView from 'react-native-math-view';
 import MarkdownDisplay from 'react-native-markdown-display';
 import * as Animatable from 'react-native-animatable';
+import { DASHSCOPE_API_KEY } from '@env';
 
 const { width, height } = Dimensions.get('window');
 const scale = Math.min(width / 375, height / 812); // Base scale on iPhone X dimensions for consistency
@@ -284,7 +285,7 @@ const ContentWriterContent = () => {
         // Create XMLHttpRequest for streaming
         const xhr = new XMLHttpRequest();
         xhr.open('POST', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions', true);
-        xhr.setRequestHeader('Authorization', 'Bearer sk-256fda005a1445628fe2ceafcda9e389');
+        xhr.setRequestHeader('Authorization', `Bearer ${DASHSCOPE_API_KEY}`);
         xhr.setRequestHeader('Content-Type', 'application/json');
         
         let fullContent = '';
