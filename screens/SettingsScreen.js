@@ -130,22 +130,7 @@ const SettingsScreen = ({ navigation }) => {
               </View>
             </TouchableOpacity>
             
-            {/* Theme Setting */}
-            <TouchableOpacity 
-              style={styles.settingItem} 
-              onPress={() => setThemeModalVisible(true)}
-            >
-              <View style={styles.settingInfo}>
-                <Ionicons name="color-palette-outline" size={24} color={colors.primary} />
-                <ThemedText style={styles.settingLabel}>{t('themeMode')}</ThemedText>
-              </View>
-              <View style={styles.settingAction}>
-                <ThemedText style={styles.settingValue}>
-                  {themes[selectedTheme]?.name || t('notSet')}
-                </ThemedText>
-                <MaterialIcons name="chevron-right" size={24} color={colors.text} />
-              </View>
-            </TouchableOpacity>
+       
             
             {/* Dark Mode Toggle */}
             <View style={styles.settingItem}>
@@ -194,7 +179,7 @@ const SettingsScreen = ({ navigation }) => {
             </TouchableOpacity>
           </ThemedCard>
           
-          <ThemedText style={styles.versionInfo}>Version 1.0.0</ThemedText>
+          <ThemedText style={styles.versionInfo}>{`${t('version')} 1.0.0`}</ThemedText>
         </View>
         
         {isEdited && (

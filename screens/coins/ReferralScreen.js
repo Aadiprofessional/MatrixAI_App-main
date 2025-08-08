@@ -153,7 +153,7 @@ const ReferralScreen = ({ navigation }) => {
 
         {/* Referral Code Section */}
         <View style={styles.referralContainer}>
-          <Text style={styles.referralText}>{t('yourReferralCode')}</Text>
+          <Text style={[styles.referralText, {color: colors.text}]}>{t('yourReferralCode')}</Text>
           {loading ? (
             <ActivityIndicator size="small" color="#003399" />
           ) : (

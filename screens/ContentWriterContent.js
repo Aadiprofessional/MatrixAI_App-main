@@ -85,43 +85,43 @@ const ContentWriterContent = () => {
 
   // Content types - updated based on the image
   const contentTypes = [
-    { id: 'essay', name: t('essay') || 'Essay', icon: 'file-document-outline' },
-    { id: 'article', name: t('article') || 'Article', icon: 'newspaper' },
-    { id: 'blog', name: t('blogPost') || 'Blog Post', icon: 'post-outline' },
-    { id: 'letter', name: t('letter') || 'Letter', icon: 'email-outline' },
-    { id: 'email', name: t('email') || 'Email', icon: 'email-outline' },
-    { id: 'report', name: t('report') || 'Report', icon: 'chart-box-outline' },
-    { id: 'story', name: t('story') || 'Story', icon: 'book-open-variant' },
-    { id: 'social', name: t('socialMedia') || 'Social Media', icon: 'twitter' },
-    { id: 'marketing', name: t('marketingCopy') || 'Marketing Copy', icon: 'bullhorn-outline' },
-    { id: 'business', name: t('businessProposal') || 'Business Proposal', icon: 'briefcase-outline' },
+    { id: 'essay', name: t('essay'), icon: 'file-document-outline' },
+    { id: 'article', name: t('article'), icon: 'newspaper' },
+    { id: 'blog', name: t('blogPost'), icon: 'post-outline' },
+    { id: 'letter', name: t('letter'), icon: 'email-outline' },
+    { id: 'email', name: t('email'), icon: 'email-outline' },
+    { id: 'report', name: t('report'), icon: 'chart-box-outline' },
+    { id: 'story', name: t('story'), icon: 'book-open-variant' },
+    { id: 'social', name: t('socialMedia'), icon: 'twitter' },
+    { id: 'marketing', name: t('marketingCopy'), icon: 'bullhorn-outline' },
+    { id: 'business', name: t('businessProposal'), icon: 'briefcase-outline' },
   ];
   
   // Word count options
   const wordCountOptions = [
-    { id: '250', count: 250, name: '250 words' },
-    { id: '500', count: 500, name: '500 words' },
-    { id: '750', count: 750, name: '750 words' },
-    { id: '1000', count: 1000, name: '1000 words' },
-    { id: '1500', count: 1500, name: '1500 words' },
+    { id: '250', count: 250, name: t('250words') },
+    { id: '500', count: 500, name: t('500words') },
+    { id: '750', count: 750, name: t('750words') },
+    { id: '1000', count: 1000, name: t('1000words') },
+    { id: '1500', count: 1500, name: t('1500words') },
   ];
   
   // Tone options - based on the second image
   const toneOptions = [
-    { id: 'professional', name: t('professional') || 'Professional', icon: 'briefcase-outline' },
-    { id: 'casual', name: t('casual') || 'Casual', icon: 'coffee' },
-    { id: 'friendly', name: t('friendly') || 'Friendly', icon: 'emoticon-outline' },
-    { id: 'formal', name: t('formal') || 'Formal', icon: 'format-letter-case' },
-    { id: 'creative', name: t('creative') || 'Creative', icon: 'palette' },
-    { id: 'persuasive', name: t('persuasive') || 'Persuasive', icon: 'bullhorn-outline' },
+    { id: 'professional', name: t('professional'), icon: 'briefcase-outline' },
+    { id: 'casual', name: t('casual'), icon: 'coffee' },
+    { id: 'friendly', name: t('friendly'), icon: 'emoticon-outline' },
+    { id: 'formal', name: t('formal'), icon: 'format-letter-case' },
+    { id: 'creative', name: t('creative'), icon: 'palette' },
+    { id: 'persuasive', name: t('persuasive'), icon: 'bullhorn-outline' },
   ];
   
   // Quick content prompts
   const quickContentPrompts = [
-    { id: 'summary', name: t('summarize') || 'Summarize a topic', prompt: 'Write a concise summary about ' },
-    { id: 'explain', name: t('explain') || 'Explain a concept', prompt: 'Explain in simple terms what is ' },
-    { id: 'compare', name: t('compare') || 'Compare and contrast', prompt: 'Compare and contrast between ' },
-    { id: 'steps', name: t('steps') || 'Step-by-step guide', prompt: 'Create a step-by-step guide for ' },
+    { id: 'summary', name: t('summarize'), prompt: t('writeConciseSummaryAbout') },
+    { id: 'explain', name: t('explain'), prompt: t('explainInSimpleTermsWhatIs') },
+    { id: 'compare', name: t('compare'), prompt: t('compareAndContrastBetween') },
+    { id: 'steps', name: t('steps'), prompt: t('createStepByStepGuideFor') },
   ];
 
   // History items

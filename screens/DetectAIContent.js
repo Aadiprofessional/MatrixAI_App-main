@@ -613,22 +613,22 @@ const DetectAIContent = ({ route }) => {
                   <View style={[styles.bannerContent, isSmallScreen && { flexDirection: 'column' }]}>
                     <View style={[styles.bannerTextContent, isSmallScreen && { paddingRight: 0, marginBottom: responsiveSpacing(16) }]}>
                       <Text style={[styles.bannerTitle, { color: colors.text }]}>
-                        AI Text Detector
+                        {t('detectAI')}
                       </Text>
                       <Text style={[styles.bannerSubtitle, { color: currentTheme === 'dark' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }]}>
-                        Detect AI-generated content with advanced ML
+                        {t('detectAIgeneratedcontentwithadvanvedML')}
                       </Text>
                       <View style={styles.featureList}>
                         <View style={styles.featureItemBanner}>
                           <Ionicons name="checkmark-circle" size={normalize(16)} color={currentTheme === 'dark' ? '#5C6BC0' : '#3F51B5'} />
                           <Text style={[styles.featureText, { color: currentTheme === 'dark' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }]}>
-                            Fast and accurate detection
+                            {t('fastandaccuratedetection')}
                           </Text>
                         </View>
                         <View style={styles.featureItemBanner}>
                           <Ionicons name="checkmark-circle" size={normalize(16)} color={currentTheme === 'dark' ? '#5C6BC0' : '#3F51B5'} />
                           <Text style={[styles.featureText, { color: currentTheme === 'dark' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }]}>
-                            Detailed analytics
+                            {t('detailedanalytics')}
                           </Text>
                         </View>
                       </View>
@@ -669,7 +669,7 @@ const DetectAIContent = ({ route }) => {
                 <View style={styles.sectionHeaderContainer}>
                   <View style={styles.sectionTitleContainer}>
                     <MaterialCommunityIcons name="text-box-search-outline" size={normalize(20)} color={colors.primary} />
-                    <Text style={[styles.sectionTitle, { color: colors.text }]}>Text Analysis</Text>
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('detectAI')}</Text>
                   </View>
                   <TouchableOpacity 
                     style={[styles.historyButton, { backgroundColor: colors.card }]} 
@@ -686,7 +686,7 @@ const DetectAIContent = ({ route }) => {
                 }]}>
                   <View style={styles.inputHeaderBar}>
                     <Text style={[styles.inputLabel, { color: '#3F51B5' }]}>
-                      <MaterialCommunityIcons name="text-box-outline" size={normalize(14)} color={'#3F51B5'} /> Input Text
+                      <MaterialCommunityIcons name="text-box-outline" size={normalize(14)} color={'#3F51B5'} /> {t('detectAIinputText')}
                     </Text>
                     <TouchableOpacity 
                       style={[styles.pasteButton, { minWidth: responsiveSpacing(70), minHeight: responsiveSpacing(30), justifyContent: 'center', alignItems: 'center' }]} 
@@ -699,7 +699,7 @@ const DetectAIContent = ({ route }) => {
                       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
                       <MaterialCommunityIcons name="content-paste" size={normalize(14)} color={colors.primary} />
-                      <Text style={[styles.pasteButtonText, { color: colors.primary }]}>Paste</Text>
+                      <Text style={[styles.pasteButtonText, { color: colors.primary }]}>{t('detectAIPaste')}</Text>
                     </TouchableOpacity>
                   </View>
                   
@@ -711,7 +711,7 @@ const DetectAIContent = ({ route }) => {
                         paddingTop: 8,
                         textAlignVertical: 'top'
                       }]}
-                      placeholder="Enter or paste text to analyze for AI detection..."
+                      placeholder={t('detectAIEnterorpastetexttoanalyzeforAIdetection...')}
                       placeholderTextColor={'#A3A3A3FF'}
                       value={inputText}
                       onChangeText={setInputText}
@@ -777,7 +777,7 @@ const DetectAIContent = ({ route }) => {
                   
                   <View style={styles.textInputFooter}>
                     <Text style={[styles.characterCount, { color: '#3F51B5' }]}>
-                      {inputText.length} characters
+                      {inputText.length} {t('detectAICHaracters')}
                     </Text>
                     {inputText.length > 1000 && (
                       <Text style={[styles.longTextNote, { color: '#3F51B5' }]}>
@@ -800,7 +800,7 @@ const DetectAIContent = ({ route }) => {
                       <ActivityIndicator size="small" color="#FFFFFF" />
                     ) : (
                       <View style={styles.fixedAnalyzeButtonContent}>
-                        <Text style={styles.fixedAnalyzeButtonText}>Analyze Content</Text>
+                        <Text style={styles.fixedAnalyzeButtonText}>{t('detectAIAnalyzeContent')}</Text>
                         <MaterialCommunityIcons name="shield-search" size={normalize(20)} color="#FFFFFF" />
                       </View>
                     )}

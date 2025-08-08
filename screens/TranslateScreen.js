@@ -349,12 +349,13 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
       }, [navigation, sound, isAudioPlaying]);
      
       const languages = [
-          { label: 'Chinese (Simplified)', value: 'zh' },
-          { label: 'Chinese (Traditional)', value: 'zh-TW' },
-          { label: 'Spanish', value: 'es' },
-          { label: 'French', value: 'fr' },
-          { label: 'German', value: 'de' },
-          { label: 'Hindi', value: 'hi' },
+          { label: t('chineseSimplified'), value: 'zh' },
+          {label: t('english'), value: 'en'},
+          { label: t('chineseTraditional'), value: 'zh-TW' },
+          { label: t('spanish'), value: 'es' },
+          { label: t('french'), value: 'fr' },
+          { label: t('german'), value: 'de' },
+          { label: t('hindi'), value: 'hi' },
       ];
   
       // Add useEffect to sync wave animation with audio playback state
@@ -2349,12 +2350,12 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                             end={{ x: 0, y: 0 }}
                         >
                             <Text style={styles.buttonText2}>
-                                Transcription
+                                {t('transcription')}
                             </Text>
                         </LinearGradient>
                     ) : (
                         <Text style={styles.buttonText}>
-                            Transcription
+                            {t('transcription')}
                         </Text>
                     )}
                 </TouchableOpacity>
@@ -2369,12 +2370,12 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                             end={{ x: 0, y: 0 }}
                         >
                             <Text style={styles.buttonText2}>
-                                Mind Map
+                                {t('mindMap')}
                             </Text>
                         </LinearGradient>
                     ) : (
                         <Text style={styles.buttonText}>
-                            Mind Map
+                            {t('mindMap')}
                         </Text>
                     )}
                 </TouchableOpacity>
@@ -2700,7 +2701,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
             {/* Show Translation Section */}
             <View style={styles.sliderContent}>
                 <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                    <Text style={styles.sliderText}>Show Translation -1</Text>
+                    <Text style={styles.sliderText}>{t('showTranslation')} -1</Text>
                     <Image source={coin} style={[styles.coinIcon, {marginLeft: 5}]} />
                 </View>
                 
@@ -2753,7 +2754,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
 
             {/* Show Editing Section */}
             <View style={styles.sliderContent}>
-                <Text style={styles.sliderText}>Show Editing</Text>
+                <Text style={styles.sliderText}>{t('showEditing')}</Text>
                 <Switch
                     value={isEditingEnabled}
                     onValueChange={toggleTextEditing}
@@ -2762,7 +2763,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
 
             {/* Show Date Section */}
             <View style={styles.sliderContent}>
-                <Text style={styles.sliderText}>Show Time</Text>
+                <Text style={styles.sliderText}>{t('showTime')}</Text>
                 <Switch
                     value={isSpeechToTextEnabled}
                     onValueChange={toggleSpeechToText}

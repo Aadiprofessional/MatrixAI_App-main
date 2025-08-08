@@ -670,22 +670,22 @@ const HumaniseTextContent = ({ route }) => {
                   <View style={[styles.bannerContent, isSmallScreen && { flexDirection: 'column' }]}>
                     <View style={[styles.bannerTextContent, isSmallScreen && { paddingRight: 0, marginBottom: responsiveSpacing(16) }]}>
                       <Text style={[styles.bannerTitle, { color: colors.text }]}>
-                        Humanise Your Text
+                        {t('humaniseYourText')}
                       </Text>
                       <Text style={[styles.bannerSubtitle, { color: currentTheme === 'dark' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }]}>
-                        Transform AI-generated text into natural, human-like writing
+                        {t('transformAlGeneratedTextIntoNaturalHumanLikeWriting')}
                       </Text>
                       <View style={styles.featureList}>
                         <View style={styles.featureItemBanner}>
                           <Ionicons name="checkmark-circle" size={normalize(16)} color={currentTheme === 'dark' ? '#BA68C8' : '#9C27B0'} />
                           <Text style={[styles.featureText, { color: currentTheme === 'dark' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }]}>
-                            Multiple tone options
+                            {t('multipleToneOptions')}
                           </Text>
                         </View>
                         <View style={styles.featureItemBanner}>
                           <Ionicons name="checkmark-circle" size={normalize(16)} color={currentTheme === 'dark' ? '#BA68C8' : '#9C27B0'} />
                           <Text style={[styles.featureText, { color: currentTheme === 'dark' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }]}>
-                            Natural-sounding results
+                            {t('naturalSoundingResults')}
                           </Text>
                         </View>
                       </View>
@@ -728,7 +728,7 @@ const HumaniseTextContent = ({ route }) => {
                 <View style={styles.sectionHeaderContainer}>
                   <View style={styles.sectionTitleContainer}>
                     <MaterialCommunityIcons name="text-box-check-outline" size={normalize(20)} color={colors.primary} />
-                    <Text style={[styles.sectionTitle, { color: colors.text }]}>Your Text</Text>
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('yourText')}</Text>
                   </View>
                   <TouchableOpacity 
                     style={styles.historyButton} 
@@ -746,7 +746,7 @@ const HumaniseTextContent = ({ route }) => {
                 }]}>
                   <View style={styles.inputHeaderBar}>
                     <Text style={[styles.inputLabel, { color: '#9C27B0' }]}>
-                      <MaterialCommunityIcons name="text-box-outline" size={normalize(14)} color={'#9C27B0'} /> Input Text
+                      <MaterialCommunityIcons name="text-box-outline" size={normalize(14)} color={'#9C27B0'} /> {t('inputText')}
                     </Text>
                     <TouchableOpacity 
                       style={[styles.pasteButton, { minWidth: responsiveSpacing(70), minHeight: responsiveSpacing(30), justifyContent: 'center', alignItems: 'center' }]} 
@@ -759,7 +759,7 @@ const HumaniseTextContent = ({ route }) => {
                       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
                       <MaterialCommunityIcons name="content-paste" size={normalize(14)} color={colors.primary} />
-                      <Text style={[styles.pasteButtonText, { color: colors.primary }]}>Paste</Text>
+                      <Text style={[styles.pasteButtonText, { color: colors.primary }]}>{t('paste')}</Text>
                     </TouchableOpacity>
                   </View>
                   
@@ -771,7 +771,7 @@ const HumaniseTextContent = ({ route }) => {
                         paddingTop: 8,
                         textAlignVertical: 'top'
                       }]}
-                      placeholder="Enter text you want to humanise..."
+                      placeholder={t('enterTextYouWantToHumanise')}
                       placeholderTextColor={'#A3A3A3FF'}
                       value={inputText}
                       onChangeText={setInputText}
@@ -850,7 +850,7 @@ const HumaniseTextContent = ({ route }) => {
                 {/* Settings Section */}
                 <View style={[styles.settingsContainer, { backgroundColor: currentTheme === 'dark' ? 'rgba(30, 30, 40, 0.6)' : 'rgba(255, 255, 255, 0.8)', borderColor: colors.border }]}>
                   <View style={styles.settingRow}>
-                    <Text style={[styles.settingLabel, { color: colors.text }]}>Tone:</Text>
+                    <Text style={[styles.settingLabel, { color: colors.text }]}>{t('tone')}:</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.toneSelector}>
                       {supportedTones.map((tone) => (
                         <TouchableOpacity
@@ -859,7 +859,7 @@ const HumaniseTextContent = ({ route }) => {
                           onPress={() => setSelectedTone(tone)}
                         >
                           <Text style={[styles.toneText, selectedTone === tone && styles.toneTextSelected]}>
-                            {tone.charAt(0).toUpperCase() + tone.slice(1)}
+                            {t(`${tone}`)}
                           </Text>
                         </TouchableOpacity>
                       ))}
@@ -867,7 +867,7 @@ const HumaniseTextContent = ({ route }) => {
                   </View>
                   
                   <View style={styles.settingRow}>
-                    <Text style={[styles.settingLabel, { color: colors.text }]}>AI Detector:</Text>
+                    <Text style={[styles.settingLabel, { color: colors.text }]}>{t('aiDetector')}:</Text>
                     <View style={styles.detectorSelector}>
                       <TouchableOpacity 
                         style={[styles.detectorButton, { borderColor: colors.border }]}
@@ -905,7 +905,7 @@ const HumaniseTextContent = ({ route }) => {
                       <ActivityIndicator size="small" color="#FFFFFF" />
                     ) : (
                       <View style={styles.fixedAnalyzeButtonContent}>
-                        <Text style={styles.submitButtonText}>Humanise</Text>
+                        <Text style={styles.submitButtonText}>{t('humanise')}</Text>
                         <MaterialCommunityIcons name="human-greeting" size={normalize(20)} color="#FFFFFF" />
                       </View>
                     )}
