@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet, ActivityIndicator } from 'react-native';
-import { useCoinsSubscription } from '../hooks/useCoinsSubscription';
+
 import { supabase } from '../supabaseClient';
 import { useTheme } from '../context/ThemeContext';
 import { useProfileUpdate } from '../context/ProfileUpdateContext';
@@ -8,11 +8,13 @@ import { useLanguage } from '../context/LanguageContext';
 
 const Header2 = ({ navigation, uid, openDrawer }) => {
     console.log("Header rendering with UID:", uid);
-    const coinCount = useCoinsSubscription(uid);
+
     const [userName, setUserName] = useState('');
     const [dpUrl, setDpUrl] = useState(null);
     const [loading, setLoading] = useState(true);
     const [isPro, setIsPro] = useState(false);
+    const [imageLoaded, setImageLoaded] = useState(false);
+    const [showHumanIcon, setShowHumanIcon] = useState(true);
     const { getThemeColors } = useTheme();
     const { lastUpdate } = useProfileUpdate();
     const colors = getThemeColors();
@@ -45,6 +47,8 @@ const Header2 = ({ navigation, uid, openDrawer }) => {
                 // Set profile picture URL if it exists
                 if (data.dp_url) {
                     setDpUrl(data.dp_url);
+                    setImageLoaded(false);
+                    setShowHumanIcon(true);
                 }
                 
                 // Set pro status
@@ -62,7 +66,7 @@ const Header2 = ({ navigation, uid, openDrawer }) => {
         return <ActivityIndicator size="small" color="#333" style={{ marginLeft: 10 }} />;
     }
 
-    console.log("Current coin count:", coinCount);
+
 
     return (
         <View style={[styles.header, {backgroundColor: 'transparent'}]}>
@@ -72,10 +76,21 @@ const Header2 = ({ navigation, uid, openDrawer }) => {
             {/* Welcome Text with Profile Picture */}
             <View style={styles.rowContainer}>
               <View style={styles.iconContainer}>
-                    <Image 
-                        source={dpUrl ? { uri: dpUrl } : require('../assets/Avatar/Cat.png')} 
-                        style={styles.icon} 
-                    />
+                         {dpUrl && (
+                             <Image 
+                                 source={{ uri: dpUrl }} 
+                                 style={[styles.icon, {position: 'absolute', zIndex: 2}]}
+                                 onLoad={() => {
+                                     setImageLoaded(true);
+                                     setTimeout(() => setShowHumanIcon(false), 300);
+                                 }}
+                             />
+                         )}
+                         {(!dpUrl || showHumanIcon) && (
+                             <View style={[styles.icon, styles.humanIconContainer]}>
+                                 <Text style={styles.humanIconText}>👤</Text>
+                             </View>
+                         )}
                 </View>
                 
                 {loading ? (
@@ -100,16 +115,7 @@ const Header2 = ({ navigation, uid, openDrawer }) => {
                 )}
             </View>
 
-            {/* Coin Display with Coin Icon */}
-            <TouchableOpacity
-                style={[styles.coinContainer, {backgroundColor: colors.background2, borderWidth: 0.8, borderColor: colors.border}]}
-                onPress={() =>
-                    navigation.navigate('TransactionScreen', { coinCount })
-                }
-            >
-                <Image source={require('../assets/coin.png')} style={styles.coinIcon} />
-                <Text style={styles.coinText}>{coinCount?.toString()}</Text>
-            </TouchableOpacity>
+
         </View>
     );
 };
@@ -135,38 +141,39 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
     },
-    icon: {
+    iconContainer: {
         width: 40,
         height: 40,
         marginRight: 3,
-       
-        
-        borderRadius: 17.5, // Make the image circular
+        borderRadius: 20,
+        position: 'relative',
+        overflow: 'hidden',
+    },
+    icon: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        overflow: 'hidden',
+    },
+    humanIconContainer: {
+        backgroundColor: '#F0F0F0',
+        justifyContent: 'center',
+        alignItems: 'center',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        zIndex: 3,
+    },
+    humanIconText: {
+        fontSize: 20,
+        color: '#666',
     },
     welcomeText: {
         fontSize: 18,
         fontWeight: 'bold',
         color: '#333',
     },
-    coinContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 5,
-        paddingHorizontal: 10,
-        borderWidth: 1,
-        borderColor: '#C9C9C9',
-        borderRadius: 15,
-    },
-    coinIcon: {
-        width: 20,
-        height: 20,
-        marginRight: 5,
-    },
-    coinText: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#FF6600',
-    },
+
     proContainer: {
         flexDirection: 'row',
         alignItems: 'center',

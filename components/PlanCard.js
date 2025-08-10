@@ -55,6 +55,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#D7D7D7FF',
+    minHeight: 200,
   },
   statusLabel: {
     position: 'absolute',
@@ -91,13 +92,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 30,
     marginLeft: 20,
+    flexWrap: 'wrap',
+    maxWidth: '80%',
   },
   coinsContainer: {
     flexDirection: 'row',
     justifyContent: 'flex-start',
     alignItems: 'center',
-   
     marginLeft: 20,
+    marginBottom: 10,
+    flexWrap: 'wrap',
+    maxWidth: '80%',
   },
   titleText: {
     fontSize: 18,
@@ -111,22 +116,26 @@ const styles = StyleSheet.create({
    
   },
   timeText: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#999',
-   
+    flexShrink: 1,
+    marginLeft: 5,
   },
   totalTimeText: {
-    fontSize: 24,
+    fontSize: 20,
     color: '#ccc',
- 
+    flexShrink: 1,
+    marginLeft: 5,
   },
   expiryDate: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#ccc',
     position: 'absolute',
     bottom: 10,
     right: 10,
+    maxWidth: '70%',
+    textAlign: 'right',
   },
 });
 

@@ -104,7 +104,7 @@ const CustomerSupportScreen = ({ navigation }) => {
       icon: 'mail-outline',
       title: t('emailSupport'),
       description: t('emailSupportDescription'),
-      action: () => Linking.openURL('mailto:support@matrixai.com'),
+      action: () => Linking.openURL('mailto:support@matrixaiglobal.com'),
     },
   ];
 

@@ -719,6 +719,31 @@ const HumaniseTextContent = ({ route }) => {
             
 
             
+            {/* Tone Selection Section */}
+            <View style={styles.standardContainer}>
+              <View style={[styles.toneContainer, { backgroundColor: currentTheme === 'dark' ? 'rgba(30, 30, 40, 0.6)' : 'rgba(255, 255, 255, 0.8)', borderColor: colors.border }]}>
+                <View style={styles.sectionHeaderContainer}>
+                  <View style={styles.sectionTitleContainer}>
+                    <MaterialCommunityIcons name="palette-outline" size={normalize(20)} color={colors.primary} />
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('tone')}</Text>
+                  </View>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.toneSelector}>
+                  {supportedTones.map((tone) => (
+                    <TouchableOpacity
+                      key={tone}
+                      style={[styles.toneOption, selectedTone === tone && styles.toneOptionSelected]}
+                      onPress={() => setSelectedTone(tone)}
+                    >
+                      <Text style={[styles.toneText, selectedTone === tone && styles.toneTextSelected]}>
+                        {t(`${tone}`)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+
             {/* Input Section */}
             <View 
               ref={inputContainerRef}
@@ -847,50 +872,7 @@ const HumaniseTextContent = ({ route }) => {
                   </View>
                 </View>
                 
-                {/* Settings Section */}
-                <View style={[styles.settingsContainer, { backgroundColor: currentTheme === 'dark' ? 'rgba(30, 30, 40, 0.6)' : 'rgba(255, 255, 255, 0.8)', borderColor: colors.border }]}>
-                  <View style={styles.settingRow}>
-                    <Text style={[styles.settingLabel, { color: colors.text }]}>{t('tone')}:</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.toneSelector}>
-                      {supportedTones.map((tone) => (
-                        <TouchableOpacity
-                          key={tone}
-                          style={[styles.toneOption, selectedTone === tone && styles.toneOptionSelected]}
-                          onPress={() => setSelectedTone(tone)}
-                        >
-                          <Text style={[styles.toneText, selectedTone === tone && styles.toneTextSelected]}>
-                            {t(`${tone}`)}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                  
-                  <View style={styles.settingRow}>
-                    <Text style={[styles.settingLabel, { color: colors.text }]}>{t('aiDetector')}:</Text>
-                    <View style={styles.detectorSelector}>
-                      <TouchableOpacity 
-                        style={[styles.detectorButton, { borderColor: colors.border }]}
-                        onPress={() => {
-                          // Show modal or dropdown for detector selection
-                          Alert.alert(
-                            'Select AI Detector',
-                            'Choose the AI detector to bypass:',
-                            supportedDetectors.map(detector => ({
-                              text: detector,
-                              onPress: () => setSelectedDetector(detector)
-                            }))
-                          );
-                        }}
-                      >
-                        <Text style={[styles.detectorButtonText, { color: colors.text }]} numberOfLines={1}>
-                          {selectedDetector}
-                        </Text>
-                        <MaterialIcons name="arrow-drop-down" size={normalize(20)} color={colors.text} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </View>
+
                 
                 {!isFinished && (
                   <TouchableOpacity 
@@ -1496,6 +1478,16 @@ const styles = StyleSheet.create({
   },
   
   // Settings styles
+  toneContainer: {
+    borderRadius: responsiveSpacing(16),
+    padding: responsiveSpacing(16),
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
   settingsContainer: {
     borderRadius: responsiveSpacing(16),
     padding: responsiveSpacing(16),

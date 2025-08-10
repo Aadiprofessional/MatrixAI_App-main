@@ -28,22 +28,23 @@ const FeatureCardWithDetails = () => {
         {/* List of features with images */}
         <View style={styles.featureList}>
           <View style={styles.featureItem}>
-            <MaterialCommunityIcons name="text-recognition" size={30} color="#BDBDBDFF" style={styles.featureIcon} />
-              <Text style={[styles.featureText, {color: colors.text}]}>High-Accuracy Speech-to-Text</Text>
+            <MaterialCommunityIcons name="video-outline" size={30} color="#BDBDBDFF" style={styles.featureIcon} />
+            <Text style={[styles.featureText, {color: colors.text}]}>Process and Analyze Videos</Text>
           </View>
         
           <View style={styles.featureItem}>
-            <MaterialIcons name="translate" size={30} color="#BDBDBDFF" style={styles.featureIcon} />
-            <Text style={[styles.featureText, {color: colors.text}]}>Multilingual Text Translation</Text>
+            <MaterialCommunityIcons name="image-edit-outline" size={30} color="#BDBDBDFF" style={styles.featureIcon} />
+            <Text style={[styles.featureText, {color: colors.text}]}>Generate Images with AI</Text>
           </View>
+          
           <View style={styles.featureItem}>
-            <MaterialCommunityIcons name="robot" size={30} color="#BDBDBDFF" style={styles.featureIcon} />
-            <Text style={[styles.featureText, {color: colors.text}]}>AI Chatbot</Text>
+            <MaterialCommunityIcons name="microphone" size={30} color="#BDBDBDFF" style={styles.featureIcon} />
+            <Text style={[styles.featureText, {color: colors.text}]}>Convert Speech to Text</Text>
           </View>
          
           <View style={styles.featureItem}>
-            <MaterialCommunityIcons name="image" size={30} color="#BDBDBDFF" style={styles.featureIcon} />
-            <Text style={[styles.featureText, {color: colors.text}]}>AI Chatbot with Picture Understanding</Text>
+            <MaterialCommunityIcons name="text-box-outline" size={30} color="#BDBDBDFF" style={styles.featureIcon} />
+            <Text style={[styles.featureText, {color: colors.text}]}>AI-Powered Writing Assistant</Text>
           </View>
         </View>
 

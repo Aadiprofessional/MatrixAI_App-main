@@ -102,16 +102,18 @@ console.log(uid);
           <Text style={styles.planPrice2}>
             $50 HKD
           </Text>
-          <View style={styles.planPriceContainer}>
-            
-          <Text style={styles.planPrice}>
-           450
-          </Text>
-         <Image source={require('../../assets/coin.png')} style={styles.planIcon} />
+          <View style={styles.planDiscountContainer}>
+            <Text style={styles.planDiscountPlaceholder}> </Text>
           </View>
+          <View style={styles.planPriceContainer}>
+            <Text style={styles.planPrice}>
+             450
+            </Text>
+           <Image source={require('../../assets/coin.png')} style={styles.planIcon} />
+          </View>
+        </TouchableOpacity>
         
-          </TouchableOpacity>
-          <TouchableOpacity
+        <TouchableOpacity
           style={[styles.plan, selectedPlan === 'Monthly' && styles.activePlan]}
           onPress={() => handlePlanSelect('Monthly')}
         >
@@ -119,17 +121,18 @@ console.log(uid);
           <Text style={styles.planPrice2}>
             $138 HKD
           </Text>
-          <View style={styles.planPriceContainer}>
-            
-          <Text style={styles.planPrice}>
-           1380
-          </Text>
-         <Image source={require('../../assets/coin.png')} style={styles.planIcon} />
+          <View style={styles.planDiscountContainer}>
+            <Text style={styles.planDiscountPlaceholder}> </Text>
           </View>
-        
-          </TouchableOpacity>
+          <View style={styles.planPriceContainer}>
+            <Text style={styles.planPrice}>
+             1380
+            </Text>
+           <Image source={require('../../assets/coin.png')} style={styles.planIcon} />
+          </View>
+        </TouchableOpacity>
       
-          <TouchableOpacity
+        <TouchableOpacity
           style={[styles.plan, selectedPlan === 'Yearly' && styles.activePlan]}
           onPress={() => handlePlanSelect('Yearly')}
         >
@@ -137,24 +140,22 @@ console.log(uid);
           <Text style={styles.planPrice2}>
             $1490 HKD
           </Text>
-          <View style={styles.planPriceContainer2}>
-          <Text style={styles.planPrice3}>
-            $1656 HKD
-          </Text>
-          <Text style={styles.planPrice4}>
-            Save 10%
-          </Text>
+          <View style={styles.planDiscountContainer}>
+            <Text style={styles.planPrice3}>
+              $1656 HKD
+            </Text>
+            <Text style={styles.planPrice4}>
+              Save 10%
+            </Text>
           </View>
           <View style={styles.planPriceContainer}>
-            
-          <Text style={styles.planPrice}>
-           1380
-          </Text>
-         <Image source={require('../../assets/coin.png')} style={styles.planIcon} />
-         <Text style={styles.planPrice}>/Month</Text>
+            <Text style={styles.planPrice}>
+             1380
+            </Text>
+           <Image source={require('../../assets/coin.png')} style={styles.planIcon} />
+           <Text style={styles.planPrice}>/Month</Text>
           </View>
-        
-          </TouchableOpacity>
+        </TouchableOpacity>
       </View>
       
       <View style={styles.planTextContainer}>
@@ -187,14 +188,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignContent:'center',
     textAlignVertical:'center',
+    minHeight: 30,
+    marginTop: 5,
   },
-  planPriceContainer2: {
-    flexDirection: 'row',
+  planDiscountContainer: {
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     alignContent:'center',
     textAlignVertical:'center',
-    marginTop:-7,
+    minHeight: 25,
+    marginTop: 5,
+  },
+  planDiscountPlaceholder: {
+    fontSize: 10,
+    color: 'transparent',
   },
   planIcon: {
     width: 20,
@@ -218,7 +226,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     color: '#EC6B0EFF',
-    marginTop: 10,
+    marginTop: 2,
   },
   title: {
     fontSize: 24,
@@ -295,12 +303,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
     paddingVertical: 20,
+    paddingHorizontal: 8,
     marginHorizontal: 5,
     borderRadius: 10,
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignContent: 'center',
     alignItems: 'center',
     textAlignVertical:'center',
+    minHeight: 140,
   },
   activePlan: {
     borderWidth: 2,
@@ -328,7 +338,8 @@ const styles = StyleSheet.create({
       fontWeight: 'bold',
       textDecorationLine: 'line-through',
       color: '#5A5A5AFF',
-      marginTop: 10,
+      marginTop: 5,
+      marginBottom: 2,
     },
   planCoinIcon: {
     width: 16,

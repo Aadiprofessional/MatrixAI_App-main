@@ -282,88 +282,90 @@ const renderTextWithMath = (text, textStyle) => {
   // Split text by both LaTeX expressions and custom math tags
   const parts = text.split(/(\\\([^\)]*\\\)|\\\[[^\]]*\\\]|<math>[\s\S]*?<\/math>|<math3>[\s\S]*?<\/math3>)/);
   
-  return parts.map((part, index) => {
-    // Check if this part is a LaTeX expression
-    if (part.match(/^\\\([^\)]*\\\)$/)) {
-      // Inline math expression
-      const mathContent = part.slice(2, -2); // Remove \( and \)
-      return (
-        <View key={index} style={styles.inlineMathContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+  return (
+    <Text style={textStyle}>
+      {parts.map((part, index) => {
+        // Check if this part is a LaTeX expression
+        if (part.match(/^\\\([^\)]*\\\)$/)) {
+          // Inline math expression
+          const mathContent = part.slice(2, -2); // Remove \( and \)
+          return (
             <MathView
+              key={index}
               math={mathContent}
               style={{
-                fontSize: 16,
+                fontSize: textStyle?.fontSize || 16,
                 color: '#007AFF',
-                maxWidth: 300,
+                marginVertical: 0,
+                marginTop: 10,
+                marginBottom: 0,
+                paddingVertical: 0,
+                lineHeight: textStyle?.fontSize || 16,
               }}
             />
-          </ScrollView>
-        </View>
-      );
-    } else if (part.match(/^\\\[[^\]]*\\\]$/)) {
-      // Block math expression
-      const mathContent = part.slice(2, -2); // Remove \[ and \]
-      return (
-        <View key={index} style={styles.mathContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          );
+        } else if (part.match(/^\\\[[^\]]*\\\]$/)) {
+          // Block math expression
+          const mathContent = part.slice(2, -2); // Remove \[ and \]
+          return (
+            <View key={index} style={styles.mathContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <MathView
+                  math={mathContent}
+                  style={{
+                    fontSize: 18,
+                    color: '#007AFF',
+                    marginVertical: 8,
+                    textAlign: 'center',
+                    maxWidth: 350,
+                  }}
+                />
+              </ScrollView>
+            </View>
+          );
+        } else if (part.match(/^<math>[\s\S]*?<\/math>$/)) {
+          // Custom inline math tag
+          const mathContent = part.slice(6, -7); // Remove <math> and </math>
+          return (
             <MathView
+              key={index}
               math={mathContent}
               style={{
-                fontSize: 18,
+                fontSize: textStyle?.fontSize || 16,
                 color: '#007AFF',
-                marginVertical: 8,
-                textAlign: 'center',
-                maxWidth: 350,
+                marginVertical: 0,
+                marginTop: 0,
+                marginBottom: 0,
+                paddingVertical: 0,
+                lineHeight: textStyle?.fontSize || 16,
               }}
             />
-          </ScrollView>
-        </View>
-      );
-    } else if (part.match(/^<math>[\s\S]*?<\/math>$/)) {
-      // Custom inline math tag
-      const mathContent = part.slice(6, -7); // Remove <math> and </math>
-      return (
-        <View key={index} style={styles.inlineMathContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <MathView
-              math={mathContent}
-              style={{
-                fontSize: 16,
-                color: '#007AFF',
-                maxWidth: 300,
-              }}
-            />
-          </ScrollView>
-        </View>
-      );
-    } else if (part.match(/^<math3>[\s\S]*?<\/math3>$/)) {
-      // Custom display math tag
-      const mathContent = part.slice(7, -8); // Remove <math3> and </math3>
-      return (
-        <View key={index} style={styles.mathContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <MathView
-              math={mathContent}
-              style={{
-                fontSize: 18,
-                color: '#007AFF',
-                textAlign: 'center',
-                maxWidth: 350,
-              }}
-            />
-          </ScrollView>
-        </View>
-      );
-    } else {
-      // Regular text
-      return (
-        <Text key={index} style={textStyle}>
-          {part}
-        </Text>
-      );
-    }
-  });
+          );
+        } else if (part.match(/^<math3>[\s\S]*?<\/math3>$/)) {
+          // Custom display math tag
+          const mathContent = part.slice(7, -8); // Remove <math3> and </math3>
+          return (
+            <View key={index} style={styles.mathContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <MathView
+                  math={mathContent}
+                  style={{
+                    fontSize: 18,
+                    color: '#007AFF',
+                    textAlign: 'center',
+                    maxWidth: 350,
+                  }}
+                />
+              </ScrollView>
+            </View>
+          );
+        } else {
+          // Regular text
+          return part;
+        }
+      })}
+    </Text>
+  );
 };
   // Helper function to check if text contains math expressions
 

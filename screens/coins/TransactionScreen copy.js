@@ -79,7 +79,7 @@ const TransactionScreen2 = ({ navigation }) => {
       </View>
       <View style={styles.coinsContainer}>
         <Text style={[styles.coinsText, {color: colors.text}, item.status === 'success' ? styles.successText : styles.pendingText]}>
-          {item.coin_amount} Coins
+          -{item.coin_amount} Coins
         </Text>
         <Text style={[styles.statusText, {color: colors.text}, item.status === 'success' ? styles.successText : styles.pendingText]}>
           {item.status}

@@ -31,24 +31,25 @@ const FeatureCardWithDetailsPro = () => {
 
        <View style={styles.featureList}>
           <View style={styles.featureItem}>
-            <MaterialCommunityIcons name="text-recognition" size={30} color="#FF6600" style={styles.featureIcon} />
-            <Text style={[styles.featureText, {color: colors.text}]}>{t('highAccuracySpeechToText')}</Text>
+            <MaterialCommunityIcons name="video-outline" size={30} color="#FF6600" style={styles.featureIcon} />
+            <Text style={[styles.featureText, {color: colors.text}]}>{t('processAndAnalyzeVideos')}</Text>
           </View>
     
           <View style={styles.featureItem}>
-            <MaterialIcons name="translate" size={30} color="#FF6600" style={styles.featureIcon} />
-                  <Text style={[styles.featureText, {color: colors.text}]}>{t('multilingualTextTranslation')}</Text>
+            <MaterialCommunityIcons name="image-edit-outline" size={30} color="#FF6600" style={styles.featureIcon} />
+            <Text style={[styles.featureText, {color: colors.text}]}>{t('generateImages')}</Text>
           </View>
+          
           <View style={styles.featureItem}>
-            <MaterialCommunityIcons name="robot" size={30} color="#FF6600" style={styles.featureIcon} />
-            <Text style={[styles.featureText, {color: colors.text}]}>{t('aiChatbot')}</Text>
+            <MaterialCommunityIcons name="microphone" size={30} color="#FF6600" style={styles.featureIcon} />
+            <Text style={[styles.featureText, {color: colors.text}]}>{t('convertSpeechToText')}</Text>
           </View>
        
           <View style={styles.featureItem}>
-            <MaterialCommunityIcons name="image" size={30} color="#FF6600" style={styles.featureIcon} />
-            <Text style={[styles.featureText, {color: colors.text}]}>{t('aiChatbotWithPicture')}</Text>
+            <MaterialCommunityIcons name="text-box-outline" size={30} color="#FF6600" style={styles.featureIcon} />
+            <Text style={[styles.featureText, {color: colors.text}]}>{t('aiPoweredWritingAssistant')}</Text>
           </View>
-            </View>
+        </View>
        
       </TouchableOpacity>
     </View>

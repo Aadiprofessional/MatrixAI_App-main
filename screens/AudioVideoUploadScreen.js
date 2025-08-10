@@ -1260,7 +1260,7 @@ const AudioVideoUploadScreen = () => {
                     />
                 <View style={styles.detailsRow}>
                     <Text style={[styles.fileName, {color: colors.text}]} numberOfLines={1}>
-                        {truncateText(item.audio_name || 'Audio File', 18)}
+                        {truncateText(item.audio_name || 'Audio File', 14)}
                     </Text>
                     <View style={styles.fileDetails}>
                         <MaterialIcons name="access-time" size={14} color={'#C3C3C3FF'} marginRight={2}/>

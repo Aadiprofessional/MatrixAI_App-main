@@ -60,73 +60,84 @@ const renderTextWithMath = (text, textStyle) => {
   // Split text by both LaTeX expressions and custom math tags
   const parts = text.split(/(\\\([^\)]*\\\)|\\\[[^\]]*\\\]|<math>[\s\S]*?<\/math>|<math2>[\s\S]*?<\/math2>)/);
   
-  return parts.map((part, index) => {
-    // Check if this part is a LaTeX expression
-    if (part.match(/^\\\([^\)]*\\\)$/)) {
-      // Inline math expression
-      const mathContent = part.slice(2, -2); // Remove \( and \)
-      return (
-        <MathView
-          key={index}
-          math={mathContent}
-          style={{
-            fontSize: 16,
-            color: '#007AFF',
-          }}
-        />
-      );
-    } else if (part.match(/^\\\[[^\]]*\\\]$/)) {
-      // Block math expression
-      const mathContent = part.slice(2, -2); // Remove \[ and \]
-      return (
-        <MathView
-          key={index}
-          math={mathContent}
-          style={{
-            fontSize: 18,
-            color: '#007AFF',
-            marginVertical: 8,
-            textAlign: 'center',
-          }}
-        />
-      );
-    } else if (part.match(/^<math>[\s\S]*?<\/math>$/)) {
-      // Custom inline math tag
-      const mathContent = part.slice(6, -7); // Remove <math> and </math>
-      return (
-        <MathView
-          key={index}
-          math={mathContent}
-          style={{
-            fontSize: 16,
-            color: '#007AFF',
-          }}
-        />
-      );
-    } else if (part.match(/^<math2>[\s\S]*?<\/math2>$/)) {
-      // Custom display math tag
-      const mathContent = part.slice(7, -8); // Remove <math2> and </math2>
-      return (
-        <View key={index} style={styles.displayMathContainer}>
-          <MathView
-            math={mathContent}
-            style={{
-              fontSize: 6,
-              color: '#007AFF',
-              textAlign: 'center',
-            }}
-          />
-        </View>
-      );
-    } else {
-      // Regular text
-      return (
-        <Text key={index} style={textStyle}>
-          {part}
-        </Text>
-      );
-    }
-  });
+  return (
+    <Text style={textStyle}>
+      {parts.map((part, index) => {
+        // Check if this part is a LaTeX expression
+        if (part.match(/^\\\([^\)]*\\\)$/)) {
+          // Inline math expression
+          const mathContent = part.slice(2, -2); // Remove \( and \)
+          return (
+            <MathView
+               key={index}
+               math={mathContent}
+               style={{
+                 fontSize: textStyle?.fontSize || 16,
+                 color: '#007AFF',
+                 marginVertical: 0,
+                 marginTop: 0,
+                 marginBottom: 0,
+                 paddingVertical: 0,
+                 lineHeight: textStyle?.fontSize || 16,
+               }}
+             />
+          );
+        } else if (part.match(/^\\\[[^\]]*\\\]$/)) {
+          // Block math expression
+          const mathContent = part.slice(2, -2); // Remove \[ and \]
+          return (
+            <View key={index} style={styles.displayMathContainer}>
+              <MathView
+                math={mathContent}
+                style={{
+                  fontSize: 18,
+                  color: '#007AFF',
+                  marginVertical: 8,
+                  textAlign: 'center',
+                }}
+              />
+            </View>
+          );
+        } else if (part.match(/^<math>[\s\S]*?<\/math>$/)) {
+          // Custom inline math tag
+          const mathContent = part.slice(6, -7); // Remove <math> and </math>
+          return (
+            <MathView
+               key={index}
+               math={mathContent}
+               style={{
+                 fontSize: textStyle?.fontSize || 16,
+                 color: '#007AFF',
+                 marginVertical: 0,
+                 marginTop: 0,
+                 marginBottom: 0,
+                 paddingVertical: 0,
+                 lineHeight: textStyle?.fontSize || 16,
+               }}
+             />
+          );
+        } else if (part.match(/^<math2>[\s\S]*?<\/math2>$/)) {
+          // Custom display math tag
+          const mathContent = part.slice(7, -8); // Remove <math2> and </math2>
+          return (
+            <View key={index} style={styles.displayMathContainer}>
+              <MathView
+                math={mathContent}
+                style={{
+                  fontSize: 6,
+                  color: '#007AFF',
+                  textAlign: 'center',
+                }}
+              />
+            </View>
+          );
+        } else {
+          // Regular text
+          return part;
+        }
+      })}
+    </Text>
+  );
 };
 
 const BotScreen2 = ({ navigation, route }) => {

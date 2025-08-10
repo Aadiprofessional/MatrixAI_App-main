@@ -202,7 +202,9 @@ const VideoGenerateScreen = () => {
     try {
       // Use enhanced video service to get all videos with more details
       const result = await videoService.getAllVideosEnhanced({
-        uid: uid
+        uid: uid,
+        page: page,
+        itemsPerPage: videosPerPage
       });
       
       console.log('Video history result:', result);
@@ -233,7 +235,7 @@ const VideoGenerateScreen = () => {
       }
       
       setHistoryPage(page);
-      setHasMoreVideos(processedVideos.length >= videosPerPage);
+      setHasMoreVideos(processedVideos.length === videosPerPage);
     } catch (err) {
       console.error('Error fetching video history:', err);
       setError(err.message);
@@ -937,24 +939,25 @@ const VideoGenerateScreen = () => {
         disabled={!item.isReady}
         activeOpacity={0.7}
       >
-        {/* Enhanced video thumbnail with play button overlay */}
+        {/* Enhanced video thumbnail without play button overlay */}
         <View style={styles.thumbnailContainer}>
-          {/* Video thumbnail background with gradient overlay */}
-          <View style={[styles.thumbnailBackground, {
-            backgroundColor: item.isReady ? colors.primary + '33' : 
-                           item.statusDisplay === 'Failed' ? '#F44336' + '22' : 
-                           colors.text + '22',
-            borderRadius: 8,
-          }]} />
-          
-          {/* Play button overlay - more prominent */}
-          <View style={styles.playButtonOverlay}>
-            <MaterialIcons 
-              name={item.isReady ? "play-circle-filled" : item.statusDisplay === 'Failed' ? "error" : "hourglass-empty"} 
-              size={50} 
-              color={item.isReady ? '#FFFFFF' : item.statusDisplay === 'Failed' ? '#F44336' : colors.text + '77'} 
+          {/* Video thumbnail - show actual video frame if available */}
+          {item.isReady && item.videoUrl ? (
+            <Video
+              source={{ uri: item.videoUrl }}
+              style={styles.thumbnailVideo}
+              paused={true}
+              resizeMode="cover"
+              poster={item.thumbnailUrl}
             />
-          </View>
+          ) : (
+            <View style={[styles.thumbnailBackground, {
+              backgroundColor: item.isReady ? colors.primary + '33' : 
+                             item.statusDisplay === 'Failed' ? '#F44336' + '22' : 
+                             colors.text + '22',
+              borderRadius: 8,
+            }]} />
+          )}
           
           {/* Video resolution - more visible */}
           <Text style={[styles.videoDuration, {color: '#FFFFFF', backgroundColor: 'rgba(0,0,0,0.7)'}]}>
@@ -980,7 +983,7 @@ const VideoGenerateScreen = () => {
         </View>
       </TouchableOpacity>
       
-      <View style={[styles.historyItemContent, {backgroundColor: 'transparent'}]}>
+      <View style={[styles.historyItemContent, {backgroundColor: 'transparent', marginLeft: 5}]}>
         {/* Enhanced video metadata section */}
         <View style={styles.videoMetadata}>
           <Text style={[styles.historyDate, {color: '#FFFFFF'}]}>
@@ -1007,23 +1010,10 @@ const VideoGenerateScreen = () => {
           {item.promptText || 'Video prompt'}
         </Text>
         
-        {/* Reorganized action buttons with improved layout */}
+        {/* Reorganized action buttons with improved layout - removed play button */}
         <View style={styles.historyActions}>
-          {/* Primary Play button or Retry button */}
-          {item.isReady ? (
-            <TouchableOpacity 
-              style={[styles.historyActionButtonPrimary, {backgroundColor: '#3a7bff'}]}
-              onPress={() => {
-                // Clone the values to avoid passing synthetic events
-                const videoUrlCopy = item.videoUrl + "";
-                const promptTextCopy = item.promptText + "";
-                handleVideoPreview(videoUrlCopy, promptTextCopy);
-              }}
-            >
-              <MaterialIcons name="play-arrow" size={18} color="#FFFFFF" />
-              <Text style={styles.actionButtonText}>{t('play')}</Text>
-            </TouchableOpacity>
-          ) : item.statusDisplay === 'Failed' && (
+          {/* Retry button for failed items only */}
+          {item.statusDisplay === 'Failed' && (
             <TouchableOpacity 
               style={[styles.historyActionButtonPrimary, {backgroundColor: '#F44336'}]}
               onPress={() => {
@@ -1037,54 +1027,66 @@ const VideoGenerateScreen = () => {
             </TouchableOpacity>
           )}
           
-          {/* Secondary action buttons in a row with better spacing */}
-          <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, width: '100%'}}>
-            <View style={{flexDirection: 'row'}}>
-              {/* Download button */}
-              {item.isReady && (
-                <TouchableOpacity 
-                  style={[styles.historyActionButton, {backgroundColor: 'rgba(255,255,255,0.15)', marginRight: 8}]}
-                  onPress={() => {
-                    // Clone the values to avoid passing synthetic events
-                    const videoUrlCopy = item.videoUrl + "";
-                    const videoIdCopy = item.videoId + "";
-                    handleDownloadVideo(videoUrlCopy, videoIdCopy);
-                  }}
-                  disabled={downloadingVideoId === item.videoId}
-                >
-                  {downloadingVideoId === item.videoId ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <MaterialIcons name="file-download" size={20} color="#FFFFFF" />
-                  )}
-                </TouchableOpacity>
-              )}
-              
-              {/* Share button */}
-              {item.isReady && (
-                <TouchableOpacity 
-                  style={[styles.historyActionButton, {backgroundColor: 'rgba(255,255,255,0.15)'}]}
-                  onPress={() => {
-                    // Clone the value to avoid passing a synthetic event
-                    const videoUrlCopy = item.videoUrl + "";
-                    handleShareVideo(videoUrlCopy);
-                  }}
-                >
-                  <MaterialIcons name="share" size={20} color="#FFFFFF" />
-                </TouchableOpacity>
-              )}
-            </View>
+          {/* Download and Share buttons in a row */}
+          <View style={{flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'center', marginTop: 4, width: '100%'}}>
+            {/* Download button */}
+            {item.isReady && (
+              <TouchableOpacity 
+                style={[styles.historyActionButton, {backgroundColor: 'rgba(255,255,255,0.15)', marginRight: 6, marginLeft: 0}]}
+                onPress={() => {
+                  // Clone the values to avoid passing synthetic events
+                  const videoUrlCopy = item.videoUrl + "";
+                  const videoIdCopy = item.videoId + "";
+                  handleDownloadVideo(videoUrlCopy, videoIdCopy);
+                }}
+                disabled={downloadingVideoId === item.videoId}
+              >
+                {downloadingVideoId === item.videoId ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <MaterialIcons name="file-download" size={20} color="#FFFFFF" />
+                )}
+              </TouchableOpacity>
+            )}
             
-            {/* Delete button - aligned to the right */}
+            {/* Share button */}
+            {item.isReady && (
+              <TouchableOpacity 
+                style={[styles.historyActionButton, {backgroundColor: 'rgba(255,255,255,0.15)', marginLeft: 0}]}
+                onPress={() => {
+                  // Clone the value to avoid passing a synthetic event
+                  const videoUrlCopy = item.videoUrl + "";
+                  handleShareVideo(videoUrlCopy);
+                }}
+              >
+                <MaterialIcons name="share" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          {/* Delete button on separate line with different background and longer width */}
+          <View style={{marginTop: 6, width: '100%'}}>
             <TouchableOpacity 
-              style={[styles.historyActionButton, {backgroundColor: 'rgba(255,255,255,0.15)'}]}
+              style={{
+                flexDirection: 'row',
+                backgroundColor: 'rgba(244,67,54,0.2)',
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: 20,
+                width: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1,
+                borderColor: 'rgba(244,67,54,0.4)'
+              }}
               onPress={() => {
                 // Clone the value to avoid passing a synthetic event
                 const videoIdCopy = item.videoId + "";
                 handleRemoveVideo(videoIdCopy);
               }}
             >
-              <MaterialIcons name="delete" size={20} color="#FFFFFF" />
+              <MaterialIcons name="delete" size={18} color="#F44336" />
+              <Text style={{color: '#F44336', marginLeft: 6, fontSize: 10, fontWeight: '500'}}>Remove</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1721,17 +1723,25 @@ const VideoGenerateScreen = () => {
                         </View>
                         {selectedTemplate === item.id && (
                           <View style={styles.chooseVideoButtonContainer}>
-                            <Text style={styles.chooseVideoButtonText}>{t('chooseThisVideo')}</Text>
+                            <View style={styles.chooseVideoButtonContent}>
+                              <MaterialIcons name="check-circle" size={16} color="#FFFFFF" style={styles.chooseVideoIcon} />
+                              <Text style={styles.chooseVideoButtonText}>{t('chooseThisVideo')}</Text>
+                            </View>
                           </View>
                         )}
                       </View>
                       <View style={styles.templateInfo}>
                         <View style={styles.templateNameRow}>
                           <Text style={[styles.templateName, {color: colors.text}]}>{item.name}</Text>
-                          {item.category === 'premium' && (
+                          {item.category === 'premium' ? (
                             <View style={styles.premiumBadge}>
                               <Image source={require('../assets/coin.png')} style={styles.templateCoinIcon} />
                               <Text style={styles.premiumCost}>55</Text>
+                            </View>
+                          ) : (
+                            <View style={styles.basicBadge}>
+                              <Image source={require('../assets/coin.png')} style={styles.templateCoinIcon} />
+                              <Text style={styles.basicCost}>30</Text>
                             </View>
                           )}
                         </View>
@@ -1772,7 +1782,7 @@ const VideoGenerateScreen = () => {
             )}
             
             <TouchableOpacity 
-              style={[styles.rechargeButton, {paddingHorizontal: 20}]}
+              style={[styles.confirmTemplateButton, selectedTemplate ? styles.confirmTemplateButtonActive : styles.confirmTemplateButtonInactive]}
               onPress={() => {
                 if (selectedTemplate) {
                   setTemplateModalVisible(false);
@@ -1791,8 +1801,19 @@ const VideoGenerateScreen = () => {
                   });
                 }
               }}
+              disabled={!selectedTemplate}
             >
-              <Text style={[styles.rechargeButtonText, {fontSize: 18, fontWeight: '700'}]}>{t('chooseThisVideo')}</Text>
+              <View style={styles.confirmButtonContent}>
+                <MaterialIcons 
+                  name={selectedTemplate ? "check-circle" : "radio-button-unchecked"} 
+                  size={20} 
+                  color={selectedTemplate ? "#FFFFFF" : "#999999"} 
+                  style={styles.confirmButtonIcon} 
+                />
+                <Text style={[styles.confirmTemplateButtonText, selectedTemplate ? styles.confirmTemplateButtonTextActive : styles.confirmTemplateButtonTextInactive]}>
+                  {selectedTemplate ? t('chooseThisVideo') : t('selectTemplateFirst')}
+                </Text>
+              </View>
             </TouchableOpacity>
           </View>
         </View>
@@ -2115,16 +2136,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 8,
   },
-  playButtonOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.2)',
+  thumbnailVideo: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
   },
+
   videoDuration: {
     position: 'absolute',
     bottom: 8,
@@ -2170,14 +2187,13 @@ const styles = StyleSheet.create({
   historyActions: {
     flexDirection: 'column',
     justifyContent: 'space-between',
-    marginTop: 8,
+    marginTop: 4,
     width: '100%',
   },
   historyActionButton: {
     backgroundColor: 'rgba(255,255,255,0.15)',
     padding: 8,
     borderRadius: 20,
-    marginLeft: 8,
     width: 36,
     height: 36,
     alignItems: 'center',
@@ -2546,16 +2562,62 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(0,123,255,0.8)',
-    paddingVertical: 8,
+    backgroundColor: 'rgba(0,123,255,0.9)',
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
+  },
+  chooseVideoButtonContent: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  chooseVideoIcon: {
+    marginRight: 6,
+  },
   chooseVideoButtonText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: 'bold',
     textAlign: 'center',
+  },
+  confirmTemplateButton: {
+    paddingVertical: 15,
+    paddingHorizontal: 25,
+    borderRadius: 25,
+    marginTop: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  confirmTemplateButtonActive: {
+    backgroundColor: '#007BFF',
+  },
+  confirmTemplateButtonInactive: {
+    backgroundColor: 'rgba(153,153,153,0.3)',
+  },
+  confirmButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmButtonIcon: {
+    marginRight: 8,
+  },
+  confirmTemplateButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  confirmTemplateButtonTextActive: {
+    color: '#FFFFFF',
+  },
+  confirmTemplateButtonTextInactive: {
+    color: '#999999',
   },
   templateInfo: {
     flex: 1,
@@ -2588,6 +2650,15 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginLeft: 5,
   },
+  basicBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(76,175,80,0.2)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginLeft: 5,
+  },
   templateCoinIcon: {
     width: 12,
     height: 12,
@@ -2595,6 +2666,11 @@ const styles = StyleSheet.create({
   },
   premiumCost: {
     color: '#FFD700',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  basicCost: {
+    color: '#4CAF50',
     fontSize: 12,
     fontWeight: 'bold',
   },

@@ -19,6 +19,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Toast from 'react-native-toast-message';
 import { useTranslation } from 'react-i18next';
+import LinearGradient from 'react-native-linear-gradient';
 import audioService from '../services/audioService';
 import paymentService from '../services/paymentService';
 import { useCoinsSubscription } from '../hooks/useCoinsSubscription';
@@ -70,7 +71,7 @@ const SRTSubtitleModal = ({
     const [currentSegmentIndex, setCurrentSegmentIndex] = useState(-1);
     const [translatedSegments, setTranslatedSegments] = useState([]);
     const [isTranslating, setIsTranslating] = useState(false);
-    const [showTranslated, setShowTranslated] = useState(false);
+
     const [hasTranslation, setHasTranslation] = useState(false);
     const [selectedLanguage, setSelectedLanguage] = useState('zh');
     const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
@@ -218,6 +219,56 @@ const SRTSubtitleModal = ({
         });
     };
 
+    // Edit segment text
+    const handleEditSegment = (segment, index) => {
+        Alert.prompt(
+            'Edit Segment',
+            `Edit the text for segment ${segment.id}:`,
+            [
+                {
+                    text: 'Cancel',
+                    style: 'cancel',
+                },
+                {
+                    text: 'Save',
+                    onPress: (newText) => {
+                        if (newText && newText.trim()) {
+                            // Update the segment text in srtSegments
+                            const updatedSegments = [...srtSegments];
+                            updatedSegments[index] = {
+                                ...updatedSegments[index],
+                                text: newText.trim()
+                            };
+                            setSrtSegments(updatedSegments);
+
+                            // If there are translated segments, update them too
+                            if (hasTranslation && translatedSegments.length > 0) {
+                                const updatedTranslatedSegments = [...translatedSegments];
+                                if (updatedTranslatedSegments[index]) {
+                                    updatedTranslatedSegments[index] = {
+                                        ...updatedTranslatedSegments[index],
+                                        text: newText.trim()
+                                    };
+                                    setTranslatedSegments(updatedTranslatedSegments);
+                                }
+                            }
+
+                            Toast.show({
+                                type: 'success',
+                                text1: 'Updated',
+                                text2: 'Segment text has been updated',
+                                position: 'bottom',
+                                visibilityTime: 2000,
+                            });
+                        }
+                    },
+                },
+            ],
+            'plain-text',
+            segment.text
+        );
+    };
+
     // Translation functionality
     const translateSubtitles = async () => {
         if (!uid) {
@@ -277,7 +328,7 @@ const SRTSubtitleModal = ({
             
             setTranslatedSegments(translatedResults);
             setHasTranslation(true);
-            setShowTranslated(true);
+
 
             Toast.show({
                 type: 'success',
@@ -294,8 +345,8 @@ const SRTSubtitleModal = ({
         }
     };
 
-    // Get current segments to display (original or translated)
-    const currentSegments = showTranslated && hasTranslation ? translatedSegments : srtSegments;
+    // Get current segments to display
+    const currentSegments = srtSegments;
 
     // Get theme colors based on dark mode
     const getThemeColors = () => {
@@ -339,8 +390,8 @@ const SRTSubtitleModal = ({
             >
                 <View style={styles.segmentHeader}>
                     <TouchableOpacity
-                        style={styles.timestampContainer}
                         onPress={() => handleSegmentPress(item)}
+                        style={styles.segmentNumberContainer}
                     >
                         <Text style={[
                             styles.segmentNumber,
@@ -348,27 +399,37 @@ const SRTSubtitleModal = ({
                         ]}>
                             {item.id}
                         </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={styles.timeIntervalContainer}
+                        onPress={() => handleSegmentPress(item)}
+                    >
                         <Text style={[
                             styles.segmentTime,
                             { color: themeColors.textSecondary }
                         ]}>
                             {formatSRTTime(item.startTime)} {'->'} {formatSRTTime(item.endTime)}
                         </Text>
-                        <Text style={[
-                            styles.segmentDisplayTime,
-                            { color: themeColors.textSecondary }
-                        ]}>
-                            {formatDisplayTime(item.startTime)}
-                        </Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.copyButton, { backgroundColor: themeColors.primary }]}
-                        onPress={() => handleCopyText(item.text)}
-                    >
-                        <MaterialIcons name="content-copy" size={16} color="#ffffff" />
-                    </TouchableOpacity>
+                    <View style={styles.actionButtonsContainer}>
+                        <TouchableOpacity
+                            style={[styles.editButton, { backgroundColor: themeColors.secondary || '#6c757d' }]}
+                            onPress={() => handleEditSegment(item, index)}
+                        >
+                            <MaterialIcons name="edit" size={10} color="#ffffff" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.copyButton, { backgroundColor: themeColors.primary }]}
+                            onPress={() => handleCopyText(item.text)}
+                        >
+                            <MaterialIcons name="content-copy" size={10} color="#ffffff" />
+                        </TouchableOpacity>
+                    </View>
                 </View>
-                <TouchableOpacity onPress={() => handleSegmentPress(item)}>
+                <TouchableOpacity onPress={() => {
+                    handleSegmentPress(item);
+                    handleCopyText(item.text);
+                }}>
                     <Text style={[
                         styles.segmentText,
                         isActive && styles.activeSegmentText,
@@ -379,6 +440,17 @@ const SRTSubtitleModal = ({
                     ]}>
                         {item.text}
                     </Text>
+                    {hasTranslation && translatedSegments[index] && (
+                        <Text style={[
+                            styles.translatedText,
+                            { 
+                                color: isActive ? themeColors.primary : themeColors.textSecondary,
+                                fontWeight: isActive ? '500' : '400'
+                            }
+                        ]}>
+                            {translatedSegments[index].text}
+                        </Text>
+                    )}
                 </TouchableOpacity>
             </View>
         );
@@ -435,57 +507,7 @@ const SRTSubtitleModal = ({
                                 styles.translationControls,
                                 { backgroundColor: themeColors.surface, borderBottomColor: themeColors.border }
                             ]}>
-                                {/* Translation Controls */}
-                                <View style={styles.translationRow}>
-                                    <TouchableOpacity
-                                        style={[styles.translateButton, { backgroundColor: themeColors.primary, opacity: isTranslating ? 0.7 : 1 }]}
-                                        onPress={translateSubtitles}
-                                        disabled={isTranslating}
-                                    >
-                                        {isTranslating ? (
-                                            <ActivityIndicator size="small" color="#ffffff" />
-                                        ) : (
-                                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                                <Text style={styles.translateButtonText}>Translate -1</Text>
-                                                <Image source={coin} style={[styles.coinIcon, { marginLeft: 5 }]} />
-                                            </View>
-                                        )}
-                                    </TouchableOpacity>
-                                </View>
-
-                                {/* Text Mode Toggle Buttons */}
-                                {hasTranslation && (
-                                    <View style={[styles.textModeContainer, { backgroundColor: themeColors.surface }]}>
-                                        <TouchableOpacity
-                                            style={[
-                                                styles.textModeButton,
-                                                !showTranslated && styles.activeTextModeButton,
-                                                { backgroundColor: !showTranslated ? themeColors.primary : 'transparent' }
-                                            ]}
-                                            onPress={() => setShowTranslated(false)}
-                                        >
-                                            <Text style={[
-                                                styles.textModeButtonText,
-                                                { color: !showTranslated ? '#ffffff' : themeColors.text }
-                                            ]}>Original</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            style={[
-                                                styles.textModeButton,
-                                                showTranslated && styles.activeTextModeButton,
-                                                { backgroundColor: showTranslated ? themeColors.primary : 'transparent' }
-                                            ]}
-                                            onPress={() => setShowTranslated(true)}
-                                        >
-                                            <Text style={[
-                                                styles.textModeButtonText,
-                                                { color: showTranslated ? '#ffffff' : themeColors.text }
-                                            ]}>Translated</Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                )}
-                                
-                                {/* Language Selection */}
+                                {/* Language Selection - Moved to top */}
                                 <TouchableOpacity
                                     style={[styles.languageDropdown, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}
                                     onPress={() => setShowLanguageDropdown(!showLanguageDropdown)}
@@ -495,20 +517,61 @@ const SRTSubtitleModal = ({
                                     </Text>
                                 </TouchableOpacity>
 
-                                {showLanguageDropdown && (
-                                    <View style={[styles.languageList, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
-                                        {languages.map((language) => (
-                                            <TouchableOpacity
-                                                key={language.code}
-                                                style={[styles.languageOption, { borderBottomColor: themeColors.border }]}
-                                                onPress={() => {
-                                                    setSelectedLanguage(language.code);
-                                                    setShowLanguageDropdown(false);
-                                                }}
+                                {/* Translate Button - Centered with gradient */}
+                                <View style={styles.translateButtonContainer}>
+                                    <TouchableOpacity
+                                        style={[styles.translateButton, { opacity: isTranslating ? 0.7 : 1 }]}
+                                        onPress={translateSubtitles}
+                                        disabled={isTranslating}
+                                    >
+                                        {isTranslating ? (
+                                            <LinearGradient
+                                                colors={['#13EF97', '#1D8EC4']}
+                                                style={styles.gradientButton}
+                                                start={{ x: 1, y: 0 }}
+                                                end={{ x: 0, y: 0 }}
                                             >
-                                                <Text style={[styles.languageOptionText, { color: themeColors.text }]}>{language.name}</Text>
-                                            </TouchableOpacity>
-                                        ))}
+                                                <ActivityIndicator size="small" color="#ffffff" />
+                                            </LinearGradient>
+                                        ) : (
+                                            <LinearGradient
+                                                colors={['#13EF97', '#1D8EC4']}
+                                                style={styles.gradientButton}
+                                                start={{ x: 1, y: 0 }}
+                                                end={{ x: 0, y: 0 }}
+                                            >
+                                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                                    <Text style={styles.translateButtonText}>Translate -1</Text>
+                                                    <Image source={coin} style={[styles.coinIcon, { marginLeft: 5 }]} />
+                                                </View>
+                                            </LinearGradient>
+                                        )}
+                                    </TouchableOpacity>
+                                </View>
+
+
+
+                                {showLanguageDropdown && (
+                                    <View style={styles.languageDropdownOverlay}>
+                                        <TouchableWithoutFeedback onPress={() => setShowLanguageDropdown(false)}>
+                                            <View style={styles.languageDropdownBackdrop} />
+                                        </TouchableWithoutFeedback>
+                                        <View style={[styles.languageList, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
+                                             <ScrollView style={styles.languageScrollView} showsVerticalScrollIndicator={true}>
+                                                 {languages.map((language) => (
+                                                     <TouchableOpacity
+                                                         key={language.code}
+                                                         style={[styles.languageOption, { borderBottomColor: themeColors.border }]}
+                                                         onPress={() => {
+                                                             setSelectedLanguage(language.code);
+                                                             setShowLanguageDropdown(false);
+                                                         }}
+                                                     >
+                                                         <Text style={[styles.languageOptionText, { color: themeColors.text }]}>{language.name}</Text>
+                                                     </TouchableOpacity>
+                                                 ))}
+                                             </ScrollView>
+                                         </View>
                                     </View>
                                 )}
                                 
@@ -580,12 +643,13 @@ const styles = StyleSheet.create({
         height: screenHeight * 0.8,
         backgroundColor: '#fff',
         borderRadius: 16,
-        overflow: 'hidden',
+        overflow: 'visible',
         elevation: 10,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.25,
         shadowRadius: 8,
+        position: 'relative',
     },
     modalHeader: {
         flexDirection: 'row',
@@ -611,6 +675,8 @@ const styles = StyleSheet.create({
     translationControls: {
         padding: 16,
         borderBottomWidth: 1,
+        position: 'relative',
+        zIndex: 1,
     },
     translationRow: {
         flexDirection: 'row',
@@ -618,13 +684,26 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 12,
     },
-    translateButton: {
-        backgroundColor: '#007bff',
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 8,
-        minWidth: 120,
+    translateButtonContainer: {
+        width: '100%',
         alignItems: 'center',
+        marginVertical: 12,
+    },
+    translateButton: {
+        width: '90%',
+        borderRadius: 8,
+        overflow: 'hidden',
+    },
+    gradientButton: {
+        width: '100%',
+        height: 48,
+      
+        paddingHorizontal: 16,
+        
+        alignItems: 'center',
+
+        justifyContent: 'center',
+        borderRadius: 8,
     },
     translateLabel: {
         fontSize: 16,
@@ -633,6 +712,7 @@ const styles = StyleSheet.create({
     translateButtonText: {
         color: '#ffffff',
         fontSize: 14,
+        marginLeft: -18,
         fontWeight: '600',
     },
     coinIcon: {
@@ -640,26 +720,7 @@ const styles = StyleSheet.create({
         height: 16,
         resizeMode: 'contain',
     },
-    textModeContainer: {
-        flexDirection: 'row',
-        borderRadius: 8,
-        padding: 4,
-        marginVertical: 8,
-    },
-    textModeButton: {
-        flex: 1,
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        borderRadius: 6,
-        alignItems: 'center',
-    },
-    activeTextModeButton: {
-        // Active styling handled by backgroundColor prop
-    },
-    textModeButtonText: {
-        fontSize: 14,
-        fontWeight: '600',
-    },
+
     languageDropdown: {
         paddingHorizontal: 12,
         paddingVertical: 8,
@@ -672,8 +733,37 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '500',
     },
+    languageDropdownOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 1000,
+        justifyContent: 'flex-start',
+        paddingTop: 60,
+    },
+    languageDropdownBackdrop: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'transparent',
+    },
     languageList: {
-        maxHeight: 180,
+        maxHeight: 250,
+        marginHorizontal: 16,
+        borderRadius: 8,
+        borderWidth: 1,
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+    },
+    languageScrollView: {
+        maxHeight: 250,
     },
     languageOption: {
         paddingHorizontal: 12,
@@ -722,16 +812,39 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: 8,
+        paddingHorizontal: 4,
     },
-    timestampContainer: {
+    segmentNumberContainer: {
+        width: 40,
+        alignItems: 'center',
+    },
+    timeIntervalContainer: {
         flex: 1,
+        alignItems: 'center',
+        paddingHorizontal: 8,
+    },
+
+    actionButtonsContainer: {
+        flexDirection: 'row',
+        gap: 4,
+    },
+    editButton: {
+        backgroundColor: '#6c757d',
+        paddingHorizontal: 4,
+        paddingVertical: 2,
+        borderRadius: 3,
+        width: 24,
+        height: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     copyButton: {
         backgroundColor: '#007BFF',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 4,
-        marginLeft: 8,
+        paddingHorizontal: 4,
+        paddingVertical: 2,
+        borderRadius: 3,
+        width: 24,
+        height: 20,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -742,11 +855,12 @@ const styles = StyleSheet.create({
         minWidth: 30,
     },
     segmentTime: {
-        fontSize: 12,
+        fontSize: 9,
         color: '#666',
         fontFamily: 'monospace',
-        flex: 1,
         textAlign: 'center',
+        numberOfLines: 1,
+        flexShrink: 1,
     },
     segmentDisplayTime: {
         fontSize: 12,
@@ -763,6 +877,12 @@ const styles = StyleSheet.create({
     activeSegmentText: {
         color: '#007BFF',
         fontWeight: '600',
+    },
+    translatedText: {
+        fontSize: 14,
+        lineHeight: 20,
+        marginTop: 4,
+        fontStyle: 'italic',
     },
     emptyContainer: {
         flex: 1,
