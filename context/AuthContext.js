@@ -77,19 +77,56 @@ export const AuthProvider = ({ children }) => {
     );
 
     // Monitor network status changes
-    const unsubscribeNetInfo = NetInfo.addEventListener(state => {
+    const unsubscribeNetInfo = NetInfo.addEventListener(async state => {
       const offline = !state.isConnected;
       setIsOffline(offline);
       
       // If we go from offline to online and have a uid, try to refresh session
       if (!offline && uid) {
+        // Check if we're using the new API authentication system
+        const token = await AsyncStorage.getItem('token');
+        if (token) {
+          console.log('AuthContext: Using new API authentication system, skipping Supabase session refresh on reconnect');
+          // Ensure userLoggedIn flag is set
+          await AsyncStorage.setItem('userLoggedIn', 'true');
+          // Make sure the UID is still set in AsyncStorage
+          await AsyncStorage.setItem('uid', uid);
+          // Ensure token is persisted
+          await AsyncStorage.setItem('token', token);
+          return;
+        }
+        
+        // Check if user is logged in
+        const userLoggedIn = await AsyncStorage.getItem('userLoggedIn');
+        if (userLoggedIn !== 'true') {
+          console.log('AuthContext: User not logged in, skipping session refresh on reconnect');
+          return;
+        }
+        
+        // Ensure UID is set in AsyncStorage even if userLoggedIn is not true
+        if (uid) {
+          await AsyncStorage.setItem('uid', uid);
+          await AsyncStorage.setItem('userLoggedIn', 'true');
+        }
+        
+        // Only try to refresh Supabase session if not using the new API auth
         supabase.auth.refreshSession().then(({ data, error }) => {
           if (error) {
             console.log('AuthContext: Failed to refresh session on reconnect:', error.message);
+            // Even if refresh fails, ensure we keep the current UID
+            AsyncStorage.setItem('userLoggedIn', 'true');
           } else if (data?.session) {
             updateUid(data.session.user.id);
             console.log('AuthContext: Successfully refreshed session on reconnect');
+          } else {
+            // No session data but we have a UID, so keep it
+            console.log('AuthContext: No session data after reconnect, keeping current UID');
+            AsyncStorage.setItem('userLoggedIn', 'true');
           }
+        }).catch(error => {
+          console.error('AuthContext: Error during session refresh on reconnect:', error);
+          // On error, ensure we keep the current UID
+          AsyncStorage.setItem('userLoggedIn', 'true');
         });
       }
     });
@@ -108,7 +145,33 @@ export const AuthProvider = ({ children }) => {
       const isConnected = netInfoState.isConnected;
       console.log('AuthContext: Network connected:', isConnected);
       
-      // Check if user is logged in first
+      // Check if we're using the new API authentication system
+      const token = await AsyncStorage.getItem('token');
+      const usingNewAuth = !!token;
+      if (usingNewAuth) {
+        console.log('AuthContext: Using new API authentication system');
+        // If using new API auth, just load the stored UID and skip Supabase session checks
+        console.log('AuthContext: Using new API authentication system, loading stored UID');
+        const storedUid = await AsyncStorage.getItem('uid');
+        if (storedUid) {
+          console.log('AuthContext: Loading stored UID for new API auth:', storedUid);
+          setUid(storedUid);
+          // Ensure userLoggedIn flag is set
+          await AsyncStorage.setItem('userLoggedIn', 'true');
+          // Make sure the UID is still set in AsyncStorage
+          await AsyncStorage.setItem('uid', storedUid);
+          // Ensure we have a token stored
+          if (token) {
+            await AsyncStorage.setItem('token', token);
+          }
+        } else {
+          console.log('AuthContext: No stored UID found for new API auth');
+        }
+        setLoading(false);
+        return;
+      }
+      
+      // Check if user is logged in first (only for Supabase auth)
       const userLoggedIn = await AsyncStorage.getItem('userLoggedIn');
       console.log('AuthContext: User logged in flag:', userLoggedIn);
       
@@ -160,28 +223,92 @@ export const AuthProvider = ({ children }) => {
           console.log('AuthContext: Loading stored UID:', storedUid);
           setUid(storedUid);
           
-          // Try to refresh the session
-          console.log('AuthContext: Attempting to refresh session');
+          // We already have a stored UID, so use it
+          console.log('AuthContext: Using stored UID, checking if we need to refresh session');
+          
           try {
-            const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+            // Check if we're using the new API authentication system
+            const token = await AsyncStorage.getItem('token');
             
-            if (refreshError) {
-              console.error('AuthContext: Session refresh failed:', refreshError.message);
-              console.error('AuthContext: Full refresh error:', JSON.stringify(refreshError));
-            }
-            
-            if (refreshData?.session?.user) {
-              console.log('AuthContext: Refreshed session with UID:', refreshData.session.user.id);
-              console.log('AuthContext: Refreshed user email:', refreshData.session.user.email);
-              setUid(refreshData.session.user.id);
-              await AsyncStorage.setItem('uid', refreshData.session.user.id);
-              console.log('AuthContext: UID updated from refreshed session');
+            if (token) {
+              console.log('AuthContext: Using new API authentication system, skipping Supabase session refresh');
+              // We're using the new API authentication, no need to refresh Supabase session
+              // Just set the UID from storage and continue
+              setUid(storedUid);
+              await AsyncStorage.setItem('userLoggedIn', 'true');
+              // Make sure the UID is still set in AsyncStorage
+              await AsyncStorage.setItem('uid', storedUid);
             } else {
-              console.log('AuthContext: No session data after refresh attempt');
+              // Before trying to refresh, check if we have a valid session
+              const { data: sessionData } = await supabase.auth.getSession();
+              const hasSession = !!sessionData?.session?.user;
+              
+              if (hasSession) {
+                console.log('AuthContext: Found existing session, using it');
+                setUid(sessionData.session.user.id);
+                await AsyncStorage.setItem('uid', sessionData.session.user.id);
+                await AsyncStorage.setItem('userLoggedIn', 'true');
+                return;
+              }
+              
+              // Try to refresh the Supabase session only if we're still using Supabase auth
+              console.log('AuthContext: Attempting to refresh Supabase session');
+              try {
+                const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+                
+                if (refreshError) {
+                  console.error('AuthContext: Session refresh failed:', refreshError.message);
+                  console.error('AuthContext: Full refresh error:', JSON.stringify(refreshError));
+                  // Even if refresh fails, still use the stored UID
+                  setUid(storedUid);
+                  // Ensure userLoggedIn flag is set
+                  await AsyncStorage.setItem('userLoggedIn', 'true');
+                  // Make sure the UID is still set in AsyncStorage
+                  await AsyncStorage.setItem('uid', storedUid);
+                  
+                  // Check if we have a token and ensure it's persisted
+                  const token = await AsyncStorage.getItem('token');
+                  if (token) {
+                    await AsyncStorage.setItem('token', token);
+                  }
+                }
+                
+                if (refreshData?.session?.user) {
+                  console.log('AuthContext: Refreshed session with UID:', refreshData.session.user.id);
+                  console.log('AuthContext: Refreshed user email:', refreshData.session.user.email);
+                  setUid(refreshData.session.user.id);
+                  await AsyncStorage.setItem('uid', refreshData.session.user.id);
+                  await AsyncStorage.setItem('userLoggedIn', 'true');
+                  console.log('AuthContext: UID updated from refreshed session');
+                } else {
+                  console.log('AuthContext: No session data after refresh attempt, using stored UID');
+                  setUid(storedUid);
+                  // Ensure userLoggedIn flag is set
+                  await AsyncStorage.setItem('userLoggedIn', 'true');
+                  // Make sure the UID is still set in AsyncStorage
+                  await AsyncStorage.setItem('uid', storedUid);
+                  
+                  // Check if we have a token and ensure it's persisted
+                  const token = await AsyncStorage.getItem('token');
+                  if (token) {
+                    await AsyncStorage.setItem('token', token);
+                  }
+                }
+              } catch (refreshError) {
+                console.error('AuthContext: Error refreshing session:', refreshError);
+                console.error('AuthContext: Full error details:', JSON.stringify(refreshError));
+                // On error, still use the stored UID
+                setUid(storedUid);
+                // Ensure userLoggedIn flag is set
+                await AsyncStorage.setItem('userLoggedIn', 'true');
+                // Make sure the UID is still set in AsyncStorage
+                await AsyncStorage.setItem('uid', storedUid);
+              }
             }
-          } catch (error) {
-            console.error('AuthContext: Error refreshing session:', error);
-            console.error('AuthContext: Full error details:', JSON.stringify(error));
+          } catch (storageError) {
+            console.error('AuthContext: Error accessing AsyncStorage during UID loading:', storageError);
+            // Even if there's an error accessing storage, still use the stored UID we already have
+            setUid(storedUid);
           }
         } else {
           console.log('AuthContext: No UID found in storage');
@@ -230,20 +357,64 @@ export const AuthProvider = ({ children }) => {
 
   const clearUID = async () => {
     try {
+      console.log('AuthContext: Clearing UID and all authentication data');
       setUid(null);
       setIsOffline(false);
+      
+      // Check if we're using the new API authentication system
+      const token = await AsyncStorage.getItem('token');
+      const usingNewAuth = !!token;
+      
+      // Clear specific auth items
       await AsyncStorage.removeItem('uid');
       await AsyncStorage.removeItem('userLoggedIn');
-      await AsyncStorage.removeItem('supabase-session');
-      await AsyncStorage.removeItem('user');
-      await AsyncStorage.removeItem('supabase.auth.token');
+      await AsyncStorage.removeItem('token'); // Clear new API auth token
+      
+      // Only clear Supabase-related items if not using new API auth
+      if (!usingNewAuth) {
+        await AsyncStorage.removeItem('supabase-session');
+        await AsyncStorage.removeItem('user');
+        await AsyncStorage.removeItem('supabase.auth.token');
+        
+        // Sign out from Supabase
+        await supabase.auth.signOut();
+      }
+      
       // Clear any other auth-related storage
       const keys = await AsyncStorage.getAllKeys();
-      const authKeys = keys.filter(key => key.includes('auth') || key.includes('session'));
+      const authKeys = keys.filter(key => 
+        key.includes('token') || 
+        key.includes('auth') || 
+        key.includes('session') || 
+        key.includes('supabase') ||
+        key === 'uid' // Explicitly include uid key
+      );
+      
       if (authKeys.length > 0) {
+        console.log('AuthContext: Clearing additional auth keys:', authKeys);
         await AsyncStorage.multiRemove(authKeys);
       }
+      
+      // Double-check that uid and userLoggedIn are removed
+      await AsyncStorage.removeItem('uid');
+      await AsyncStorage.removeItem('userLoggedIn');
+      
       console.log("AuthContext: UID and session data cleared successfully");
+      
+      // Verify that auth data is cleared
+      const verifyUid = await AsyncStorage.getItem('uid');
+      const verifyLoggedIn = await AsyncStorage.getItem('userLoggedIn');
+      const verifyToken = await AsyncStorage.getItem('token');
+      
+      if (verifyUid || verifyLoggedIn || verifyToken) {
+        console.error("AuthContext: Warning - Some auth data still exists after clearing");
+        // Force remove again
+        await AsyncStorage.removeItem('uid');
+        await AsyncStorage.removeItem('userLoggedIn');
+        await AsyncStorage.removeItem('token');
+      } else {
+        console.log("AuthContext: Verified all auth data is cleared");
+      }
     } catch (error) {
       console.error("AuthContext: Error clearing UID:", error);
     }

@@ -31,12 +31,22 @@ const ForgotPasswordScreen = ({ navigation }) => {
 
         setLoading(true);
         try {
-            // Use Supabase directly for password reset
-            const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-                redirectTo: 'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/reset-password-callback',
+            // Use the new password reset API endpoint
+            const response = await fetch('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/user/resetPassword', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    email: email.trim()
+                })
             });
 
-            if (error) throw error;
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || 'Failed to send reset link');
+            }
             
             Toast.show({
                 type: 'success',
@@ -204,4 +214,4 @@ const styles = StyleSheet.create({
     },
 });
 
-export default ForgotPasswordScreen; 
+export default ForgotPasswordScreen;

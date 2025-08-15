@@ -38,11 +38,8 @@ import { useLanguage } from '../context/LanguageContext';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Markdown from 'react-native-markdown-display';
 import KaTeX from 'react-native-katex';
-import MathView from 'react-native-math-view';
 import { useCoinsSubscription } from '../hooks/useCoinsSubscription';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { DASHSCOPE_API_KEY } from '@env';
-import paymentService from '../services/paymentService';
 
 // Function to decode base64 to ArrayBuffer
 const decode = (base64) => {
@@ -57,87 +54,48 @@ const summaryCalledForAudioId = {};
 const renderTextWithMath = (text, textStyle) => {
   if (!text) return null;
   
-  // Split text by both LaTeX expressions and custom math tags
-  const parts = text.split(/(\\\([^\)]*\\\)|\\\[[^\]]*\\\]|<math>[\s\S]*?<\/math>|<math2>[\s\S]*?<\/math2>)/);
+  // Split text by LaTeX expressions (both inline \(...\) and block \[...\])
+  const parts = text.split(/(\\\([^\)]*\\\)|\\\[[^\]]*\\\])/);
   
-  return (
-    <Text style={textStyle}>
-      {parts.map((part, index) => {
-        // Check if this part is a LaTeX expression
-        if (part.match(/^\\\([^\)]*\\\)$/)) {
-          // Inline math expression
-          const mathContent = part.slice(2, -2); // Remove \( and \)
-          return (
-            <MathView
-               key={index}
-               math={mathContent}
-               style={{
-                 fontSize: textStyle?.fontSize || 16,
-                 color: '#007AFF',
-                 marginVertical: 0,
-                 marginTop: 0,
-                 marginBottom: 0,
-                 paddingVertical: 0,
-                 lineHeight: textStyle?.fontSize || 16,
-               }}
-             />
-          );
-        } else if (part.match(/^\\\[[^\]]*\\\]$/)) {
-          // Block math expression
-          const mathContent = part.slice(2, -2); // Remove \[ and \]
-          return (
-            <View key={index} style={styles.displayMathContainer}>
-              <MathView
-                math={mathContent}
-                style={{
-                  fontSize: 18,
-                  color: '#007AFF',
-                  marginVertical: 8,
-                  textAlign: 'center',
-                }}
-              />
-            </View>
-          );
-        } else if (part.match(/^<math>[\s\S]*?<\/math>$/)) {
-          // Custom inline math tag
-          const mathContent = part.slice(6, -7); // Remove <math> and </math>
-          return (
-            <MathView
-               key={index}
-               math={mathContent}
-               style={{
-                 fontSize: textStyle?.fontSize || 16,
-                 color: '#007AFF',
-                 marginVertical: 0,
-                 marginTop: 0,
-                 marginBottom: 0,
-                 paddingVertical: 0,
-                 lineHeight: textStyle?.fontSize || 16,
-               }}
-             />
-          );
-        } else if (part.match(/^<math2>[\s\S]*?<\/math2>$/)) {
-          // Custom display math tag
-          const mathContent = part.slice(7, -8); // Remove <math2> and </math2>
-          return (
-            <View key={index} style={styles.displayMathContainer}>
-              <MathView
-                math={mathContent}
-                style={{
-                  fontSize: 6,
-                  color: '#007AFF',
-                  textAlign: 'center',
-                }}
-              />
-            </View>
-          );
-        } else {
-          // Regular text
-          return part;
-        }
-      })}
-    </Text>
-  );
+  return parts.map((part, index) => {
+    // Check if this part is a LaTeX expression
+    if (part.match(/^\\\([^\)]*\\\)$/)) {
+      // Inline math expression
+      const mathContent = part.slice(2, -2); // Remove \( and \)
+      return (
+        <MathView
+          key={index}
+          math={mathContent}
+          style={{
+            fontSize: 16,
+            color: textStyle?.color || '#333333',
+          }}
+        />
+      );
+    } else if (part.match(/^\\\[[^\]]*\\\]$/)) {
+      // Block math expression
+      const mathContent = part.slice(2, -2); // Remove \[ and \]
+      return (
+        <MathView
+          key={index}
+          math={mathContent}
+          style={{
+            fontSize: 18,
+            color: textStyle?.color || '#333333',
+            marginVertical: 8,
+            textAlign: 'center',
+          }}
+        />
+      );
+    } else {
+      // Regular text
+      return (
+        <Text key={index} style={textStyle}>
+          {part}
+        </Text>
+      );
+    }
+  });
 };
 
 const BotScreen2 = ({ navigation, route }) => {
@@ -170,7 +128,38 @@ const BotScreen2 = ({ navigation, route }) => {
     };
   }, []);
 
+  useEffect(() => {
+    const checkSummaryPreference = async () => {
+      if (!isMounted.current || !dataLoaded) return;
 
+      if (!audioid || summaryCalledForAudioId[audioid]) {
+        return;
+      }
+
+      try {
+        const response = await axios.post('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/getSummaryPreference', {
+          uid,
+          audioid,
+        });
+        const preference = response.data.preference;
+
+        // Check if chat history is empty
+        const chatHistoryIsEmpty = messages.length === 1 && 
+          (messages[0]?.text === "Hello.👋 I'm your new friend, MatrixAI Bot. You can ask me any questions.");
+
+        // If chat is empty and we have transcription, show the prompt
+        if (chatHistoryIsEmpty && transcription) {
+          setShowSummaryPrompt(true);
+        }
+      } catch (error) {
+        console.error('Error fetching summary preference:', error);
+      }
+    };
+
+    if (transcription && audioid) {
+      checkSummaryPreference();
+    }
+  }, [transcription, dataLoaded, audioid, messages.length]);
 
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -323,18 +312,6 @@ const BotScreen2 = ({ navigation, route }) => {
   const handleSendMessage = async () => {
     // Enhanced protection against double-sends
     if ((inputText.trim() || selectedImage) && !isSendDisabled && !isLoading) {
-      // Check coin requirements before processing
-      const requiredCoins = selectedImage ? 2 : 1;
-      
-      if (coinCount < requiredCoins) {
-        Alert.alert(
-          'Insufficient Coins',
-          `You need ${requiredCoins} coin${requiredCoins > 1 ? 's' : ''} to ${selectedImage ? 'send an image' : 'send a message'}. Please purchase more coins to continue.`,
-          [{ text: 'OK' }]
-        );
-        return;
-      }
-      
       // Clear any existing timeout
       if (sendTimeoutRef.current) {
         clearTimeout(sendTimeoutRef.current);
@@ -344,21 +321,6 @@ const BotScreen2 = ({ navigation, route }) => {
       setIsSendDisabled(true);
       
       try {
-        // Deduct coins before processing
-          try {
-            const transactionName = selectedImage ? 'Image Message' : 'Text Message';
-            await paymentService.subtractCoins(uid, requiredCoins, transactionName);
-            // Note: coinCount will be automatically updated by useCoinsSubscription hook
-        } catch (error) {
-          console.error('Error deducting coins:', error);
-          Alert.alert(
-            'Payment Error',
-            'Failed to process payment. Please try again.',
-            [{ text: 'OK' }]
-          );
-          setIsSendDisabled(false);
-          return;
-        }
         setIsLoading(true);
        
         // If there's an image, process it
@@ -520,83 +482,32 @@ const BotScreen2 = ({ navigation, route }) => {
   const sendMessageToAI = async (message, imageUrl = null, onChunk = null) => {
     return new Promise((resolve, reject) => {
       try {
-        // Prepare API messages array with system message
-        const apiMessages = [
+        // Prepare messages array
+        const messages = [
           {
             role: "system",
             content: [
               {
                 type: "text", 
-                text: "You are an AI tutor assistant helping students with their homework and studies. Provide helpful, educational responses with clear explanations and examples that students can easily understand. Use proper markdown formatting for better readability. IMPORTANT: When including mathematical expressions, please wrap inline math with <math>...</math> tags and display math (block equations) with <math2>...</math2> tags. For example: <math>x^2 + y^2 = z^2</math> for inline math, and <math2>\\int_0^1 x^2 dx = \\frac{1}{3}</math2> for display math. This helps with proper mathematical rendering."
+                text: "You are an AI tutor assistant helping students with their homework and studies. Provide helpful, educational responses with clear explanations and examples that students can easily understand. Use proper markdown formatting for better readability."
               }
             ]
+          },
+          {
+            role: "user",
+            content: []
           }
         ];
 
-        // Add conversation history from current chat (excluding loading and streaming messages)
-        const conversationHistory = messages.filter(msg => 
-          !msg.isLoading && 
-          !msg.isStreaming && 
-          msg.sender && 
-          msg.text && 
-          msg.text.trim() !== ''
-        );
-
-        // Add previous messages to maintain context (limit to last 10 exchanges to avoid token limits)
-        const recentHistory = conversationHistory.slice(-20); // Last 20 messages (10 exchanges)
-        
-        recentHistory.forEach(msg => {
-          if (msg.sender === 'user') {
-            const userMessage = {
-              role: "user",
-              content: []
-            };
-            
-            // Add text content
-            if (msg.text) {
-              userMessage.content.push({
-                type: "text",
-                text: msg.text
-              });
-            }
-            
-            // Add image if the message has one
-            if (msg.image) {
-              userMessage.content.push({
-                type: "image_url",
-                image_url: {
-                  url: msg.image
-                }
-              });
-            }
-            
-            apiMessages.push(userMessage);
-          } else if (msg.sender === 'bot') {
-            apiMessages.push({
-              role: "assistant",
-              content: [{
-                type: "text",
-                text: msg.text
-              }]
-            });
-          }
-        });
-
-        // Add the current user message
-        const currentUserMessage = {
-          role: "user",
-          content: []
-        };
-
-        // Add text content for current message
-        currentUserMessage.content.push({
+        // Add text content
+        messages[1].content.push({
           type: "text",
           text: `Please help me with this question or topic: ${message}`
         });
 
-        // Add image if provided for current message
+        // Add image if provided
         if (imageUrl) {
-          currentUserMessage.content.push({
+          messages[1].content.push({
             type: "image_url",
             image_url: {
               url: imageUrl
@@ -604,11 +515,9 @@ const BotScreen2 = ({ navigation, route }) => {
           });
         }
 
-        apiMessages.push(currentUserMessage);
-
         const xhr = new XMLHttpRequest();
         xhr.open('POST', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions', true);
-        xhr.setRequestHeader('Authorization', `Bearer ${DASHSCOPE_API_KEY}`);
+        xhr.setRequestHeader('Authorization', 'Bearer sk-256fda005a1445628fe2ceafcda9e389');
         xhr.setRequestHeader('Content-Type', 'application/json');
 
         let fullContent = '';
@@ -686,7 +595,7 @@ const BotScreen2 = ({ navigation, route }) => {
 
         const requestBody = JSON.stringify({
           model: "qwen-vl-max",
-          messages: apiMessages,
+          messages: messages,
           stream: true
         });
 
@@ -1618,11 +1527,11 @@ const BotScreen2 = ({ navigation, route }) => {
                       <Markdown 
                         style={{
                           body: {
-                            color: isBot ? colors.botText : '#fff',
+                            color: isBot ? colors.botText : '#333333',
                             fontSize: 16,
                           },
                           heading1: {
-                            color: isBot ? colors.primary : '#fff',
+                            color: isBot ? colors.primary : '#333333',
                             fontWeight: 'bold',
                             fontSize: 22,
                             marginTop: 12,
@@ -1632,7 +1541,7 @@ const BotScreen2 = ({ navigation, route }) => {
                             paddingBottom: 6,
                           },
                           heading2: {
-                            color: isBot ? colors.primary : '#fff',
+                            color: isBot ? colors.primary : '#333333',
                             fontWeight: 'bold',
                             fontSize: 18,
                             marginTop: 10,
@@ -1640,25 +1549,25 @@ const BotScreen2 = ({ navigation, route }) => {
                             paddingBottom: 4,
                           },
                           heading3: {
-                            color: isBot ? colors.primary : '#fff',
+                            color: isBot ? colors.primary : '#333333',
                             fontWeight: 'bold',
                             fontSize: 16,
                             marginTop: 8,
                             marginBottom: 4,
                           },
                           paragraph: {
-                            color: isBot ? colors.botText : '#fff',
+                            color: isBot ? colors.botText : '#333333',
                             fontSize: 16,
                             marginTop: 4,
                             marginBottom: 4,
                           },
                           list_item: {
-                            color: isBot ? colors.botText : '#fff',
+                            color: isBot ? colors.botText : '#333333',
                             fontSize: 16,
                             marginTop: 4,
                           },
                           bullet_list: {
-                            color: isBot ? colors.botText : '#fff',
+                            color: isBot ? colors.botText : '#333333',
                           },
                           ordered_list: {
                             marginLeft: 10,
@@ -1779,7 +1688,7 @@ const BotScreen2 = ({ navigation, route }) => {
                             );
                           },
                           text: (node, children, parent, styles) => {
-  const textStyle = [styles.text, {color: isBot ? colors.botText : '#fff'}];
+  const textStyle = [styles.text, {color: isBot ? colors.botText : '#333333'}];
   return (
     <View key={node.key} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
       {renderTextWithMath(node.content, textStyle)}
@@ -1805,17 +1714,6 @@ const BotScreen2 = ({ navigation, route }) => {
                   <View style={isBot ? styles.botTail : styles.userTail} />
                 </Animatable.View>
               </TouchableOpacity>
-              
-              {/* Coin cost indicator for user messages */}
-              {isUser && item.coinsDeducted && (
-                <View style={styles.coinIndicator}>
-                  <Image 
-                    source={require('../assets/coin.png')} 
-                    style={styles.coinIcon} 
-                  />
-                  <Text style={styles.coinText}>-{item.coinsDeducted}</Text>
-                </View>
-              )}
               
               {/* Message action buttons - now outside the bubble */}
               <View style={[
@@ -2003,24 +1901,13 @@ const BotScreen2 = ({ navigation, route }) => {
           )}
         </TouchableOpacity> */}
        
-        <View style={styles.sendButtonContainer}>
-          {(inputText.trim() || selectedImage) && (
-            <View style={styles.sendButtonCoinLabel}>
-              <Image 
-                source={require('../assets/coin.png')} 
-                style={styles.sendButtonCoinIcon} 
-              />
-              <Text style={styles.sendButtonCoinText}>-{selectedImage ? 2 : 1}</Text>
-            </View>
-          )}
-          <TouchableOpacity 
-            onPress={handleSendMessage} 
-            style={[styles.sendButton, isSendDisabled && styles.disabledButton]} 
-            disabled={isSendDisabled}
-          >
-            <Ionicons name="send" size={24} color={isSendDisabled ? "#ccc" : "#4C8EF7"} />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity 
+          onPress={handleSendMessage} 
+          style={[styles.sendButton, isSendDisabled && styles.disabledButton]} 
+          disabled={isSendDisabled}
+        >
+          <Ionicons name="send" size={24} color={isSendDisabled ? "#ccc" : "#4C8EF7"} />
+        </TouchableOpacity>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
       <View style={[styles.quickActionContainer , {backgroundColor: colors.background2}]}>
@@ -2407,10 +2294,6 @@ const styles = StyleSheet.create({
   botDescription: {
     color: '#888',
     fontSize: 14,
-  },
-  viewMoreButton: {
-    alignSelf: 'flex-end',
-    marginTop: 5,
   },
   viewMoreText: {
     color: '#007bff',
@@ -2867,7 +2750,15 @@ marginBottom:-10,
     flex: 1,
   },
   displayMathContainer: {
-  
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    padding: 10,
+    marginVertical: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    alignSelf: 'flex-start',
+    width: '100%',
+    maxWidth: '100%',
   },
   inlineMathContainer: {
     backgroundColor: '#F8F9FA',
@@ -2927,50 +2818,6 @@ marginBottom:-10,
     padding: 5,
     marginHorizontal: 3,
     backgroundColor: 'transparent',
-  },
-  coinIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-end',
-    marginTop: 5,
-    marginRight: 15,
-    backgroundColor: 'rgba(76, 142, 247, 0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  coinIcon: {
-    width: 16,
-    height: 16,
-    marginRight: 4,
-  },
-  coinText: {
-    fontSize: 12,
-    color: '#4C8EF7',
-    fontWeight: '600',
-  },
-  sendButtonContainer: {
-    flexDirection: 'column',
-    alignItems: 'center',
-  },
-  sendButtonCoinLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(76, 142, 247, 0.1)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 10,
-    marginBottom: 4,
-  },
-  sendButtonCoinIcon: {
-    width: 12,
-    height: 12,
-    marginRight: 3,
-  },
-  sendButtonCoinText: {
-    fontSize: 10,
-    color: '#4C8EF7',
-    fontWeight: '600',
   },
   tableContainer: {
     borderWidth: 1,

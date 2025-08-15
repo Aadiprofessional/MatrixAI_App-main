@@ -24,6 +24,7 @@ import LottieView from 'lottie-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
 import { LinearGradient } from 'react-native-linear-gradient';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -54,6 +55,7 @@ const ContentWriterContent = () => {
   const colors = getThemeColors();
   const { t } = useLanguage();
   const navigation = useNavigation();
+  const { uid } = useAuth();
   
   // State variables
   const [prompt, setPrompt] = useState('');
@@ -422,14 +424,13 @@ const ContentWriterContent = () => {
   // Function to fetch user content history from the API
   const fetchUserContent = async (contentType = null, searchQuery = null) => {
     try {
-      // Get current user session
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) {
+      // Use uid from useAuth hook
+      if (!uid) {
         console.error('No authenticated user found');
         return [];
       }
       
-      const userId = session.user.id;
+      const userId = uid;
       
       // Build the API URL with optional filters
       let apiUrl = `https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/content/getUserContent?uid=${userId}`;
@@ -468,14 +469,13 @@ const ContentWriterContent = () => {
   // Function to save content to the API
   const saveContentToAPI = async (contentData) => {
     try {
-      // Get current user session
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) {
+      // Use uid from useAuth hook
+      if (!uid) {
         console.error('No authenticated user found');
         return null;
       }
       
-      const userId = session.user.id;
+      const userId = uid;
       
       // Prepare the request data
       const requestData = {
@@ -510,14 +510,13 @@ const ContentWriterContent = () => {
   // Function to delete content from the API
   const deleteContentFromAPI = async (contentId) => {
     try {
-      // Get current user session
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) {
+      // Use uid from useAuth hook
+      if (!uid) {
         console.error('No authenticated user found');
         return { success: false };
       }
       
-      const userId = session.user.id;
+      const userId = uid;
       
       await axios.delete(
         'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/content/deleteContent',
@@ -596,14 +595,13 @@ const ContentWriterContent = () => {
   // Function to share content via the API
   const shareContentViaAPI = async (contentId) => {
     try {
-      // Get current user session
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) {
+      // Use uid from useAuth hook
+      if (!uid) {
         console.error('No authenticated user found');
         return null;
       }
       
-      const userId = session.user.id;
+      const userId = uid;
       
       const response = await axios.post(
         'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/content/shareContent',
@@ -634,8 +632,10 @@ const ContentWriterContent = () => {
       }
     };
     
-    loadUserContent();
-  }, []);
+    if (uid) {
+      loadUserContent();
+    }
+  }, [uid]);
   
   const handleGenerate = async () => {
     if (prompt.trim() === '') {

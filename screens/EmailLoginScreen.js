@@ -15,6 +15,7 @@ import { setupAuthLinking, handleGoogleSignIn } from '../utils/linkingConfig';
 import { debugGoogleAuth, testRedirectMethods } from '../utils/googleAuthDebug';
 const { width } = Dimensions.get('window');
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 
 
 // Generate a nonce for security purposes
@@ -27,9 +28,10 @@ const generateNonce = (length = 32) => {
   return result;
 };
 
-    const EmailLoginScreen = ({ navigation }) => {
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
+    const EmailLoginScreen = ({ navigation, route }) => {
+    const { updateUid } = useAuth();
+    const [email, setEmail] = useState(route.params?.email || '');
+    const [password, setPassword] = useState(route.params?.password || '');
     const [loading, setLoading] = useState(false);
     const [googleLoading, setGoogleLoading] = useState(false);
     const [appleLoading, setAppleLoading] = useState(false);
@@ -53,6 +55,23 @@ const generateNonce = (length = 32) => {
         
         // Set up deep link handler for auth callbacks
         const unsubscribe = setupAuthLinking(navigation);
+        
+        // Show toast message if coming from signup or password reset
+        if (route.params?.signupMessage) {
+            Toast.show({
+                type: 'info',
+                text1: 'Email Verification Required',
+                text2: route.params.signupMessage,
+                position: 'bottom'
+            });
+        } else if (route.params?.resetMessage) {
+            Toast.show({
+                type: 'info',
+                text1: 'Password Reset',
+                text2: route.params.resetMessage,
+                position: 'bottom'
+            });
+        }
         
         return unsubscribe;
     }, [navigation]);
@@ -317,156 +336,125 @@ const generateNonce = (length = 32) => {
             });
             return;
         }
-
-
     
         setLoading(true);
     
         try {
-            // First, try online authentication with Supabase
-            try {
-                // Implement retry logic for network issues
-                const loginWithRetry = async (retries = 3, delay = 1000) => {
-                    for (let attempt = 0; attempt < retries; attempt++) {
-                        try {
-                            // Use a promise with timeout to handle network issues
-                            const loginPromise = supabase.auth.signInWithPassword({
-                                email: email.trim(),
-                                password: password.trim()
-                            });
-                            
-                            // Create a timeout promise
-                            const timeoutPromise = new Promise((_, reject) => 
-                                setTimeout(() => reject(new Error('Login request timed out')), 10000)
-                            );
-                            
-                            // Race the promises - whichever resolves/rejects first wins
-                            const result = await Promise.race([loginPromise, timeoutPromise]);
-                            return result;
-                        } catch (error) {
-                            console.log(`Login attempt ${attempt + 1} failed:`, error.message);
-                            
-                            // If this was the last attempt, throw the error
-                            if (attempt === retries - 1) throw error;
-                            
-                            // Otherwise wait before retrying
-                            await new Promise(resolve => setTimeout(resolve, delay));
-                            // Increase delay for next attempt
-                            delay *= 1.5;
-                        }
-                    }
-                };
-                
-                // Attempt login with retry
-                const { data, error } = await loginWithRetry();
+            // Use the new API for login
+            const response = await fetch('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/user/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    email: email.trim(),
+                    password: password.trim()
+                })
+            });
 
-                if (error) {
-                    // Check if the error is about user not registered
-                    if (error.message.includes('Invalid login credentials') || 
-                        error.message.includes('Email not confirmed')) {
-                        
-                        // Check if the user exists but is not registered
-                        const { data: userData, error: userError } = await supabase.auth.admin.getUserByEmail(email.trim());
-                        
-                        if (userError || !userData) {
-                            // User doesn't exist, navigate to signup
-                            Toast.show({
-                                type: 'info',
-                                text1: 'User not found',
-                                text2: 'Please sign up to create an account.',
-                                position: 'bottom'
-                            });
-                            
-                            navigation.navigate('SignUpDetails', {
-                                email: email.trim(),
-                                disableEmailInput: false,
-                            });
-                            return;
-                        }
-                        
-                        // User exists but email not confirmed
-                        if (error.message.includes('Email not confirmed')) {
-                            Toast.show({
-                                type: 'info',
-                                text1: 'Email not verified',
-                                text2: 'Please verify your email to continue.',
-                                position: 'bottom'
-                            });
-                            
-                            navigation.navigate('EmailVerification', { 
-                                email: email.trim(),
-                                message: 'Please verify your email to continue.'
-                            });
-                            return;
-                        }
-                    }
+            const responseData = await response.json();
+            console.log('Login API response:', JSON.stringify(responseData));
+
+            if (!response.ok) {
+                // Handle specific error cases
+                if (responseData.message && responseData.message.includes('not found')) {
+                    // User doesn't exist, navigate to signup
+                    Toast.show({
+                        type: 'info',
+                        text1: 'User not found',
+                        text2: 'Please sign up to create an account.',
+                        position: 'bottom'
+                    });
                     
-                    throw error;
+                    navigation.navigate('SignUpDetails', {
+                        email: email.trim(),
+                        disableEmailInput: false,
+                    });
+                    return;
                 }
                 
-                // Check if email is verified
-                if (data.user && !data.user.email_confirmed_at) {
+                if (responseData.message && responseData.message.includes('not verified') || responseData.message && responseData.message.includes('not confirmed')) {
+                    // Email not verified
                     Toast.show({
                         type: 'info',
                         text1: 'Email not verified',
                         text2: 'Please verify your email to continue.',
                         position: 'bottom'
                     });
-                    
-                    navigation.navigate('EmailVerification', { 
-                        email: email.trim(),
-                        message: 'Please verify your email to continue.'
-                    });
                     return;
                 }
-        
-                // If we have user data in the response
-                if (data.user?.id) {
-                    // Store session data
-                    await AsyncStorage.setItem('supabase-session', JSON.stringify(data.session));
-                    
-                    // Store user credentials for possible offline authentication
-                    await AsyncStorage.setItem('auth_credentials', JSON.stringify({
-                        email: email.trim(),
-                        // Store the password hash or a token instead of plain password in a real app
-                        passwordHash: btoa(password.trim())
-                    }));
-                    
-                    // Store user data
-                    await AsyncStorage.setItem('uid', data.user.id);
-                    await AsyncStorage.setItem('userLoggedIn', 'true');
-                    
-                    // Manual refresh of auth state since the listener may not trigger
-                    // This will update the AuthContext state
-                    const { error: refreshError } = await supabase.auth.refreshSession();
-                    if (refreshError) {
-                        console.log('Warning: Failed to refresh session after login:', refreshError.message);
-                    }
-                    
-                    Toast.show({
-                        type: 'success',
-                        text1: 'Success',
-                        text2: 'Login successful!',
-                        position: 'bottom'
-                    });
-                    
-                    // Add a small delay to ensure AsyncStorage is updated
-                    await new Promise(resolve => setTimeout(resolve, 300));
-                    
-                    // Navigate to main screen
-                    navigation.replace('Home');
-                    return;
-                } else {
-                    throw new Error('No user data in response');
-                }
-            } catch (onlineError) {
-                // If online authentication fails, try offline fallback
-                console.log('Online authentication failed, trying offline fallback:', onlineError);
                 
+                throw new Error(responseData.message || 'Login failed');
+            }
+            
+            // Login successful - handle the new API response format
+            if (responseData.success && responseData.data) {
+                const { uid, email: userEmail, token, coins } = responseData.data;
+                
+                // Store session data
+                await AsyncStorage.setItem('auth-token', token);
+                await AsyncStorage.setItem('token', token); // Store in both formats for compatibility
+                
+                // Store user credentials for possible offline authentication
+                await AsyncStorage.setItem('auth_credentials', JSON.stringify({
+                    email: email.trim(),
+                    // Store the password hash or a token instead of plain password in a real app
+                    passwordHash: btoa(password.trim())
+                }));
+                
+                // Store user data
+                await AsyncStorage.setItem('uid', uid);
+                await AsyncStorage.setItem('userLoggedIn', 'true');
+                
+                // Verify data was stored correctly
+                const storedUid = await AsyncStorage.getItem('uid');
+                const storedToken = await AsyncStorage.getItem('token');
+                const userLoggedIn = await AsyncStorage.getItem('userLoggedIn');
+                
+                console.log('Verified login data stored:', {
+                    uidStored: !!storedUid,
+                    tokenStored: !!storedToken,
+                    loggedInFlagSet: userLoggedIn === 'true'
+                });
+                
+                // Store user coins if available
+                if (coins !== undefined) {
+                    await AsyncStorage.setItem('coins', coins.toString());
+                }
+                
+                // Update the auth context
+                if (updateUid) {
+                    try {
+                        await updateUid(uid);
+                        console.log('Auth context updated with UID:', uid);
+                    } catch (error) {
+                        console.error('Failed to update auth context:', error);
+                    }
+                }
+                
+                Toast.show({
+                    type: 'success',
+                    text1: 'Success',
+                    text2: 'Login successful!',
+                    position: 'bottom'
+                });
+                
+                // Add a small delay to ensure AsyncStorage is updated
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                // Navigate to main screen
+                navigation.replace('Home');
+                return;
+            } else {
+                throw new Error(responseData.message || 'No user data in response');
+            }
+        } catch (error) {
+            // Handle offline fallback if needed
+            try {
                 if (
-                    onlineError.message.includes('Network request failed') || 
-                    onlineError.message.includes('timed out') ||
-                    onlineError.message.includes('network')
+                    error.message.includes('Network request failed') || 
+                    error.message.includes('timed out') ||
+                    error.message.includes('network')
                 ) {
                     // Try to authenticate with stored credentials
                     const storedCredentialsString = await AsyncStorage.getItem('auth_credentials');
@@ -508,30 +496,30 @@ const generateNonce = (length = 32) => {
                     }
                 } else {
                     // Not a network error, rethrow
-                    throw onlineError;
+                    throw error;
                 }
+            } catch (finalError) {
+                console.error('Error during login:', finalError);
+                
+                // Handle specific network errors
+                let errorMessage = finalError.message || 'Login failed. Please try again.';
+                if (
+                    finalError.message.includes('Network request failed') || 
+                    finalError.message.includes('timed out') ||
+                    finalError.message.includes('network')
+                ) {
+                    errorMessage = 'Network error. Please check your internet connection and try again. If you\'ve logged in before, we\'ll try to authenticate you offline.';
+                }
+                
+                Toast.show({
+                    type: 'error',
+                    text1: 'Login Failed',
+                    text2: errorMessage,
+                    position: 'bottom'
+                });
+            } finally {
+                setLoading(false);
             }
-        } catch (error) {
-            console.error('Error during login:', error);
-            
-            // Handle specific network errors
-            let errorMessage = error.message || 'Login failed. Please try again.';
-            if (
-                error.message.includes('Network request failed') || 
-                error.message.includes('timed out') ||
-                error.message.includes('network')
-            ) {
-                errorMessage = 'Network error. Please check your internet connection and try again. If you\'ve logged in before, we\'ll try to authenticate you offline.';
-            }
-            
-            Toast.show({
-                type: 'error',
-                text1: 'Login Failed',
-                text2: errorMessage,
-                position: 'bottom'
-            });
-        } finally {
-            setLoading(false);
         }
     };
 

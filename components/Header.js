@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet, ActivityIndicator } from 'react-native';
+import { useCoinsSubscription } from '../hooks/useCoinsSubscription';
 import { supabase } from '../supabaseClient';
-import { saveProStatus, getProStatus } from '../utils/proStatusUtils';
+import { saveProStatus, saveCoinsCount, getProStatus, getCoinsCount } from '../utils/proStatusUtils';
 import { useProStatus } from '../hooks/useProStatus';
 import { useTheme } from '../context/ThemeContext';
 import { useProfileUpdate } from '../context/ProfileUpdateContext';
@@ -10,17 +11,20 @@ import { useLanguage } from '../context/LanguageContext';
 
 const Header = ({ navigation, uid, openDrawer }) => {
     console.log("Header rendering with UID:", uid);
+    const coinCount = useCoinsSubscription(uid);
     const { t } = useLanguage();
     const [userName, setUserName] = useState('');
     const [dpUrl, setDpUrl] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [imageLoaded, setImageLoaded] = useState(false);
-    const [showHumanIcon, setShowHumanIcon] = useState(true);
+    const [isLoadingCoins, setIsLoadingCoins] = useState(true);
     const { isPro, checkProStatus } = useProStatus();
     const [localIsPro, setLocalIsPro] = useState(false);
     const { getThemeColors } = useTheme();
     const { lastUpdate } = useProfileUpdate();
     const colors = getThemeColors();
+    const [localCoinCount, setLocalCoinCount] = useState(0);
+    const [imageLoaded, setImageLoaded] = useState(false);
+    const [showHumanIcon, setShowHumanIcon] = useState(true);
     
     // Initialize from stored values on mount
     useEffect(() => {
@@ -30,7 +34,13 @@ const Header = ({ navigation, uid, openDrawer }) => {
                 const storedProStatus = await getProStatus();
                 setLocalIsPro(storedProStatus);
                 
-
+                // Get stored coin count as fallback
+                const storedCoins = await getCoinsCount();
+                if (storedCoins !== null) {
+                    setLocalCoinCount(storedCoins);
+                    // Still loading from API, but we have placeholder data now
+                    setIsLoadingCoins(false);
+                }
                 
                 // Get cached username and dp_url
                 const cachedName = await AsyncStorage.getItem('user_name');
@@ -55,7 +65,14 @@ const Header = ({ navigation, uid, openDrawer }) => {
         initializeFromStorage();
     }, [isPro, uid]);
     
-
+    // Save coins count whenever it changes from API
+    useEffect(() => {
+        if (coinCount !== undefined && coinCount !== null) {
+            saveCoinsCount(coinCount);
+            setLocalCoinCount(coinCount);
+            setIsLoadingCoins(false); // API data received, no longer loading
+        }
+    }, [coinCount]);
     
     useEffect(() => {
         if (uid) {
@@ -95,10 +112,10 @@ const Header = ({ navigation, uid, openDrawer }) => {
                 // Set profile picture URL if it exists
                 if (data.dp_url) {
                     setDpUrl(data.dp_url);
-                    setImageLoaded(false);
-                    setShowHumanIcon(true);
                     // Cache the dp_url
                     await AsyncStorage.setItem('user_dp_url', data.dp_url);
+                    setImageLoaded(false);
+                    setShowHumanIcon(true);
                 }
                 
                 // Set pro status and save it to utils
@@ -121,54 +138,58 @@ const Header = ({ navigation, uid, openDrawer }) => {
     // Determine if user should be treated as pro based on both context and local state
     const isUserPro = isPro || localIsPro;
 
+    // Use local coin count as fallback when coinCount is not available
+    const displayCoinCount = (coinCount !== undefined && coinCount !== null) ? coinCount : localCoinCount;
+
     if (!uid) {
         console.log("No UID in Header");
-        // Return a placeholder header with avatar only
+        // Return a placeholder header with human emoji
         return (
             <View style={[styles.header]}>
                 <View style={[styles.rowContainer]}>
-                    <View style={[styles.icon, {backgroundColor: '#F0F0F0', justifyContent: 'center', alignItems: 'center'}]}>
-                            <Text style={{fontSize: 20, color: '#666'}}>👤</Text>
+                    <View style={[styles.iconContainer]}>
+                        <View style={[styles.icon, styles.humanIconContainer]}>
+                            <Text style={styles.humanIconText}>👤</Text>
                         </View>
+                    </View>
                     <Text style={[styles.welcomeText, {color: colors.text}]}>Welcome!</Text>
                 </View>
+                
+                <TouchableOpacity
+                    style={[styles.coinContainer, {backgroundColor: colors.background2, borderWidth: 0.8, borderColor: colors.border}]}
+                    disabled={true}
+                >
+                    <Image source={require('../assets/coin.png')} style={[styles.coinIcon]} />
+                    <Text style={[styles.coinText]}>...</Text>
+                </TouchableOpacity>
             </View>
         );
     }
 
-
+    console.log("Current coin count:", displayCoinCount);
 
     return (
         <View style={[styles.header]}>
             {/* Welcome Text with Profile Picture */}
             <View style={[styles.rowContainer]}>
                 <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
-                    {loading && !dpUrl ? (
-                        <View style={[styles.iconContainer]}>
+                    <View style={[styles.iconContainer]}>
+                        {dpUrl && (
+                            <Image
+                                source={{ uri: dpUrl }}
+                                style={[styles.icon, {position: 'absolute', zIndex: 2}]}
+                                onLoad={() => {
+                                    setImageLoaded(true);
+                                    setTimeout(() => setShowHumanIcon(false), 300);
+                                }}
+                            />
+                        )}
+                        {(!dpUrl || showHumanIcon) && (
                             <View style={[styles.icon, styles.humanIconContainer]}>
-                                <Text style={[styles.humanIconText, {opacity: 0.5}]}>👤</Text>
-                                <ActivityIndicator size="small" color="#666" style={{position: 'absolute'}} />
+                                <Text style={styles.humanIconText}>👤</Text>
                             </View>
-                        </View>
-                    ) : (
-                        <View style={[styles.iconContainer]}>
-                             {dpUrl && (
-                                 <Image 
-                                     source={{ uri: dpUrl }} 
-                                     style={[styles.icon, {position: 'absolute', zIndex: 2}]}
-                                     onLoad={() => {
-                                         setImageLoaded(true);
-                                         setTimeout(() => setShowHumanIcon(false), 300);
-                                     }}
-                                 />
-                             )}
-                             {(!dpUrl || showHumanIcon) && (
-                                 <View style={[styles.icon, styles.humanIconContainer]}>
-                                     <Text style={styles.humanIconText}>👤</Text>
-                                 </View>
-                             )}
-                         </View>
-                    )}
+                        )}
+                    </View>
                 </TouchableOpacity>
                 
                 {loading && !userName ? (
@@ -193,7 +214,22 @@ const Header = ({ navigation, uid, openDrawer }) => {
                 )}
             </View>
 
-
+            {/* Coin Display with Coin Icon */}
+            <TouchableOpacity
+                style={[styles.coinContainer, {backgroundColor: colors.background2, borderWidth: 0.8, borderColor: colors.border}]}
+                onPress={() =>
+                    navigation.navigate('TransactionScreen', { coinCount: displayCoinCount })
+                }
+            >
+                <Image source={require('../assets/coin.png')} style={[styles.coinIcon]} />
+                {isLoadingCoins ? (
+                    <ActivityIndicator size="small" color="#FF6600" style={{width: 24, height: 20}} />
+                ) : (
+                    <Text style={[styles.coinText]}>
+                        {displayCoinCount.toString()}
+                    </Text>
+                )}
+            </TouchableOpacity>
         </View>
     );
 };
@@ -224,24 +260,21 @@ const styles = StyleSheet.create({
         height: 40,
         marginLeft: 15,
         marginRight: 10,
-        borderRadius: 20,
-        position: 'relative',
-        overflow: 'hidden',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     icon: {
         width: 40,
         height: 40,
         borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
         overflow: 'hidden',
     },
     humanIconContainer: {
         backgroundColor: '#F0F0F0',
         justifyContent: 'center',
         alignItems: 'center',
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        zIndex: 3,
     },
     humanIconText: {
         fontSize: 20,
@@ -252,7 +285,28 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         color: '#333',
     },
-
+    coinContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 5,
+        paddingHorizontal: 10,
+        borderWidth: 1,
+        borderColor: '#C9C9C9',
+        borderRadius: 15,
+        minWidth: 65, // Ensure container doesn't change size during loading
+        minHeight: 30,
+    },
+    coinIcon: {
+        width: 20,
+        height: 20,
+        marginRight: 5,
+    },
+    coinText: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#FF6600',
+        minWidth: 24, // Ensure text area doesn't change size
+    },
     proContainer: {
         flexDirection: 'row',
         alignItems: 'center',

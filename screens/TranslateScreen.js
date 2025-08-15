@@ -2593,6 +2593,13 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                             )}
                         </View>
                     ))}
+                    
+                    {/* Bottom margin with thank you message */}
+                    <View style={styles.bottomMarginContainer}>
+                        <Text style={styles.thankYouText}>
+                            Thank you for using Matrix AI transcription services ❤️
+                        </Text>
+                    </View>
                 </ScrollView>
             )}
 
@@ -3795,6 +3802,18 @@ generateMindMapButton: {
         fontSize: 16,
         color: '#666',
         textAlign: 'center',
+    },
+    bottomMarginContainer: {
+        marginTop: 100,
+        paddingHorizontal: 16,
+        paddingBottom: 10,
+    },
+    thankYouText: {
+        fontSize: 36,
+        color: '#666',
+        opacity: 0.3,
+        textAlign: 'left',
+        fontWeight: 'bold',
     },
 });
 

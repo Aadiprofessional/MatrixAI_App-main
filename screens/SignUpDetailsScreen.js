@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Alert, Modal, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Toast from 'react-native-toast-message';
 import { supabase } from '../supabaseClient';
 import { LANGUAGES, DEFAULT_LANGUAGE } from '../utils/languageUtils';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 
 
 const SignUpDetailsScreen = ({ navigation }) => {
@@ -26,9 +28,9 @@ const SignUpDetailsScreen = ({ navigation }) => {
     const [preferredLanguage, setPreferredLanguage] = useState(DEFAULT_LANGUAGE);
     const [languageModalVisible, setLanguageModalVisible] = useState(false);
 
-    
+    const { updateUid } = useAuth();
     const { getThemeColors, currentTheme } = useTheme();
-  const colors = getThemeColors();
+    const colors = getThemeColors();
 
     useEffect(() => {
         console.log('Received user info:', userInfo);
@@ -115,8 +117,6 @@ const SignUpDetailsScreen = ({ navigation }) => {
             return;
         }
 
-
-
         setLoading(true);
         try {
             // Check if referral code is valid
@@ -133,39 +133,46 @@ const SignUpDetailsScreen = ({ navigation }) => {
                 return;
             }
             
-            // Generate a unique referral code for the new user
-            const newReferralCode = generateReferralCode();
-            
-            // Use Supabase directly for signup
-            const { data, error } = await supabase.auth.signUp({
-                email: inputEmail.trim(),
-                password: password,
-                options: {
-                    data: {
-                        name: name.trim(),
-                        age: age ? parseInt(age, 10) : null,
-                        gender: gender,
-                        preferred_language: preferredLanguage
-                    }
-                }
+            // Use the new API for signup
+            const response = await fetch('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/user/signup', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    email: inputEmail.trim(),
+                    password: password,
+                    confirmPassword: confirmPassword,
+                    name: name.trim(),
+                    referralCode: referralCode ? referralCode.trim() : ''
+                })
             });
 
-            if (error) throw error;
+            const responseData = await response.json();
+            console.log('Signup API response:', responseData);
 
-            console.log('Signup successful:', data);
-            
-            // Instead of storing in the database now, pass the data to verification screen
-            const userData = {
-                uid: data.user.id,
-                name: name.trim(),
-                email: inputEmail.trim(),
-                age: age ? parseInt(age, 10) : null,
-                gender: gender,
-                preferred_language: preferredLanguage,
-                referral_code: newReferralCode,
-                referrerId: referrerId,
-                password: password // Pass password for auto-login after verification
-            };
+            if (!response.ok || !responseData.success) {
+                throw new Error(responseData.message || 'Signup failed');
+            }
+
+            // Store user data if available in the response
+            if (responseData.data && responseData.data.uid) {
+                // Update auth context with the new UID
+                await updateUid(responseData.data.uid);
+                
+                // Store additional user data
+                if (responseData.data.token) {
+                    await AsyncStorage.setItem('token', responseData.data.token);
+                }
+                if (responseData.data.email) {
+                    await AsyncStorage.setItem('email', responseData.data.email);
+                }
+                if (responseData.data.coins) {
+                    await AsyncStorage.setItem('coins', responseData.data.coins.toString());
+                }
+            }
+
+            console.log('Signup successful:', responseData);
             
             Toast.show({
                 type: 'success',
@@ -174,12 +181,11 @@ const SignUpDetailsScreen = ({ navigation }) => {
                 position: 'bottom'
             });
 
-            // Navigate to email verification screen with user data
-            navigation.navigate('EmailVerification', {
+            // Navigate back to email login screen with email and password for auto-fill
+            navigation.navigate('EmailLogin', {
                 email: inputEmail.trim(),
-                message: 'We have sent a verification link to your email. Please verify your email within 10 minutes to continue.',
-                isNewUser: true,
-                userData: userData // Pass the user data to be saved after verification
+                password: password,
+                signupMessage: 'Please confirm your email, then login.'
             });
         } catch (error) {
             console.error('Error during signup:', error);
@@ -262,49 +268,7 @@ const SignUpDetailsScreen = ({ navigation }) => {
                         />
                     </View>
 
-                    <View style={[styles.inputContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                        <Icon name="calendar-outline" size={20} color={colors.placeholder} style={styles.inputIcon} />
-                        <TextInput
-                            style={[styles.input, { color: colors.text }]}
-                            placeholder="Age (Optional)"
-                            placeholderTextColor={colors.placeholder}
-                            keyboardType="numeric"
-                            value={age}
-                            onChangeText={setAge}
-                        />
-                    </View>
 
-                    {/* Gender Selection */}
-                    <Text style={[styles.genderLabel, { color: colors.text }]}>Select Gender</Text>
-                    <View style={styles.genderContainer}>
-                        {['Male', 'Female', 'Others'].map((item) => (
-                            <TouchableOpacity
-                                key={item}
-                                style={[
-                                    styles.genderButton,
-                                    { backgroundColor: colors.card, borderColor: colors.border },
-                                    gender === item && styles.genderButtonSelected,
-                                ]}
-                                onPress={() => setGender(item)}
-                            >
-                                <Text style={{ color: gender === item ? '#fff' : colors.text }}>{item}</Text>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-
-                    {/* Language Selection Button */}
-                    <View style={styles.languageSection}>
-                        <Text style={[styles.languageLabel, { color: colors.text }]}>Preferred Language</Text>
-                        <TouchableOpacity 
-                            style={[styles.languageSelector, { backgroundColor: colors.card, borderColor: colors.border }]}
-                            onPress={() => setLanguageModalVisible(true)}
-                        >
-                            <Text style={[styles.languageText, { color: colors.text }]}>
-                                {LANGUAGES[preferredLanguage]?.name || preferredLanguage}
-                            </Text>
-                            <Icon name="chevron-down" size={20} color={colors.text} />
-                        </TouchableOpacity>
-                    </View>
 
                     {/* Password Fields */}
                     <View style={[styles.inputContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -373,52 +337,7 @@ const SignUpDetailsScreen = ({ navigation }) => {
                 </ScrollView>
             </KeyboardAvoidingView>
 
-            {/* Language Selection Modal */}
-            <Modal
-                visible={languageModalVisible}
-                transparent={true}
-                animationType="slide"
-                onRequestClose={() => setLanguageModalVisible(false)}
-            >
-                <View style={styles.modalContainer}>
-                    <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
-                        <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-                            <Text style={[styles.modalTitle, { color: colors.text }]}>Choose Language</Text>
-                            <TouchableOpacity onPress={() => setLanguageModalVisible(false)}>
-                                <Icon name="close" size={24} color={colors.text} />
-                            </TouchableOpacity>
-                        </View>
 
-                        <FlatList
-                            data={Object.keys(LANGUAGES)}
-                            keyExtractor={(item) => item}
-                            renderItem={({ item }) => (
-                                <TouchableOpacity
-                                    style={[
-                                        styles.languageItem,
-                                        { borderBottomColor: colors.border },
-                                        preferredLanguage === item && styles.selectedLanguageItem,
-                                    ]}
-                                    onPress={() => handleSelectLanguage(item)}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.languageItemText,
-                                            { color: colors.text },
-                                            preferredLanguage === item && styles.selectedLanguageText,
-                                        ]}
-                                    >
-                                        {LANGUAGES[item].name}
-                                    </Text>
-                                    {preferredLanguage === item && (
-                                        <Icon name="checkmark" size={20} color="#fff" />
-                                    )}
-                                </TouchableOpacity>
-                            )}
-                        />
-                    </View>
-                </View>
-            </Modal>
 
 
         </SafeAreaView>
@@ -470,56 +389,7 @@ const styles = StyleSheet.create({
     eyeIcon: {
         padding: 10,
     },
-    genderLabel: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#555',
-        marginBottom: 10,
-    },
-    genderContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 20,
-    },
-    genderButton: {
-        flex: 1,
-        height: 50,
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#ddd',
-        borderRadius: 10,
-        marginHorizontal: 5,
-        backgroundColor: '#f9f9f9',
-    },
-    genderButtonSelected: {
-        backgroundColor: '#2274F0',
-        borderColor: '#2274F0',
-    },
-    languageSection: {
-        marginBottom: 20,
-    },
-    languageLabel: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#555',
-        marginBottom: 10,
-    },
-    languageSelector: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        borderWidth: 1,
-        borderColor: '#ddd',
-        borderRadius: 10,
-        paddingHorizontal: 15,
-        height: 50,
-        backgroundColor: '#f9f9f9',
-    },
-    languageText: {
-        fontSize: 16,
-        color: '#333',
-    },
+
     signupButton: {
         backgroundColor: '#2274F0',
         height: 55,
@@ -549,50 +419,7 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: 'bold',
     },
-    modalContainer: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        justifyContent: 'flex-end',
-    },
-    modalContent: {
-        backgroundColor: '#fff',
-        borderTopLeftRadius: 16,
-        borderTopRightRadius: 16,
-        paddingBottom: 24,
-        maxHeight: '70%',
-    },
-    modalHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E0E0E0',
-    },
-    modalTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#333',
-    },
-    languageItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E0E0E0',
-    },
-    selectedLanguageItem: {
-        backgroundColor: '#2274F0',
-    },
-    languageItemText: {
-        fontSize: 16,
-        color: '#333',
-    },
-    selectedLanguageText: {
-        color: '#fff',
-        fontWeight: 'bold',
-    },
+
     signupButtonContent: {
         flexDirection: 'row',
         alignItems: 'center',

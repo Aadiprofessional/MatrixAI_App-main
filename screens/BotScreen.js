@@ -50,6 +50,7 @@ import MathView from 'react-native-math-view';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { DASHSCOPE_API_KEY } from '@env';
 import paymentService from '../services/paymentService';
+import { useTranslation } from 'react-i18next';
 
 // Function to decode base64 to ArrayBuffer
 const decode = (base64) => {
@@ -68,6 +69,7 @@ const persistEvent = (event) => {
   const BotScreen = ({ navigation, route }) => {
   const { getThemeColors } = useTheme();
   const colors = getThemeColors();
+  const { t } = useTranslation();
   // Default fallback values for route params
   const { chatName, chatDescription, chatImage, chatid = Date.now().toString() } = route?.params || {};
   
@@ -282,90 +284,88 @@ const renderTextWithMath = (text, textStyle) => {
   // Split text by both LaTeX expressions and custom math tags
   const parts = text.split(/(\\\([^\)]*\\\)|\\\[[^\]]*\\\]|<math>[\s\S]*?<\/math>|<math3>[\s\S]*?<\/math3>)/);
   
-  return (
-    <Text style={textStyle}>
-      {parts.map((part, index) => {
-        // Check if this part is a LaTeX expression
-        if (part.match(/^\\\([^\)]*\\\)$/)) {
-          // Inline math expression
-          const mathContent = part.slice(2, -2); // Remove \( and \)
-          return (
+  return parts.map((part, index) => {
+    // Check if this part is a LaTeX expression
+    if (part.match(/^\\\([^\)]*\\\)$/)) {
+      // Inline math expression
+      const mathContent = part.slice(2, -2); // Remove \( and \)
+      return (
+        <View key={index} style={styles.inlineMathContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <MathView
-              key={index}
               math={mathContent}
               style={{
-                fontSize: textStyle?.fontSize || 16,
+                fontSize: 16,
                 color: '#007AFF',
-                marginVertical: 0,
-                marginTop: 10,
-                marginBottom: 0,
-                paddingVertical: 0,
-                lineHeight: textStyle?.fontSize || 16,
+                maxWidth: 300,
               }}
             />
-          );
-        } else if (part.match(/^\\\[[^\]]*\\\]$/)) {
-          // Block math expression
-          const mathContent = part.slice(2, -2); // Remove \[ and \]
-          return (
-            <View key={index} style={styles.mathContainer}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <MathView
-                  math={mathContent}
-                  style={{
-                    fontSize: 18,
-                    color: '#007AFF',
-                    marginVertical: 8,
-                    textAlign: 'center',
-                    maxWidth: 350,
-                  }}
-                />
-              </ScrollView>
-            </View>
-          );
-        } else if (part.match(/^<math>[\s\S]*?<\/math>$/)) {
-          // Custom inline math tag
-          const mathContent = part.slice(6, -7); // Remove <math> and </math>
-          return (
+          </ScrollView>
+        </View>
+      );
+    } else if (part.match(/^\\\[[^\]]*\\\]$/)) {
+      // Block math expression
+      const mathContent = part.slice(2, -2); // Remove \[ and \]
+      return (
+        <View key={index} style={styles.mathContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <MathView
-              key={index}
               math={mathContent}
               style={{
-                fontSize: textStyle?.fontSize || 16,
+                fontSize: 18,
                 color: '#007AFF',
-                marginVertical: 0,
-                marginTop: 0,
-                marginBottom: 0,
-                paddingVertical: 0,
-                lineHeight: textStyle?.fontSize || 16,
+                marginVertical: 8,
+                textAlign: 'center',
+                maxWidth: 350,
               }}
             />
-          );
-        } else if (part.match(/^<math3>[\s\S]*?<\/math3>$/)) {
-          // Custom display math tag
-          const mathContent = part.slice(7, -8); // Remove <math3> and </math3>
-          return (
-            <View key={index} style={styles.mathContainer}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <MathView
-                  math={mathContent}
-                  style={{
-                    fontSize: 18,
-                    color: '#007AFF',
-                    textAlign: 'center',
-                    maxWidth: 350,
-                  }}
-                />
-              </ScrollView>
-            </View>
-          );
-        } else {
-          // Regular text
-          return part;
-        }
-      })}
-    </Text>
-  );
+          </ScrollView>
+        </View>
+      );
+    } else if (part.match(/^<math>[\s\S]*?<\/math>$/)) {
+      // Custom inline math tag
+      const mathContent = part.slice(6, -7); // Remove <math> and </math>
+      return (
+        <View key={index} style={styles.inlineMathContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <MathView
+              math={mathContent}
+              style={{
+                fontSize: 16,
+                color: '#007AFF',
+                maxWidth: 300,
+              }}
+            />
+          </ScrollView>
+        </View>
+      );
+    } else if (part.match(/^<math3>[\s\S]*?<\/math3>$/)) {
+      // Custom display math tag
+      const mathContent = part.slice(7, -8); // Remove <math3> and </math3>
+      return (
+        <View key={index} style={styles.mathContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <MathView
+              math={mathContent}
+              style={{
+                fontSize: 18,
+                color: '#007AFF',
+                textAlign: 'center',
+                maxWidth: 350,
+              }}
+            />
+          </ScrollView>
+        </View>
+      );
+    } else {
+      // Regular text
+      return (
+        <Text key={index} style={textStyle}>
+          {part}
+        </Text>
+      );
+    }
+  });
 };
   // Helper function to check if text contains math expressions
 
@@ -1006,7 +1006,7 @@ const renderTextWithMath = (text, textStyle) => {
         const newChat = {
           chat_id: newChatId,
           user_id: userId,
-          name: 'New Chat',
+          name: t('newChat'),
           description: messageText.substring(0, 30) + (messageText.length > 30 ? '...' : ''),
           role: currentRole || '',
           role_description: '',
@@ -1029,7 +1029,7 @@ const renderTextWithMath = (text, textStyle) => {
         setChats(prevChats => [
           {
             id: newChatId,
-            name: 'New Chat',
+            name: t('newChat'),
             description: messageText.substring(0, 30) + (messageText.length > 30 ? '...' : ''),
             role: currentRole || '',
             roleDescription: '',
@@ -1108,9 +1108,9 @@ const renderTextWithMath = (text, textStyle) => {
       
       // Check if we need to update the chat name from 'New Chat' to 'MatrixAI Bot'
       let chatName = existingChat?.name || '';
-      const shouldUpdateName = chatName === 'New Chat' && sender === 'user';
+      const shouldUpdateName = chatName === t('newChat') && sender === 'user';
       if (shouldUpdateName) {
-        chatName = 'MatrixAI Bot';
+        chatName = t('matrixAIBot');
       }
       
       if (existingChat) {
@@ -1169,7 +1169,7 @@ const renderTextWithMath = (text, textStyle) => {
         const newChat = {
           chat_id: chatIdToUse,
           user_id: userId,
-          name: 'MatrixAI Bot', // Always use 'MatrixAI Bot' for new chats with messages
+          name: t('matrixAIBot'), // Always use 'MatrixAI Bot' for new chats with messages
           description: description,
           role: currentRole || '',
           role_description: '',
@@ -1766,7 +1766,7 @@ const renderTextWithMath = (text, textStyle) => {
               const newChatId = Date.now().toString();
               const localChatObj = {
                 id: newChatId,
-                name: 'New Chat',
+                name: t('newChat'),
                 description: '',
                 role: '',
                 roleDescription: '',
@@ -1788,7 +1788,7 @@ const renderTextWithMath = (text, textStyle) => {
             const newChatId = Date.now().toString();
             const localChatObj = {
               id: newChatId,
-              name: 'New Chat',
+              name: t('newChat'),
               description: '',
               role: '',
               roleDescription: '',
@@ -2079,7 +2079,7 @@ const renderTextWithMath = (text, textStyle) => {
       const timestamp = new Date().toISOString();
       const localChatObj = {
         id: newChatId,
-        name: 'New Chat',
+        name: t('newChat'),
         description: '',
         role: '',
         roleDescription: '',
@@ -2651,7 +2651,7 @@ const renderTextWithMath = (text, textStyle) => {
           .insert({
             chat_id: currentChatId,
             user_id: (await supabase.auth.getSession()).data.session.user.id,
-            name: 'New Chat',
+            name: t('newChat'),
             description: userVisibleMessage,
             role: role,
             role_description: roleDescription,
@@ -2969,7 +2969,7 @@ const renderTextWithMath = (text, textStyle) => {
           <Image source={require('../assets/Avatar/Cat.png')} style={styles.botIcon} />
         <View style={styles.headerTextContainer}>
         
-          <Text style={styles.botRole}>MatrixAI Bot</Text>
+          <Text style={styles.botRole}>{t('matrixAIBot')}</Text>
         
         </View>
        
@@ -3035,12 +3035,12 @@ const renderTextWithMath = (text, textStyle) => {
             {messages.length === 0 && dataLoaded && (
               <View style={styles.placeholderContainer}>
                 <Image source={require('../assets/matrix.png')} style={styles.placeholderImage} />
-                <Text style={[styles.placeholderText , {color: colors.text}]}>Hi, I'm MatrixAI Bot.</Text>
-                <Text style={[styles.placeholderText2 , {color: colors.text}]}>How can I help you today?</Text>
+                <Text style={[styles.placeholderText , {color: colors.text}]}>{t('hiImMatrixAIBot')}</Text>
+                <Text style={[styles.placeholderText2 , {color: colors.text}]}>{t('howCanIHelpYouToday')}</Text>
                 
                 {/* New role selection UI */}
-                <Text style={[styles.placeholderText3 , {color: colors.text}]}>You can ask me any question or you</Text>
-                <Text style={[styles.placeholderText4 , {color: colors.text}]}>can select the below role:</Text>
+                <Text style={[styles.placeholderText3 , {color: colors.text}]}>{t('youCanAskMeAnyQuestionOrYouCanSelectTheBelowRole')}</Text>
+                <Text style={[styles.placeholderText4 , {color: colors.text}]}></Text>
                 <View style={styles.roleButtonsContainer}>
                   <View style={styles.roleButtonRow}>
                     <TouchableOpacity 
@@ -3048,7 +3048,7 @@ const renderTextWithMath = (text, textStyle) => {
                       onPress={() => handleRoleSelection('🩺 Doctor')}
                     >
                       <Text style={styles.roleButtonText}>🩺</Text>
-                      <Text style={styles.roleButtonText}>Doctor</Text>
+                      <Text style={styles.roleButtonText}>{t('doctor')}</Text>
                     </TouchableOpacity>
                     
                     <TouchableOpacity 
@@ -3056,7 +3056,7 @@ const renderTextWithMath = (text, textStyle) => {
                       onPress={() => handleRoleSelection('📚 Teacher')}
                     >
                       <Text style={styles.roleButtonText}>📚</Text>
-                      <Text style={styles.roleButtonText}>Teacher</Text>
+                      <Text style={styles.roleButtonText}>{t('teacher')}</Text>
                     </TouchableOpacity>
                   </View>
                   
@@ -3066,7 +3066,7 @@ const renderTextWithMath = (text, textStyle) => {
                       onPress={() => handleRoleSelection('⚖️ Lawyer')}
                     >
                       <Text style={styles.roleButtonText}>⚖️</Text>
-                      <Text style={styles.roleButtonText}>Lawyer</Text>
+                      <Text style={styles.roleButtonText}>{t('lawyer')}</Text>
                     </TouchableOpacity>
                     
                     <TouchableOpacity 
@@ -3074,7 +3074,7 @@ const renderTextWithMath = (text, textStyle) => {
                       onPress={() => handleRoleSelection('🌱 Psychologist')}
                     >
                       <Text style={styles.roleButtonText}>🌱</Text>
-                      <Text style={styles.roleButtonText}>Psychologist</Text>
+                      <Text style={styles.roleButtonText}>{t('psychologist')}</Text>
                     </TouchableOpacity>
                   </View>
                   
@@ -3084,7 +3084,7 @@ const renderTextWithMath = (text, textStyle) => {
                       onPress={() => handleRoleSelection('🔧 Engineer')}
                     >
                       <Text style={styles.roleButtonText}>🔧</Text>
-                      <Text style={styles.roleButtonText}>Engineer</Text>
+                      <Text style={styles.roleButtonText}>{t('engineer')}</Text>
                     </TouchableOpacity>
                     
                     <TouchableOpacity 
@@ -3092,7 +3092,7 @@ const renderTextWithMath = (text, textStyle) => {
                       onPress={() => handleRoleSelection('📐 Surveyor')}
                     >
                       <Text style={styles.roleButtonText}>📐</Text>
-                      <Text style={styles.roleButtonText}>Surveyor</Text>
+                      <Text style={styles.roleButtonText}>{t('surveyor')}</Text>
                     </TouchableOpacity>
                   </View>
                   
@@ -3102,7 +3102,7 @@ const renderTextWithMath = (text, textStyle) => {
                       onPress={() => handleRoleSelection('🏤 Architect')}
                     >
                       <Text style={styles.roleButtonText}>🏤</Text>
-                      <Text style={styles.roleButtonText}>Architect</Text>
+                      <Text style={styles.roleButtonText}>{t('architect')}</Text>
                     </TouchableOpacity>
                     
                     <TouchableOpacity 
@@ -3110,7 +3110,7 @@ const renderTextWithMath = (text, textStyle) => {
                       onPress={() => handleRoleSelection('📈 Financial Advisor')}
                     >
                       <Text style={styles.roleButtonText}>📈</Text>
-                      <Text style={styles.roleButtonText}>Financial Advisor</Text>
+                      <Text style={styles.roleButtonText}>{t('financialAdvisor')}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -3125,7 +3125,7 @@ const renderTextWithMath = (text, textStyle) => {
           <View style={styles.newChatButtonContainer} pointerEvents="box-none">
             <TouchableOpacity onPress={startNewChat} style={styles.NewChatButton}>
               <MaterialCommunityIcons name="chat-plus-outline" size={24} color="#fff" />
-              <Text style={styles.NewChatText}>New Chat</Text>
+              <Text style={styles.NewChatText}>{t('newChat')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -3158,7 +3158,7 @@ const renderTextWithMath = (text, textStyle) => {
                 <View style={[styles.chatBoxContainer , {zIndex: 20}]}>
                   <TextInput
                     style={[styles.textInput, { textAlignVertical: 'top' }]}
-                    placeholder={selectedImage ? "Add a caption..." : "Send a message..."}
+                    placeholder={selectedImage ? "Add a caption..." : t('sendAMessage')}
                     placeholderTextColor="#ccc"
                     value={inputText}
                     onChangeText={handleInputChange}

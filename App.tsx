@@ -135,8 +135,28 @@ const App = () => {
                 const netInfo = await NetInfo.fetch();
                 const isConnected = netInfo.isConnected;
                 
+                // Check if we're using the new API authentication system
+                const token = await AsyncStorage.getItem('token');
+                const usingNewAuth = !!token;
+                
                 // Check login status
                 const userStatus = await AsyncStorage.getItem('userLoggedIn');
+                const storedUid = await AsyncStorage.getItem('uid');
+                
+                if (usingNewAuth) {
+                    console.log('App.tsx: Using new API authentication system');
+                    if (storedUid) {
+                        console.log('App.tsx: Found stored UID for token-based auth:', storedUid);
+                        // Ensure both userLoggedIn and uid are properly set
+                        await AsyncStorage.setItem('userLoggedIn', 'true');
+                        await AsyncStorage.setItem('uid', storedUid);
+                        // Ensure token is persisted
+                        await AsyncStorage.setItem('token', token);
+                        setIsLoggedIn(true);
+                        setIsLoading(false);
+                        return;
+                    }
+                }
                 
                 if (!isConnected) {
                     // In offline mode, rely solely on AsyncStorage
@@ -146,39 +166,45 @@ const App = () => {
                     return;
                 }
                 
-                // If online, check if we have a valid Supabase session
-                const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-                const hasValidSession = !!session?.user?.id;
-                
-                console.log('Session check:', { hasValidSession, userStatus, sessionError: sessionError?.message });
-                
-                // If sessions don't match, update localStorage
-                if (userStatus === 'true' && !hasValidSession) {
-                    console.log('Session expired or invalid, attempting refresh');
+                // Only check Supabase session if not using new API auth
+                if (!usingNewAuth) {
+                    // If online, check if we have a valid Supabase session
+                    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+                    const hasValidSession = !!session?.user?.id;
                     
-                    // Try to refresh the session first
-                    const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+                    console.log('Session check:', { hasValidSession, userStatus, sessionError: sessionError?.message });
                     
-                    if (refreshData?.session?.user?.id) {
-                        console.log('Successfully refreshed expired session');
-                        await AsyncStorage.setItem('uid', refreshData.session.user.id);
+                    // If sessions don't match, update localStorage
+                    if (userStatus === 'true' && !hasValidSession) {
+                        console.log('Session expired or invalid, attempting refresh');
+                        
+                        // Try to refresh the session first
+                        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+                        
+                        if (refreshData?.session?.user?.id) {
+                            console.log('Successfully refreshed expired session');
+                            await AsyncStorage.setItem('uid', refreshData.session.user.id);
+                            setIsLoggedIn(true);
+                        } else {
+                            console.log('Could not refresh session:', refreshError?.message);
+                            // Use auth error handler for better error handling
+                            const wasCleared = await handleAuthError(refreshError);
+                            if (wasCleared) {
+                                setIsLoggedIn(false);
+                            }
+                        }
+                    } else if (userStatus !== 'true' && hasValidSession) {
+                        console.log('Found valid session, updating login status');
+                        await AsyncStorage.setItem('userLoggedIn', 'true');
+                        await AsyncStorage.setItem('uid', session.user.id);
                         setIsLoggedIn(true);
                     } else {
-                        console.log('Could not refresh session:', refreshError?.message);
-                        // Use auth error handler for better error handling
-                        const wasCleared = await handleAuthError(refreshError);
-                        if (wasCleared) {
-                            setIsLoggedIn(false);
-                        }
+                        // Both match - use the current state
+                        setIsLoggedIn(userStatus === 'true' && hasValidSession);
                     }
-                } else if (userStatus !== 'true' && hasValidSession) {
-                    console.log('Found valid session, updating login status');
-                    await AsyncStorage.setItem('userLoggedIn', 'true');
-                    await AsyncStorage.setItem('uid', session.user.id);
-                    setIsLoggedIn(true);
                 } else {
-                    // Both match - use the current state
-                    setIsLoggedIn(userStatus === 'true' && hasValidSession);
+                    // Using new API auth, rely on stored values
+                    setIsLoggedIn(userStatus === 'true' && !!storedUid);
                 }
                 
                 console.log('App initialized, logged in:', isLoggedIn);
@@ -205,6 +231,13 @@ const App = () => {
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event: any, session: any) => {
                 console.log('App.tsx: Auth state changed:', event, !!session);
+                
+                // Check if we're using the new API authentication system
+                const token = await AsyncStorage.getItem('token');
+                if (token) {
+                    console.log('App.tsx: Using new API authentication system, ignoring Supabase auth state changes');
+                    return; // Skip Supabase auth state handling when using new API auth
+                }
                 
                 if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !session)) {
                     console.log('User signed out or token refresh failed, clearing state');

@@ -83,12 +83,12 @@ const SRTSubtitleModal = ({
 
     // Available languages for translation
     const languages = [
-        { code: 'en', name: 'English' },
-        { code: 'zh', name: 'Chinese' },
-        { code: 'es', name: 'Spanish' },
-        { code: 'fr', name: 'French' },
-        { code: 'de', name: 'German' },
-        { code: 'ja', name: 'Japanese' },
+        { code: 'en', name: t('english') },
+        { code: 'zh', name: t('chinese') },
+        { code: 'es', name: t('spanish') },
+        { code: 'fr', name: t('french') },
+        { code: 'de', name: t('german') },
+        { code: 'ja', name: t('japanese') },
         { code: 'ko', name: 'Korean' },
         { code: 'pt', name: 'Portuguese' },
         { code: 'ru', name: 'Russian' },
@@ -104,7 +104,7 @@ const SRTSubtitleModal = ({
         }
 
         const segments = [];
-        const segmentDuration = 8; // 8 seconds per segment
+        const segmentDuration = 6; // 6 seconds per segment
         let currentSegment = {
             id: 1,
             startTime: 0,
@@ -130,7 +130,7 @@ const SRTSubtitleModal = ({
             return;
         }
 
-        // Group words into 8-second segments
+        // Group words into 6-second segments starting from zero
         for (let i = 0; i < validWords.length; i++) {
             const word = validWords[i];
             const wordText = word.punctuated_word || word.word;
@@ -144,8 +144,8 @@ const SRTSubtitleModal = ({
                     segments.push(currentSegment);
                 }
 
-                // Create new segment
-                const segmentStartTime = Math.floor(word.start / segmentDuration) * segmentDuration;
+                // Create new segment - ensure segments start from 0 and increment by segmentDuration
+                const segmentStartTime = segments.length * segmentDuration;
                 currentSegment = {
                     id: segments.length + 1,
                     startTime: segmentStartTime,
@@ -487,7 +487,7 @@ const SRTSubtitleModal = ({
                                         styles.modalTitle,
                                         { color: themeColors.text }
                                     ]}>
-                                        SRT Subtitles
+                                        {t('srtSubtitles')}
                                     </Text>
                                 </View>
                                 <TouchableOpacity
@@ -513,7 +513,7 @@ const SRTSubtitleModal = ({
                                     onPress={() => setShowLanguageDropdown(!showLanguageDropdown)}
                                 >
                                     <Text style={[styles.languageDropdownText, { color: themeColors.text }]}>
-                                        Target Language: {languages.find(lang => lang.code === selectedLanguage)?.name || 'Select Language'}
+                                        {t('targetLanguage')}: {languages.find(lang => lang.code === selectedLanguage)?.name || 'Select Language'}
                                     </Text>
                                 </TouchableOpacity>
 
@@ -525,14 +525,9 @@ const SRTSubtitleModal = ({
                                         disabled={isTranslating}
                                     >
                                         {isTranslating ? (
-                                            <LinearGradient
-                                                colors={['#13EF97', '#1D8EC4']}
-                                                style={styles.gradientButton}
-                                                start={{ x: 1, y: 0 }}
-                                                end={{ x: 0, y: 0 }}
-                                            >
+                                            <View style={[styles.gradientButton, { backgroundColor: '#1D8EC4' }]}>
                                                 <ActivityIndicator size="small" color="#ffffff" />
-                                            </LinearGradient>
+                                            </View>
                                         ) : (
                                             <LinearGradient
                                                 colors={['#13EF97', '#1D8EC4']}
@@ -541,7 +536,7 @@ const SRTSubtitleModal = ({
                                                 end={{ x: 0, y: 0 }}
                                             >
                                                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                                    <Text style={styles.translateButtonText}>Translate -1</Text>
+                                                    <Text style={styles.translateButtonText}>{t('translate')} -1</Text>
                                                     <Image source={coin} style={[styles.coinIcon, { marginLeft: 5 }]} />
                                                 </View>
                                             </LinearGradient>

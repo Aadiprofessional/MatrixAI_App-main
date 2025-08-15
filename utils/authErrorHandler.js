@@ -8,6 +8,13 @@ import { supabase } from '../supabaseClient';
 export const handleAuthError = async (error, setUid = null) => {
     console.log('Auth error detected:', error?.message);
     
+    // Check if we're using the new API authentication system
+    const token = await AsyncStorage.getItem('token');
+    if (token) {
+        console.log('Using new API authentication system, ignoring Supabase auth errors');
+        return false; // Don't clear auth data when using new API auth
+    }
+    
     // Check if it's a refresh token error
     if (error?.message?.includes('Invalid Refresh Token') ||
         error?.message?.includes('Refresh Token Not Found') ||

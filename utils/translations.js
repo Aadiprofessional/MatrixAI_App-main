@@ -8,6 +8,22 @@ export const translations = {
     'aiDetector': 'AI Detector',
     'humanise': 'Humanise',
     
+    // Sheet1 - MatrixAI Bot
+    'matrixAIBot': 'MatrixAI Bot',
+    'hiImMatrixAIBot': 'Hi, I\'m MatrixAI Bot.',
+    'howCanIHelpYouToday': 'How can I help you today?',
+    'youCanAskMeAnyQuestionOrYouCanSelectTheBelowRole': 'You can ask me any question or you can select the below role',
+    'doctor': 'Doctor',
+    'lawyer': 'Lawyer',
+    'engineer': 'Engineer',
+    'teacher': 'Teacher',
+    'psychologist': 'Psychologist',
+    'surveyor': 'Surveyor',
+    'architect': 'Architect',
+    'financialAdvisor': 'Financial Advisor',
+    'newChat': 'New Chat',
+    'sendAMessage': 'Send a message',
+    
     // Sheet12 - AI Text Detector
     'detectAI': 'Al TextDetector',
     'detectAIgeneratedcontentwithadvanvedML': 'Detect Al-generated content with advanced ML',
@@ -307,6 +323,7 @@ export const translations = {
     'friendSignupReward': 'Friend Signup Reward',
     'yourReferralCode': 'Your Referral Code',
     'inviteFriend': 'Invite Friend',
+    'totalCoins': 'Total Coins',
 
 
 
@@ -337,7 +354,7 @@ export const translations = {
     'others': 'Others',
     'settingsSaved': 'Settings saved successfully',
     
-    'totalCoins': 'Total Coins',
+    
     // Errors
     'errorOccurred': 'An error occurred',
     'tryAgain': 'Please try again',
@@ -397,6 +414,18 @@ export const translations = {
     'fileInfo': 'File Info',
     'fileSize': 'File Size',
     'fileType': 'File Type',
+
+    // Sheet3 - SRT Subtitles
+    'srtSubtitles': 'SRT Subtitles',
+    'translate': 'Translate',
+    'targetLanguage': 'Target Language',
+    'english': 'English',
+    'chinese': 'Chinese',
+    'spanish': 'Spanish',
+    'french': 'French',
+    'german': 'German',
+    'japanese': 'Japanese',
+    
 
 
     
@@ -596,11 +625,42 @@ export const translations = {
     'showEditing': '顯示編輯',
     'showTime': '顯示時間',
     
+    // Sheet1 - MatrixAI Bot
+    'matrixAIBot': 'MatrixAl機器人',
+    'hiImMatrixAIBot': '你好，我是 MatrixAl機器人。',
+    'howCanIHelpYouToday': '今天我能幫你什麼?',
+    'youCanAskMeAnyQuestionOrYouCanSelectTheBelowRole': '你可以問我任何問題，或者選擇以下角色',
+    'doctor': '醫生',
+    'lawyer': '律師',
+    'engineer': '工程師',
+    'teacher': '教師',
+    'psychologist': '心理學家',
+    'surveyor': '測量師',
+    'architect': '建築師',
+    'financialAdvisor': '財務顧問',
+    'newChat': '新聊天',
+    'sendAMessage': '發送消息',
+    
+    // Sheet3 - SRT Subtitles
+    'srtSubtitles': '字幕',
+    'translate': '翻譯',
+    'targetLanguage': '目標語言',
+    'english': '英語',
+    'chinese': '中文',
+    'spanish': '西班牙語',
+    'french': '法語',
+    'german': '德語',
+    'japanese': '日語',
+    
+    // Sheet4 - Content Tones
+    'creative': '創意',
+    'persuasive': '說服性',
+    
     // Sheet14 - Referral Screen
     'referYourFriends': '邀請您的好友',
-    'get50CoinsForEachInvite': '每邀請一位好友，您可獲得50個金幣',
-    'totalCoins': '總金幣',
-    'inviteFriendInstruction': '邀請好友加入 MatrixAI 並獲得50個金幣',
+    'get50CoinsForEachInvite': '每次邀請可獲得50個硬幣',
+    'totalCoins': '總硬幣數',
+    'inviteFriendInstruction': '邀請您的好友加入MatrixAl，每次邀請獲得50個硬幣',
     'friendSignupReward': '好友註冊獎勵',
     'yourReferralCode': '您的推薦碼',
     'inviteFriend': '邀請好友',
@@ -918,7 +978,6 @@ export const translations = {
     'processingAudio': '處理音訊中...',
     'processingVideo': '處理影片中...',
 
-    'totalCoins': '總金幣', 
     'duration': '時長',
     'uploadedOn': '上傳於',
     'selectFiles': '選擇檔案',
@@ -938,12 +997,7 @@ export const translations = {
     'referralCodeCopied': '您的推薦碼已複製',
     'shareReferralMessage': '分享您的推薦碼',
     'errorSharingReferralCode': '分享推薦碼時發生錯誤', 
-    'referYourFriends': '邀請您的好友',
-    'get50CoinsForEachInvite': '每邀請一位好友，您可獲得50個金幣',  
-    'inviteFriendInstruction': '邀請好友加入MatrixAI，每邀請一位好友，您可獲得50個金幣',
-    'friendSignupReward': '好友註冊獎勵',
-    'yourReferralCode': '您的推薦碼',
-    'inviteFriend': '邀請好友',
+
     
     // HomeScreen
     'futureOfAI': '體驗人工智能的未來',
@@ -1085,7 +1139,6 @@ export const translations = {
     "pro": "專業版",
     "upgradeToPro": "升級到專業版",
 
-    'totalCoins': '總金幣',
     "proFeatures": "專業功能",
     "videoGenerator": "視頻AI",
     "imageAI": "圖像AI",
@@ -1110,6 +1163,22 @@ export const translations = {
     'typeYourVideoPromptHere': '输入您的视频提示...',
     'chooseThisVideo': '选择此视频',
     'home': '首页',
+    
+    // Sheet1 - MatrixAI Bot
+    'matrixAIBot': 'MatrixAl机器人',
+    'hiImMatrixAIBot': '你好，我是 MatrixAl机器人。',
+    'howCanIHelpYouToday': '今天我能帮你什么?',
+    'youCanAskMeAnyQuestionOrYouCanSelectTheBelowRole': '你可以问我任何问题，或者选择以下角色',
+    'doctor': '医生',
+    'lawyer': '律师',
+    'engineer': '工程师',
+    'teacher': '教师',
+    'psychologist': '心理学家',
+    'surveyor': '测量师',
+    'architect': '建筑师',
+    'financialAdvisor': '财务顾问',
+    'newChat': '新聊天',
+    'sendAMessage': '发送消息',
     'profile': '个人资料',
     'settings': '设置',
     'save': '保存',
@@ -1146,9 +1215,9 @@ export const translations = {
     
     // Sheet14 - Referral Screen
     'referYourFriends': '邀请您的好友',
-    'get50CoinsForEachInvite': '每邀请一位好友，您可获得50个金币',
-    'totalCoins': '总金币',
-    'inviteFriendInstruction': '邀请好友加入 MatrixAI 并获得50个金币',
+    'get50CoinsForEachInvite': '每次邀请可获得50个硬币',
+    'totalCoins': '总硬币数',
+    'inviteFriendInstruction': '邀请您的好友加入MatrixAl，每次邀请获得50个硬币',
     'friendSignupReward': '好友注册奖励',
     'yourReferralCode': '您的推荐码',
     'inviteFriend': '邀请好友',
@@ -1198,6 +1267,21 @@ export const translations = {
 
     "hiWelcometoMatrixAI": "欢迎来到 Matrix AI",
     "whatcanigenerateforyoutoday": "您今天可以生成什么？",
+    
+    // Sheet3 - SRT Subtitles
+    'srtSubtitles': '字幕',
+    'translate': '翻译',
+    'targetLanguage': '目标语言',
+    'english': '英语',
+    'chinese': '中文',
+    'spanish': '西班牙语',
+    'french': '法语',
+    'german': '德语',
+    'japanese': '日语',
+    
+    // Sheet4 - Content Tones
+    'creative': '创意',
+    'persuasive': '说服性',
     "typeyourprompt": "输入您的提示",
     "generatePPT": "生成 PPT",  
     "pptHistory": "PPT 历史",
@@ -1312,12 +1396,8 @@ export const translations = {
     'referralCodeCopied': '您的推薦碼已複製',
     'shareReferralMessage': '分享您的推薦碼',
     'errorSharingReferralCode': '分享推薦碼時發生錯誤',
-    'referYourFriends': '邀請您的好友',
-    'get50CoinsForEachInvite': '每邀請一位好友，您可獲得50個金幣',
+  
     'inviteFriendInstruction': '邀請好友加入 MatrixAI 並獲得50個金幣',
-    'friendSignupReward': '好友註冊獎勵',
-    'yourReferralCode': '您的推薦碼',
-    'inviteFriend': '邀請好友',
 
     // Authentication
     'login': '登录',

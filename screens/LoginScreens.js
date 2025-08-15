@@ -211,6 +211,22 @@ const LoginScreen = ({ navigation }) => {
                     try {
                       await AsyncStorage.setItem('uid', data.user.id);
                       await AsyncStorage.setItem('userLoggedIn', 'true');
+                      
+                      // Store the session token if available
+                      const { data: sessionData } = await supabase.auth.getSession();
+                      if (sessionData?.session?.access_token) {
+                        await AsyncStorage.setItem('token', sessionData.session.access_token);
+                        console.log('Session token stored in AsyncStorage');
+                      }
+                      
+                      // Verify data was stored correctly
+                      const storedUid = await AsyncStorage.getItem('uid');
+                      const userLoggedIn = await AsyncStorage.getItem('userLoggedIn');
+                      console.log('Verified login data stored:', {
+                        uidStored: !!storedUid,
+                        loggedInFlagSet: userLoggedIn === 'true'
+                      });
+                      
                       console.log('Session data stored in AsyncStorage');
                     } catch (storageError) {
                       console.error('Error storing session data:', storageError);

@@ -51,7 +51,7 @@ const DetectAIContent = ({ route }) => {
   const colors = getThemeColors();
   const { t } = useLanguage();
   const navigation = useNavigation();
-  const { uid: userData } = useAuthUser();
+  const { uid } = useAuthUser();
   
   // State variables
   const [inputText, setInputText] = useState('');
@@ -224,7 +224,7 @@ const DetectAIContent = ({ route }) => {
     
     // Create request payload with all settings 
     const requestPayload = { 
-      uid: userData?.uid, // Use default UID if not available 
+      uid: uid, // Use UID from auth context 
       text: inputText, 
       title: `Detection: ${inputText.substring(0, 30)}${inputText.length > 30 ? '...' : ''}`, 
       tags: ['mobile-app'], 
@@ -366,14 +366,14 @@ const DetectAIContent = ({ route }) => {
   
   // Fetch user's detection history
   const fetchUserDetections = async () => {
-    if (!userData?.uid) return;
+    if (!uid) return;
     
     try {
       const response = await axios.get(
         'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/detection/getUserDetections',
         {
           params: {
-            uid: userData.uid,
+          uid: uid,
             page: 1,
             itemsPerPage: 10
           }
@@ -390,14 +390,14 @@ const DetectAIContent = ({ route }) => {
   
   // Delete a detection from history
   const deleteDetection = async (detectionId) => {
-    if (!userData?.uid) return;
+    if (!uid) return;
     
     try {
       await axios.delete(
         'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/detection/deleteDetection',
         {
           data: {
-            uid: userData.uid,
+          uid: uid,
             detectionId
           }
         }
@@ -412,10 +412,10 @@ const DetectAIContent = ({ route }) => {
   
   // Fetch history on component mount
   useEffect(() => {
-    if (userData?.uid) {
+    if (uid) {
       fetchUserDetections();
     }
-  }, [userData?.uid]);
+  }, [uid]);
 
   const renderFeatureItem = ({ item }) => (
     <View style={styles.featureItem}>

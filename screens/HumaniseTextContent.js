@@ -51,7 +51,7 @@ const HumaniseTextContent = ({ route }) => {
   const colors = getThemeColors();
   const { t } = useLanguage();
   const navigation = useNavigation();
-  const { uid: userData } = useAuthUser();
+  const { uid } = useAuthUser();
   
   // State variables
   const [inputText, setInputText] = useState('');
@@ -243,7 +243,7 @@ const HumaniseTextContent = ({ route }) => {
     try { 
       // Create request payload with all settings 
       const requestPayload = { 
-        uid: userData?.uid, // Use default UID if not available 
+        uid: uid, // Use default UID if not available 
         prompt: inputText, 
         ai_detector: selectedDetector, 
         tone: selectedTone, 
@@ -425,14 +425,14 @@ const HumaniseTextContent = ({ route }) => {
   
   // Delete a humanization from history
   const deleteHumanization = async (humanizationId) => {
-    if (!userData?.uid) return;
-    
+    if (!uid) return;
+
     try {
       await axios.delete(
         'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/humanize/deleteHumanization',
         {
           data: {
-            uid: userData.uid,
+            uid: uid,
             humanizationId
           }
         }
@@ -447,19 +447,19 @@ const HumaniseTextContent = ({ route }) => {
   
   // Fetch user's humanization history
   const fetchUserHumanizations = async () => {
-    if (!userData?.uid) {
+    if (!uid) {
       console.log('No user ID available, skipping history fetch');
       return;
     }
-    
-    console.log('Fetching humanization history for user:', userData.uid);
-    
+
+    console.log('Fetching humanization history for user:', uid);
+
     try {
       const response = await axios.get(
         'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/humanize/getUserHumanizations',
         {
           params: {
-            uid: userData.uid,
+            uid: uid,
             page: 1,
             itemsPerPage: 10
           }
@@ -503,14 +503,14 @@ const HumaniseTextContent = ({ route }) => {
   
   // Fetch history on component mount
   useEffect(() => {
-    console.log('useEffect for fetchUserHumanizations triggered, userData:', userData?.uid ? 'available' : 'not available');
-    if (userData?.uid) {
+    console.log('useEffect for fetchUserHumanizations triggered, uid:', uid ? 'available' : 'not available');
+    if (uid) {
       console.log('Calling fetchUserHumanizations from useEffect');
       fetchUserHumanizations();
     } else {
       console.log('Skipping fetchUserHumanizations call - no user ID available');
     }
-  }, [userData?.uid]);
+  }, [uid]);
   
   // List of supported AI detectors
   const supportedDetectors = [

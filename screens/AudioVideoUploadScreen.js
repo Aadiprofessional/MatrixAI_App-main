@@ -586,8 +586,9 @@ const AudioVideoUploadScreen = () => {
             return;
         }
         
-        // Check if user has enough coins (2x the duration) and if pro plan is active
-        const { hasEnoughCoins, isProActive } = await checkUserCoins(uid, duration * 2);
+        // Check if user has enough coins (2 coins per minute) and if pro plan is active
+        const requiredCoins = Math.ceil(duration / 60) * 2;
+        const { hasEnoughCoins, isProActive } = await checkUserCoins(uid, requiredCoins);
         
         if (!hasEnoughCoins || !isProActive) {
             setUploading(false);
@@ -611,7 +612,7 @@ const AudioVideoUploadScreen = () => {
             } else if (!hasEnoughCoins) {
                 Alert.alert(
                     t('insufficientCoins'),
-                    t('needCoinsForAudio', {count: duration * 2}),
+                    t('needCoinsForAudio', {count: requiredCoins}),
                     [
                         {
                             text: t('buyAddOn'),
@@ -1648,7 +1649,7 @@ const AudioVideoUploadScreen = () => {
                     }}
                     disabled={uploading}
                 >
-                    <Text style={[styles.convert2, {color: colors.text }]}>{duration}</Text>
+                    <Text style={[styles.convert2, {color: colors.text }]}>{Math.ceil(duration / 60) * 2}</Text>
                     <Image source={coin} style={[styles.detailIcon2]} />
 
                     {uploading ? (
