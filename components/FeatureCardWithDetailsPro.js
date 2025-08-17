@@ -32,22 +32,50 @@ const FeatureCardWithDetailsPro = () => {
        <View style={styles.featureList}>
           <View style={styles.featureItem}>
             <MaterialCommunityIcons name="video-outline" size={30} color="#FF6600" style={styles.featureIcon} />
-            <Text style={[styles.featureText, {color: colors.text}]}>{t('processAndAnalyzeVideos')}</Text>
+            <View style={styles.featureTextContainer}>
+              <Text style={[styles.featureTitle, {color: colors.text}]}>Advanced Video Processing</Text>
+              <Text style={[styles.featureDescription, {color: colors.text, opacity: 0.7}]}>Extract subtitles, generate SRT files, translate content, and analyze video content with AI-powered tools</Text>
+            </View>
           </View>
     
           <View style={styles.featureItem}>
             <MaterialCommunityIcons name="image-edit-outline" size={30} color="#FF6600" style={styles.featureIcon} />
-            <Text style={[styles.featureText, {color: colors.text}]}>{t('generateImages')}</Text>
+            <View style={styles.featureTextContainer}>
+              <Text style={[styles.featureTitle, {color: colors.text}]}>AI Image Generation</Text>
+              <Text style={[styles.featureDescription, {color: colors.text, opacity: 0.7}]}>Create stunning images from text prompts using advanced AI models with customizable styles and formats</Text>
+            </View>
           </View>
           
           <View style={styles.featureItem}>
             <MaterialCommunityIcons name="microphone" size={30} color="#FF6600" style={styles.featureIcon} />
-            <Text style={[styles.featureText, {color: colors.text}]}>{t('convertSpeechToText')}</Text>
+            <View style={styles.featureTextContainer}>
+              <Text style={[styles.featureTitle, {color: colors.text}]}>Speech-to-Text Conversion</Text>
+              <Text style={[styles.featureDescription, {color: colors.text, opacity: 0.7}]}>Convert audio and video files to accurate text transcriptions with multi-language support</Text>
+            </View>
           </View>
        
           <View style={styles.featureItem}>
             <MaterialCommunityIcons name="text-box-outline" size={30} color="#FF6600" style={styles.featureIcon} />
-            <Text style={[styles.featureText, {color: colors.text}]}>{t('aiPoweredWritingAssistant')}</Text>
+            <View style={styles.featureTextContainer}>
+              <Text style={[styles.featureTitle, {color: colors.text}]}>AI Writing Assistant</Text>
+              <Text style={[styles.featureDescription, {color: colors.text, opacity: 0.7}]}>Get intelligent writing help, content generation, and text optimization powered by advanced AI models</Text>
+            </View>
+          </View>
+
+          <View style={styles.featureItem}>
+            <MaterialCommunityIcons name="translate" size={30} color="#FF6600" style={styles.featureIcon} />
+            <View style={styles.featureTextContainer}>
+              <Text style={[styles.featureTitle, {color: colors.text}]}>Multi-Language Translation</Text>
+              <Text style={[styles.featureDescription, {color: colors.text, opacity: 0.7}]}>Translate subtitles, text, and content across multiple languages with high accuracy</Text>
+            </View>
+          </View>
+
+          <View style={styles.featureItem}>
+            <MaterialIcons name="file-download" size={30} color="#FF6600" style={styles.featureIcon} />
+            <View style={styles.featureTextContainer}>
+              <Text style={[styles.featureTitle, {color: colors.text}]}>Export & Download</Text>
+              <Text style={[styles.featureDescription, {color: colors.text, opacity: 0.7}]}>Download SRT files, transcriptions, and generated content in various formats for easy sharing</Text>
+            </View>
           </View>
         </View>
        
@@ -132,19 +160,31 @@ const styles = StyleSheet.create({
   },
   featureItem: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
+    alignItems: 'flex-start',
+    marginBottom: 15,
   },
   featureIcon: {
     width: 30,
     height: 30,
-    marginRight: 10,
+    marginRight: 12,
+    marginTop: 2,
     resizeMode: 'contain',
   },
-  featureText: {
-    fontSize: 14,
+  featureTextContainer: {
+    flex: 1,
+    flexDirection: 'column',
+  },
+  featureTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  featureDescription: {
+    fontSize: 13,
     color: '#666',
-    flex: 1, // Ensures text takes up remaining space
+    lineHeight: 18,
+    opacity: 0.8,
   },
   upgradeButton: {
     backgroundColor: '#007BFF', // Blue background for button

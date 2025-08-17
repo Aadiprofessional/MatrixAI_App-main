@@ -989,7 +989,7 @@ const renderTextWithMath = (text, textStyle) => {
       // Get current user session
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user?.id) {
-        console.error('No authenticated user found');
+        console.log('No authenticated user found, skipping chat history save');
         return;
       }
       
@@ -1730,11 +1730,36 @@ const renderTextWithMath = (text, textStyle) => {
       }
 
       try {
-        // Get current user session
-        const { data: { session } } = await supabase.auth.getSession();
+        // Log authentication state for debugging
+        console.log('=== FETCH USER CHATS DEBUG ===');
+        console.log('AuthContext uid:', uid);
+        console.log('AuthContext loading:', loading);
+        console.log('typeof uid:', typeof uid);
+        console.log('uid truthy check:', !!uid);
+        console.log('uid === null:', uid === null);
+        console.log('uid === undefined:', uid === undefined);
+        console.log('uid === "":', uid === '');
         
-        if (!session?.user?.id) {
-          console.log('No authenticated user found, using local chat');
+        // Get current user session
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error('Error getting Supabase session:', sessionError);
+        }
+        
+        console.log('Supabase session exists:', !!session);
+        console.log('Supabase session:', session);
+        console.log('Supabase session user:', session?.user);
+        console.log('Supabase session user ID:', session?.user?.id);
+        
+        // Use uid from AuthContext as primary source of truth
+        const userId = uid || session?.user?.id;
+        console.log('Final userId to use:', userId);
+        console.log('typeof userId:', typeof userId);
+        console.log('userId truthy check:', !!userId);
+        
+        if (!userId) {
+          console.log('No authenticated user found (neither AuthContext uid nor Supabase session), using local chat');
           
           // For anonymous users, create a local chat only if needed
           // Try to get the last used chat from AsyncStorage
@@ -1805,7 +1830,9 @@ const renderTextWithMath = (text, textStyle) => {
           return;
         }
         
-        const userId = session.user.id;
+        // userId is already defined above, no need to redeclare
+        console.log('=== PROCEEDING TO FETCH FROM SUPABASE ===');
+        console.log('About to query user_chats table with userId:', userId);
         
         // Fetch all chats for the current user, ordered by most recent
         const { data: userChats, error: chatError } = await supabase
@@ -1814,18 +1841,32 @@ const renderTextWithMath = (text, textStyle) => {
           .eq('user_id', userId)
           .order('updated_at', { ascending: false });
         
+        console.log('=== SUPABASE QUERY RESULT ===');
+        console.log('chatError:', chatError);
+        console.log('userChats:', userChats);
+        console.log('userChats length:', userChats?.length);
+        
         if (chatError) {
           console.error('Error fetching user chats:', chatError);
+          console.error('Error details:', JSON.stringify(chatError, null, 2));
           // Create a new chat as fallback
           const newChatId = Date.now().toString();
+          console.log('Creating fallback chat with ID:', newChatId);
           startNewChat(newChatId);
           setDataLoaded(true);
           setIsChatsLoading(false);
           return;
         }
         
+        console.log('=== PROCESSING FETCHED CHATS ===');
         // Process the chats to match the local state format and ensure messages is an array
-        const processedChats = userChats.map(chat => {
+        const processedChats = userChats.map((chat, index) => {
+          console.log(`Processing chat ${index + 1}:`, {
+            chat_id: chat.chat_id,
+            name: chat.name,
+            messages_count: chat.messages?.length || 0
+          });
+          
           // Process messages for proper display
           const processedMessages = processMessages(chat.messages || []);
           
@@ -1838,6 +1879,9 @@ const renderTextWithMath = (text, textStyle) => {
             messages: processedMessages,
           };
         });
+        
+        console.log('=== UPDATING STATE WITH PROCESSED CHATS ===');
+        console.log('processedChats count:', processedChats.length);
         
         // Update state with all fetched chats
         setChats(processedChats);
@@ -2042,7 +2086,85 @@ const renderTextWithMath = (text, textStyle) => {
       }
       // Remove window event listener cleanup as well
     };
-  }, [navigation, route]);
+  }, [route.params?.chatid]);
+
+  // Add useEffect to handle authentication-dependent data loading
+  useEffect(() => {
+    console.log('=== AUTH DEPENDENT USEEFFECT ===');
+    console.log('uid:', uid);
+    console.log('loading:', loading);
+    
+    // Only fetch chats when authentication is ready (not loading) and we have a uid
+    if (!loading && uid) {
+      console.log('Authentication ready, fetching user chats...');
+      // Re-fetch chats when uid becomes available
+      const fetchUserChats = async () => {
+        setIsChatsLoading(true);
+        
+        try {
+          console.log('=== FETCH USER CHATS (AUTH READY) ===');
+          console.log('Using uid:', uid);
+          
+          // Fetch all chats for the current user, ordered by most recent
+          const { data: userChats, error: chatError } = await supabase
+            .from('user_chats')
+            .select('*')
+            .eq('user_id', uid)
+            .order('updated_at', { ascending: false });
+          
+          if (chatError) {
+            console.error('Error fetching user chats:', chatError);
+            // Create a new chat as fallback
+            const newChatId = Date.now().toString();
+            startNewChat(newChatId);
+            setDataLoaded(true);
+            setIsChatsLoading(false);
+            return;
+          }
+          
+          console.log('Fetched chats count:', userChats?.length || 0);
+          
+          // Process the chats to match the local state format
+          const processedChats = userChats.map(chat => {
+            const processedMessages = processMessages(chat.messages || []);
+            
+            return {
+              id: chat.chat_id,
+              name: chat.name || 'Chat',
+              description: chat.description || '',
+              role: chat.role || '',
+              roleDescription: chat.role_description || '',
+              messages: processedMessages,
+            };
+          });
+          
+          // Update state with all fetched chats
+          setChats(processedChats);
+          
+          // If we have chats and no current chat is selected
+          if (processedChats.length > 0 && !currentChatId) {
+            const firstChat = processedChats[0];
+            console.log('Setting first chat as current:', firstChat.id);
+            setCurrentChatId(firstChat.id);
+            setMessages(firstChat.messages);
+          }
+          
+          setDataLoaded(true);
+          setIsChatsLoading(false);
+          
+        } catch (error) {
+          console.error('Error in fetchUserChats (auth ready):', error);
+          setIsChatsLoading(false);
+        }
+      };
+      
+      fetchUserChats();
+    } else if (!loading && !uid) {
+      console.log('No authenticated user, using local storage');
+      // Handle case where user is not authenticated
+      setIsChatsLoading(false);
+    }
+  }, [uid, loading]);
 
   // Modify the startNewChat to accept chatId parameter and ensure proper initialization
   const startNewChat = async (customChatId) => {
@@ -2616,6 +2738,17 @@ const renderTextWithMath = (text, textStyle) => {
     setMessages(prev => [...prev, newMessage]);
     
     try {
+      // Check if user is authenticated with Supabase before attempting database operations
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !sessionData?.session?.user?.id) {
+        console.log('No authenticated Supabase user, skipping database operations for role setting');
+        return;
+      }
+      
+      const supabaseUserId = sessionData.session.user.id;
+      console.log('Authenticated Supabase user found, proceeding with role database operations:', supabaseUserId);
+      
       // Check if the chat exists in the database
       const { data: existingChat, error: checkError } = await supabase
         .from('user_chats')
@@ -2650,7 +2783,7 @@ const renderTextWithMath = (text, textStyle) => {
           .from('user_chats')
           .insert({
             chat_id: currentChatId,
-            user_id: (await supabase.auth.getSession()).data.session.user.id,
+            user_id: supabaseUserId,
             name: t('newChat'),
             description: userVisibleMessage,
             role: role,

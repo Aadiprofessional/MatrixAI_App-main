@@ -13,6 +13,7 @@ import {
     Switch,
     ActivityIndicator,
     Image,
+    Platform,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -20,6 +21,8 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import Toast from 'react-native-toast-message';
 import { useTranslation } from 'react-i18next';
 import LinearGradient from 'react-native-linear-gradient';
+import RNFS from 'react-native-fs';
+import Share from 'react-native-share';
 import audioService from '../services/audioService';
 import paymentService from '../services/paymentService';
 import { useCoinsSubscription } from '../hooks/useCoinsSubscription';
@@ -345,6 +348,57 @@ const SRTSubtitleModal = ({
         }
     };
 
+    // Download SRT functionality
+    const downloadSRT = async () => {
+        if (srtSegments.length === 0) {
+            Alert.alert('Error', 'No subtitles to download');
+            return;
+        }
+
+        try {
+            // Generate SRT content
+            let srtContent = '';
+            const segmentsToUse = hasTranslation && translatedSegments.length > 0 ? translatedSegments : srtSegments;
+            
+            segmentsToUse.forEach((segment, index) => {
+                srtContent += `${segment.id}\n`;
+                srtContent += `${formatSRTTime(segment.startTime)} --> ${formatSRTTime(segment.endTime)}\n`;
+                srtContent += `${segment.text}\n\n`;
+            });
+
+            // Create file path
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const fileName = `subtitles_${timestamp}.txt`;
+            const filePath = `${RNFS.DocumentDirectoryPath}/${fileName}`;
+
+            // Write file
+            await RNFS.writeFile(filePath, srtContent, 'utf8');
+
+            // Share the file
+            const shareOptions = {
+                title: 'Share Subtitles',
+                message: 'Subtitles Text File',
+                url: Platform.OS === 'android' ? `file://${filePath}` : filePath,
+                type: 'text/plain',
+                filename: fileName,
+            };
+
+            await Share.open(shareOptions);
+
+            Toast.show({
+                type: 'success',
+                text1: 'Subtitles Downloaded',
+                text2: 'Subtitles file has been created and shared',
+                position: 'bottom',
+                visibilityTime: 2000,
+            });
+
+        } catch (error) {
+            console.error('Error downloading SRT:', error);
+            Alert.alert('Error', 'Failed to download subtitles file. Please try again.');
+        }
+    };
+
     // Get current segments to display
     const currentSegments = srtSegments;
 
@@ -517,10 +571,11 @@ const SRTSubtitleModal = ({
                                     </Text>
                                 </TouchableOpacity>
 
-                                {/* Translate Button - Centered with gradient */}
-                                <View style={styles.translateButtonContainer}>
+                                {/* Action Buttons Row */}
+                                <View style={styles.actionButtonsRow}>
+                                    {/* Translate Button */}
                                     <TouchableOpacity
-                                        style={[styles.translateButton, { opacity: isTranslating ? 0.7 : 1 }]}
+                                        style={[styles.actionButton, { opacity: isTranslating ? 0.7 : 1 }]}
                                         onPress={translateSubtitles}
                                         disabled={isTranslating}
                                     >
@@ -541,6 +596,25 @@ const SRTSubtitleModal = ({
                                                 </View>
                                             </LinearGradient>
                                         )}
+                                    </TouchableOpacity>
+
+                                    {/* Download SRT Button */}
+                                    <TouchableOpacity
+                                        style={[styles.actionButton, styles.downloadButton]}
+                                        onPress={downloadSRT}
+                                        disabled={srtSegments.length === 0}
+                                    >
+                                        <LinearGradient
+                                            colors={['#FF6B6B', '#FF8E53']}
+                                            style={styles.gradientButton}
+                                            start={{ x: 0, y: 0 }}
+                                            end={{ x: 1, y: 0 }}
+                                        >
+                                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                                <MaterialIcons name="download" size={16} color="#ffffff" style={{ marginRight: 5 }} />
+                                                <Text style={styles.downloadButtonText}>{t('downloadSRT') || 'Download SRT'}</Text>
+                                            </View>
+                                        </LinearGradient>
                                     </TouchableOpacity>
                                 </View>
 
@@ -679,15 +753,20 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 12,
     },
-    translateButtonContainer: {
-        width: '100%',
+    actionButtonsRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
         alignItems: 'center',
         marginVertical: 12,
+        gap: 8,
     },
-    translateButton: {
-        width: '90%',
+    actionButton: {
+        flex: 1,
         borderRadius: 8,
         overflow: 'hidden',
+    },
+    downloadButton: {
+        opacity: 1,
     },
     gradientButton: {
         width: '100%',
@@ -709,6 +788,12 @@ const styles = StyleSheet.create({
         fontSize: 14,
         marginLeft: -18,
         fontWeight: '600',
+    },
+    downloadButtonText: {
+        color: '#ffffff',
+        fontSize: 10,
+        fontWeight: '600',
+        marginRight: 30,
     },
     coinIcon: {
         width: 16,

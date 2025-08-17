@@ -138,7 +138,10 @@ export const AuthProvider = ({ children }) => {
   }, [uid]);
 
   const loadUid = async () => {
-    console.log('=== AUTH CONTEXT: LOADING UID ===');
+    console.log('=== AUTH CONTEXT: LOADING UID START ===');
+    console.log('AuthContext: loadUid called at:', new Date().toISOString());
+    console.log('AuthContext: Current uid state:', uid);
+    console.log('AuthContext: Current loading state:', loading);
     try {
       // Check network state
       const netInfoState = await NetInfo.fetch();
@@ -167,6 +170,7 @@ export const AuthProvider = ({ children }) => {
         } else {
           console.log('AuthContext: No stored UID found for new API auth');
         }
+        console.log('AuthContext: Setting loading to false (new API auth)');
         setLoading(false);
         return;
       }
@@ -177,6 +181,7 @@ export const AuthProvider = ({ children }) => {
       
       if (userLoggedIn !== 'true') {
         console.log('AuthContext: User not logged in, skipping session loading');
+        console.log('AuthContext: Setting loading to false (user not logged in)');
         setLoading(false);
         return;
       }
@@ -192,6 +197,7 @@ export const AuthProvider = ({ children }) => {
         } else {
           console.log('AuthContext: No stored UID found for offline mode');
         }
+        console.log('AuthContext: Setting loading to false (offline mode)');
         setLoading(false);
         return;
       }
@@ -317,6 +323,9 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('AuthContext: Error loading UID:', error);
     } finally {
+      console.log('AuthContext: Setting loading to false (finally block)');
+      console.log('AuthContext: Final uid state:', uid);
+      console.log('AuthContext: loadUid completed at:', new Date().toISOString());
       setLoading(false);
     }
   };

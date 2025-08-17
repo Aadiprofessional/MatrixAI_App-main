@@ -1059,29 +1059,80 @@ const ContentWriterContent = () => {
         animation="pulse"
         iterationCount="infinite"
         duration={1500}
-        style={[styles.historyItem, { backgroundColor: 'transparent' }]}
+        style={[
+          styles.historyItem,
+          {
+            backgroundColor: currentTheme === 'dark' ? 'rgba(40, 40, 50, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+            marginBottom: responsiveSpacing(16),
+          }
+        ]}
       >
-        <LinearGradient
-          colors={currentTheme === 'dark' ? 
-            ['rgba(60, 60, 70, 0.8)', 'rgba(40, 40, 50, 0.6)', 'rgba(60, 60, 70, 0.8)'] : 
-            ['rgba(240, 240, 240, 0.8)', 'rgba(255, 255, 255, 0.6)', 'rgba(240, 240, 240, 0.8)']}
-          start={{x: 0, y: 0}}
-          end={{x: 1, y: 0}}
-          style={styles.skeletonGradient}
+        <Animatable.View
+          animation="slideInRight"
+          iterationCount="infinite"
+          duration={2000}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            borderRadius: responsiveSpacing(16),
+          }}
         >
-          <View style={styles.historyItemHeader}>
-            <View style={styles.historyItemTextContainer}>
-              <View style={[styles.skeletonText, { width: '80%', height: 18, marginBottom: 8 }]} />
-              <View style={[styles.skeletonText, { width: '40%', height: 12 }]} />
-            </View>
-            <View style={[styles.skeletonBadge, { width: 60, height: 24 }]} />
+          <LinearGradient
+            colors={currentTheme === 'dark' 
+              ? ['rgba(60, 60, 70, 0.3)', 'rgba(80, 80, 90, 0.6)', 'rgba(60, 60, 70, 0.3)']
+              : ['rgba(240, 240, 240, 0.3)', 'rgba(220, 220, 220, 0.6)', 'rgba(240, 240, 240, 0.3)']
+            }
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={{
+              flex: 1,
+              borderRadius: responsiveSpacing(16),
+            }}
+          />
+        </Animatable.View>
+        <View style={styles.historyItemHeader}>
+          <View style={styles.historyItemTextContainer}>
+            <View style={{
+              height: normalize(16),
+              backgroundColor: currentTheme === 'dark' ? 'rgba(100, 100, 110, 0.4)' : 'rgba(200, 200, 200, 0.4)',
+              borderRadius: 4,
+              marginBottom: responsiveSpacing(4),
+              width: '80%'
+            }} />
+            <View style={{
+              height: normalize(12),
+              backgroundColor: currentTheme === 'dark' ? 'rgba(100, 100, 110, 0.4)' : 'rgba(200, 200, 200, 0.4)',
+              borderRadius: 4,
+              width: '40%'
+            }} />
           </View>
-          <View style={[styles.skeletonText, { width: '100%', height: 14, marginTop: 8 }]} />
-          <View style={[styles.skeletonText, { width: '90%', height: 14, marginTop: 4 }]} />
-        </LinearGradient>
+          <View style={{
+            width: 60,
+            height: 24,
+            backgroundColor: currentTheme === 'dark' ? 'rgba(100, 100, 110, 0.4)' : 'rgba(200, 200, 200, 0.4)',
+            borderRadius: 8
+          }} />
+        </View>
+        <View style={{
+           height: normalize(14),
+           backgroundColor: currentTheme === 'dark' ? 'rgba(100, 100, 110, 0.4)' : 'rgba(200, 200, 200, 0.4)',
+           borderRadius: 4,
+           marginTop: responsiveSpacing(8),
+           width: '100%'
+         }} />
+         <View style={{
+           height: normalize(14),
+           backgroundColor: currentTheme === 'dark' ? 'rgba(100, 100, 110, 0.4)' : 'rgba(200, 200, 200, 0.4)',
+           borderRadius: 4,
+           marginTop: responsiveSpacing(4),
+           width: '90%'
+         }} />
       </Animatable.View>
-    ));
-  };
+      ));
+    };
 
   const getContentTypeIcon = () => {
     const selectedType = contentTypes.find(type => type.id === contentType);

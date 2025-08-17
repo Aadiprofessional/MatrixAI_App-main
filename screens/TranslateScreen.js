@@ -3815,6 +3815,6 @@ generateMindMapButton: {
         textAlign: 'left',
         fontWeight: 'bold',
     },
-});
+}); 
 
 export default TranslateScreen;

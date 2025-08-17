@@ -418,6 +418,7 @@ export const translations = {
     // Sheet3 - SRT Subtitles
     'srtSubtitles': 'SRT Subtitles',
     'translate': 'Translate',
+    'downloadSRT': 'Download SRT',
     'targetLanguage': 'Target Language',
     'english': 'English',
     'chinese': 'Chinese',
@@ -1278,6 +1279,7 @@ export const translations = {
     'french': '法语',
     'german': '德语',
     'japanese': '日语',
+    'downloadSRT': '下载字幕',
     
     // Sheet4 - Content Tones
     'creative': '创意',
@@ -1686,6 +1688,7 @@ export const translations = {
     "Enter or paste text to analyze for Al detection...": "輸入或粘貼文本以進行AI檢測..",
     "characters": "字符",
     "Analyze Content": "分析內容",
+    'downloadSRT': '下載字幕',
 
     // Sheet13 - Humanise Text
     "Humanise": "人性化",

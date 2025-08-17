@@ -21,6 +21,7 @@ import {
   KeyboardAvoidingView
 } from 'react-native';
 import LottieView from 'lottie-react-native';
+import * as Animatable from 'react-native-animatable';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -59,6 +60,7 @@ const DetectAIContent = ({ route }) => {
   const [analysisResult, setAnalysisResult] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   
   // Animated values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -214,6 +216,19 @@ const DetectAIContent = ({ route }) => {
     // Close keyboard if it's open when toggling history
     if (keyboardVisible) {
       Keyboard.dismiss();
+    }
+    
+    // Load history when panel is opened
+    if (!historyOpen) {
+      setIsLoadingHistory(true);
+      fetchUserDetections()
+        .then(() => {
+          setIsLoadingHistory(false);
+        })
+        .catch(error => {
+          console.error('Error loading history:', error);
+          setIsLoadingHistory(false);
+        });
     }
   };
   
@@ -456,6 +471,91 @@ const DetectAIContent = ({ route }) => {
     </View>
   );
   
+  // Render skeleton loading for history items
+  const renderHistorySkeleton = () => {
+    return Array(3).fill(0).map((_, index) => (
+      <Animatable.View 
+        key={`skeleton-${index}`}
+        animation="pulse"
+        iterationCount="infinite"
+        duration={1500}
+        style={[
+          styles.historyItem,
+          {
+            backgroundColor: currentTheme === 'dark' ? 'rgba(40, 40, 50, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+            marginBottom: responsiveSpacing(16),
+          }
+        ]}
+      >
+        <Animatable.View
+          animation="slideInRight"
+          iterationCount="infinite"
+          duration={2000}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            borderRadius: responsiveSpacing(16),
+          }}
+        >
+          <LinearGradient
+            colors={currentTheme === 'dark' 
+              ? ['rgba(60, 60, 70, 0.3)', 'rgba(80, 80, 90, 0.6)', 'rgba(60, 60, 70, 0.3)']
+              : ['rgba(240, 240, 240, 0.3)', 'rgba(220, 220, 220, 0.6)', 'rgba(240, 240, 240, 0.3)']
+            }
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={{
+              flex: 1,
+              borderRadius: responsiveSpacing(16),
+            }}
+          />
+        </Animatable.View>
+        <View style={styles.historyItemHeader}>
+          <View style={styles.historyItemTextContainer}>
+            <View style={{
+              height: normalize(14),
+              backgroundColor: currentTheme === 'dark' ? 'rgba(100, 100, 110, 0.4)' : 'rgba(200, 200, 200, 0.4)',
+              borderRadius: 4,
+              marginBottom: responsiveSpacing(4),
+              width: '80%'
+            }} />
+            <View style={{
+              height: normalize(12),
+              backgroundColor: currentTheme === 'dark' ? 'rgba(100, 100, 110, 0.3)' : 'rgba(200, 200, 200, 0.3)',
+              borderRadius: 4,
+              width: '40%'
+            }} />
+          </View>
+          <View style={[
+            styles.historyItemBadge,
+            {
+              backgroundColor: currentTheme === 'dark' ? 'rgba(100, 100, 110, 0.4)' : 'rgba(200, 200, 200, 0.4)',
+              width: responsiveSpacing(60),
+              height: responsiveSpacing(24)
+            }
+          ]} />
+        </View>
+        <View style={styles.historyItemMeter}>
+          <View style={[
+            styles.historyItemMeterBg,
+            {
+              backgroundColor: currentTheme === 'dark' ? 'rgba(100, 100, 110, 0.3)' : 'rgba(200, 200, 200, 0.3)',
+            }
+          ]} />
+          <View style={{
+            width: 60 * scale,
+            height: normalize(12),
+            backgroundColor: currentTheme === 'dark' ? 'rgba(100, 100, 110, 0.3)' : 'rgba(200, 200, 200, 0.3)',
+            borderRadius: 4
+          }} />
+        </View>
+      </Animatable.View>
+    ));
+  };
+
   const renderHistoryItem = ({ item }) => {
     // For very small screens, we might need to truncate the text more
     const truncateLength = width < 320 ? 40 : width < 375 ? 50 : 60;
@@ -993,7 +1093,15 @@ const DetectAIContent = ({ route }) => {
             </TouchableOpacity>
           </View>
           
-          {historyItems.length > 0 ? (
+          {isLoadingHistory ? (
+            <ScrollView 
+              style={{ flex: 1 }}
+              contentContainerStyle={styles.historyList}
+              showsVerticalScrollIndicator={false}
+            >
+              {renderHistorySkeleton()}
+            </ScrollView>
+          ) : historyItems.length > 0 ? (
             <FlatList
               data={historyItems}
               renderItem={renderHistoryItem}
