@@ -1687,6 +1687,10 @@ const BotScreen2 = ({ navigation, route }) => {
                             marginRight: 5,
                             fontSize: 16,
                             color: colors.botText,
+                            marginTop: 0,
+                            lineHeight: 16,
+                            marginBottom: 0,
+                            paddingTop: 1,
                           },
                           blockquote: {
                             backgroundColor: 'rgba(128, 128, 128, 0.1)',
@@ -3052,6 +3056,10 @@ marginBottom:-10,
     marginRight: 5,
     fontSize: 16,
     color: '#333333', // Default color that will be overridden with inline style
+    marginTop: 0,
+    lineHeight: 16,
+    marginBottom: 0,
+    paddingTop: 1,
   },
   // MathView styles
 
@@ -3288,6 +3296,10 @@ marginBottom:-10,
     color: '#4C8EF7',
     width: 15,
     textAlign: 'center',
+    marginTop: 0,
+    lineHeight: 16,
+    marginBottom: 0,
+    paddingTop: 1,
   },
   list_item_number: {
     marginRight: 8,

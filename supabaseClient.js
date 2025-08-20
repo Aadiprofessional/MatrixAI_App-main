@@ -69,6 +69,16 @@ if (typeof global !== 'undefined' && global.ErrorUtils) {
       console.warn('Suppressed Error.stack getter issue:', error.message);
       return;
     }
+    // Filter out Hermes stopTracking issues
+    if (error && error.message && error.message.includes('stopTracking')) {
+      console.warn('Suppressed Hermes stopTracking issue:', error.message);
+      return;
+    }
+    // Filter out undefined property access on tracking objects
+    if (error && error.message && (error.message.includes('Cannot read property') || error.message.includes('Cannot read properties')) && error.message.includes('undefined')) {
+      console.warn('Suppressed undefined property access:', error.message);
+      return;
+    }
     if (originalHandler) {
       originalHandler(error, isFatal);
     }

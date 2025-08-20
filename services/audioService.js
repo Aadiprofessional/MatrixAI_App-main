@@ -102,21 +102,29 @@ export const audioService = {
    * @param {string} [language='en-GB'] - Language code
    * @param {number} [duration] - Duration in seconds
    * @param {string} [audioName] - Name of the audio file
+   * @param {string} [videoUrl] - URL of the video file (optional)
    * @returns {Promise<AudioUploadResponse>} Upload response
    */
-  uploadAudioUrl: async (uid, audioUrl, language = 'en-GB', duration, audioName) => { 
+  uploadAudioUrl: async (uid, audioUrl, language = 'en-GB', duration, audioName, videoUrl = null) => { 
+    const requestBody = {
+      uid, 
+      audioUrl, 
+      language, 
+      duration,
+      audio_name: audioName || `audio_${Date.now()}.mp3` // Use provided name or generate a default
+    };
+    
+    // Add video URL if provided
+    if (videoUrl) {
+      requestBody.videoUrl = videoUrl;
+    }
+    
     const response = await fetch(`${API_BASE_URL}/api/audio/uploadAudioUrl`, { 
       method: 'POST', 
       headers: { 
         'Content-Type': 'application/json', 
       }, 
-      body: JSON.stringify({ 
-        uid, 
-        audioUrl, 
-        language, 
-        duration,
-        audio_name: audioName || `audio_${Date.now()}.mp3` // Use provided name or generate a default
-      }), 
+      body: JSON.stringify(requestBody), 
     }); 
 
     if (!response.ok) { 

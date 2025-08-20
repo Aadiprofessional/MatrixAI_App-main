@@ -34,6 +34,7 @@ import AudioRecorderPlayer from 'react-native-audio-recorder-player';
 import Sound from 'react-native-sound';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useTheme } from '../context/ThemeContext';
+import { ProcessingManager } from 'react-native-video-processing';
 
 import { audioService } from '../services/audioService';
 import { useLanguage } from '../context/LanguageContext';
@@ -109,7 +110,9 @@ const AudioVideoUploadScreen = () => {
     const [modalVisible, setModalVisible] = useState(false);
     const [selectedLanguage, setSelectedLanguage] = useState('en-US');
     const [audioFile, setAudioFile] = useState(null);
+    const [extractedAudioFile, setExtractedAudioFile] = useState(null); // For storing extracted audio from video
     const [uploading, setUploading] = useState(false); // For upload indicator
+    const [uploadStep, setUploadStep] = useState(''); // Track current upload step
    
     const [duration, setDuration] = useState(null);
     const audioRecorderPlayer = new AudioRecorderPlayer();
@@ -400,7 +403,7 @@ const AudioVideoUploadScreen = () => {
 
     const isFormatSupported = (fileType) => {
         // Check for common audio types explicitly first
-        if (fileType) {
+        if (fileType && typeof fileType === 'string') {
             // Special handling for wav files which can have multiple mime types
             if (fileType.toLowerCase().includes('wav')) {
                 return true;
@@ -415,7 +418,7 @@ const AudioVideoUploadScreen = () => {
     };
 
     const getFileExtension = (fileName) => {
-        return fileName.split('.').pop().toLowerCase();
+        return fileName && typeof fileName === 'string' ? fileName.split('.').pop().toLowerCase() : '';
     };
 
     const getMimeTypeFromExtension = (extension) => {
@@ -426,17 +429,101 @@ const AudioVideoUploadScreen = () => {
             'aac': 'audio/aac',
             'ogg': 'audio/ogg',
             'flac': 'audio/flac',
-            'mp4': 'audio/mp4',
-            'wma': 'audio/x-ms-wma',
-            '3gp': 'audio/3gpp'
+            'mp4': 'video/mp4', // Changed to video/mp4 for video files
+            'mov': 'video/quicktime',
+            'avi': 'video/x-msvideo',
+            'mkv': 'video/x-matroska',
+            'wmv': 'video/x-ms-wmv',
+            'flv': 'video/x-flv',
+            'webm': 'video/webm',
+            '3gp': 'video/3gpp',
+            'wma': 'audio/x-ms-wma'
         };
-        return mimeTypeMap[extension.toLowerCase()] || 'audio/mpeg'; // Default to mp3 if unknown
+        return extension && typeof extension === 'string' ? (mimeTypeMap[extension.toLowerCase()] || 'audio/mpeg') : 'audio/mpeg'; // Default to mp3 if unknown
+    };
+
+    // Helper function to check if file is a video
+    const isVideoFile = (fileType, fileExtension) => {
+        const videoExtensions = ['mp4', 'mov', 'avi', 'mkv', 'wmv', 'flv', 'webm', '3gp'];
+        const videoMimeTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/x-ms-wmv', 'video/x-flv', 'video/webm', 'video/3gpp'];
+        
+        return (fileExtension && typeof fileExtension === 'string' && videoExtensions.includes(fileExtension.toLowerCase())) || 
+               (fileType && typeof fileType === 'string' && videoMimeTypes.some(type => fileType.toLowerCase().includes(type.split('/')[1])));
+    };
+
+    // Function to handle server-side audio extraction from video
+    const extractAudioFromVideo = async (videoUrl, videoName) => {
+        try {
+            console.log('Calling server-side audio extraction API for video:', videoUrl);
+            
+            const extractionPayload = {
+                uid: uid,
+                videoUrl: videoUrl,
+                video_name: videoName || 'extracted_video'
+            };
+            
+            console.log('Extraction payload:', extractionPayload);
+            
+            const response = await fetch('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/audio/extractAudioFromVideo', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(extractionPayload)
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.log('API Error Response:', errorText);
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            // Get response as text first to debug
+            const responseText = await response.text();
+            console.log('Raw API Response:', responseText);
+            
+            let result;
+            try {
+                result = JSON.parse(responseText);
+            } catch (parseError) {
+                console.error('JSON Parse Error:', parseError);
+                console.error('Response that failed to parse:', responseText);
+                throw new Error('Invalid JSON response from server');
+            }
+            
+            console.log('Audio extraction API response:', result);
+            
+            if (result.success) {
+                return {
+                    audioUrl: result.audioUrl,
+                    videoUrl: result.videoUrl,
+                    audioId: result.audioId,
+                    videoId: result.videoId,
+                    videoName: result.video_name,
+                    video_name: result.video_name,
+                    duration: result.duration,
+                    success: true,
+                    serverExtraction: true
+                };
+            } else {
+                throw new Error(result.message || 'Audio extraction failed');
+            }
+        } catch (error) {
+            console.error('Error in server-side audio extraction:', error);
+            return {
+                audioUrl: null,
+                videoUrl: null,
+                success: false,
+                error: error.message,
+                serverExtraction: true
+            };
+        }
     };
 
     const handleFileSelect = async () => {
         try {
             const res = await DocumentPicker.pick({
-                type: [DocumentPicker.types.audio],
+                type: [DocumentPicker.types.audio, DocumentPicker.types.video],
             });
     
             if (res && res[0]) {
@@ -454,11 +541,23 @@ const AudioVideoUploadScreen = () => {
                     size: file.size
                 });
                 
-                // Check if format is supported by extension if mime type is not reliable
-                if (!isFormatSupported(fileType) && !['wav', 'mp3', 'm4a', 'aac', 'ogg', 'flac', 'mp4'].includes(fileExtension.toLowerCase())) {
+                // Check if format is supported (audio or video)
+                const isVideo = isVideoFile(fileType, fileExtension);
+                const supportedAudioExts = ['wav', 'mp3', 'm4a', 'aac', 'ogg', 'flac', 'mp4'];
+                const supportedVideoExts = ['mp4', 'mov', 'avi', 'mkv', 'wmv', 'flv', 'webm', '3gp'];
+                
+                if (!isVideo && !isFormatSupported(fileType) && !supportedAudioExts.includes(fileExtension && typeof fileExtension === 'string' ? fileExtension.toLowerCase() : '')) {
                     Alert.alert(
                         'Unsupported Format', 
-                        `The file format ${fileExtension.toUpperCase()} is not supported. Please select a different audio file.`
+                        `The file format ${fileExtension ? fileExtension.toUpperCase() : 'UNKNOWN'} is not supported. Please select a supported audio or video file.`
+                    );
+                    return;
+                }
+                
+                if (isVideo && !supportedVideoExts.includes(fileExtension && typeof fileExtension === 'string' ? fileExtension.toLowerCase() : '')) {
+                    Alert.alert(
+                        'Unsupported Video Format', 
+                        `The video format ${fileExtension ? fileExtension.toUpperCase() : 'UNKNOWN'} is not supported. Please select MP4, MOV, AVI, MKV, WMV, FLV, WEBM, or 3GP.`
                     );
                     return;
                 }
@@ -466,21 +565,105 @@ const AudioVideoUploadScreen = () => {
                 // Set the file
                 setAudioFile(file);
                 
-                // Show loading indicator while calculating duration
+                // Show loading indicator while processing
                 setUploading(true);
+                setUploadStep('Uploading video to storage...');
                 
                 try {
-                    // Get duration with improved error handling
-                    const durationInSeconds = await getAudioDuration(file.uri);
+                    let durationInSeconds;
+                    
+                    if (isVideo) {
+                        // STEP 1: Upload video file to Supabase immediately after selection
+                        console.log('Video file selected, starting 3-step process...');
+                        console.log('Step 1: Uploading video to Supabase storage...');
+                        
+                        // Upload video to Supabase
+                        const videoFileName = `${uid}_${Date.now()}_${file.name}`;
+                        const videoPath = `videos/${videoFileName}`;
+                        
+                        // Decode URI and read file as base64
+                        const decodedUri = decodeURIComponent(file.uri);
+                        console.log('Original URI:', file.uri);
+                        console.log('Decoded URI:', decodedUri);
+                        const fileData = await RNFS.readFile(decodedUri, 'base64');
+                        const buffer = Buffer.from(fileData, 'base64');
+                        
+                        const { data: videoUploadData, error: videoUploadError } = await supabase.storage
+                            .from('user-uploads')
+                            .upload(videoPath, buffer, {
+                                contentType: fileType,
+                                upsert: false
+                            });
+                        
+                        if (videoUploadError) {
+                            throw new Error(`Video upload failed: ${videoUploadError.message}`);
+                        }
+                        
+                        // Get video URL
+                        const { data: videoUrlData } = supabase.storage
+                            .from('user-uploads')
+                            .getPublicUrl(videoPath);
+                        
+                        const videoUrl = videoUrlData.publicUrl;
+                        console.log('Step 1 completed: Video uploaded to:', videoUrl);
+                        
+                        // STEP 2: Extract audio from video using API
+                        setUploadStep('Extracting audio from video...');
+                        console.log('Step 2: Extracting audio from video...');
+                        
+                        const extractionResult = await extractAudioFromVideo(videoUrl, file.name);
+                        
+                        if (extractionResult.success) {
+                            setUploadStep('Processing complete!');
+                            console.log('Step 2 completed: Audio extracted successfully');
+                            console.log('Audio URL:', extractionResult.audioUrl);
+                            console.log('Video URL:', extractionResult.videoUrl);
+                            console.log('Duration:', extractionResult.duration);
+                            console.log('Video Name:', extractionResult.video_name);
+                            
+                            // Store both URLs for step 3 (when convert button is clicked)
+                            setExtractedAudioFile({
+                                serverExtraction: true,
+                                success: true,
+                                audioUrl: extractionResult.audioUrl,
+                                videoUrl: extractionResult.videoUrl,
+                                audioId: extractionResult.audioId,
+                                videoId: extractionResult.videoId,
+                                duration: extractionResult.duration,
+                                video_name: extractionResult.video_name,
+                                videoFile: file,
+                                readyForUpload: true // Flag to indicate ready for step 3
+                            });
+                            
+                            // Use the duration from the API response
+                            durationInSeconds = extractionResult.duration || 60;
+                            
+                            // Hide loading after a brief delay
+                            setTimeout(() => {
+                                setUploading(false);
+                                setUploadStep('');
+                            }, 1000);
+                        } else {
+                            throw new Error(extractionResult.error || 'Audio extraction failed');
+                        }
+                    } else {
+                        // Get duration with improved error handling for audio files
+                        durationInSeconds = await getAudioDuration(file.uri);
+                        console.log('Calculated audio duration:', durationInSeconds);
+                    }
                     setDuration(durationInSeconds);
-                    console.log('Calculated audio duration:', durationInSeconds);
-                } catch (durationError) {
-                    console.error('Error getting duration:', durationError);
-                    // Set a default duration if we can't determine it
-                    setDuration(60);
+                } catch (error) {
+                    console.error('Error processing file:', error);
+                    Alert.alert('Error', `Failed to process file: ${error.message}`);
+                    setAudioFile(null);
+                    setExtractedAudioFile(null);
+                    return;
                 } finally {
-                    setUploading(false);
-                    setPopupVisible(true); // Show popup after file selection
+                    if (!isVideo) {
+                        setUploading(false);
+                        setUploadStep('');
+                    }
+                    setPopupVisible(true); // Show popup after file processing
                 }
             }
         } catch (err) {
@@ -631,116 +814,213 @@ const AudioVideoUploadScreen = () => {
         setUploading(true);
 
         try {
-            // Decode the file URI to handle spaces properly
-            const decodedUri = decodeURI(file.uri);
-            console.log('Original URI:', file.uri);
-            console.log('Decoded URI:', decodedUri);
-
-            // Verify file exists before proceeding
-            const fileExists = await RNFS.exists(decodedUri);
-            if (!fileExists) {
-                throw new Error(`File does not exist at decoded path: ${decodedUri}`);
-            }
-
-            // Generate a secure unique ID for the audio file
+            // Determine if this is a video file
+            const isVideo = isVideoFile(file);
+            
+            // Generate a secure unique ID for the files
             const audioID = generateAudioID();
-            // Ensure we have a valid file name, never undefined or null
-            let audioName = file.name;
-            if (!audioName || audioName === 'undefined' || audioName === 'null') {
-                // Generate a meaningful default name with timestamp
-                audioName = `audio_${Date.now()}.mp3`;
-                console.log('Using generated audio name:', audioName);
+            
+            let videoUrl = null;
+            let audioUrl = null;
+            let finalAudioName = null;
+            
+            // Check if we already have extracted audio and video URLs from the 3-step process
+            console.log('Debug - isVideo:', isVideo, 'extractedAudioFile:', extractedAudioFile, 'readyForUpload:', extractedAudioFile?.readyForUpload);
+            if (extractedAudioFile && extractedAudioFile.readyForUpload && extractedAudioFile.serverExtraction) {
+                // Step 3: Use the already extracted audio and video URLs
+                console.log('Using pre-extracted audio and video URLs for upload');
+                console.log('Audio URL:', extractedAudioFile.audioUrl);
+                console.log('Video URL:', extractedAudioFile.videoUrl);
+                audioUrl = extractedAudioFile.audioUrl;
+                videoUrl = extractedAudioFile.videoUrl;
+                finalAudioName = extractedAudioFile.video_name || file.name || `video_${Date.now()}.mp4`;
+            } else if (isVideo) {
+                // Handle video file upload
+                const decodedVideoUri = decodeURI(file.uri);
+                console.log('Processing video file:', file.name);
+                
+                // Verify video file exists
+                const videoExists = await RNFS.exists(decodedVideoUri);
+                if (!videoExists) {
+                    throw new Error(`Video file does not exist at path: ${decodedVideoUri}`);
+                }
+                
+                // Upload video to Supabase
+                let videoName = file.name || `video_${Date.now()}.mp4`;
+                const videoExtension = getFileExtension(videoName);
+                const sanitizedVideoFileName = `${audioID}_video.${videoExtension}`;
+                const videoFilePath = `users/${uid}/videoFile/${sanitizedVideoFileName}`;
+                
+                const videoContent = await RNFS.readFile(decodedVideoUri, 'base64');
+                const videoContentType = file.type || getMimeTypeFromExtension(videoExtension);
+                
+                const { data: videoUploadData, error: videoUploadError } = await supabase.storage
+                    .from('user-uploads')
+                    .upload(videoFilePath, decode(videoContent), {
+                        contentType: videoContentType,
+                        upsert: false
+                    });
+                    
+                if (videoUploadError) {
+                    throw new Error(`Video upload error: ${videoUploadError.message}`);
+                }
+                
+                // Get video public URL
+                const { data: { publicUrl: videoPublicUrl } } = supabase.storage
+                    .from('user-uploads')
+                    .getPublicUrl(videoFilePath);
+                    
+                videoUrl = videoPublicUrl;
+                
+                // Call server-side audio extraction API
+                console.log('Calling server-side audio extraction API...');
+                try {
+                    const extractionResult = await extractAudioFromVideo(videoUrl, videoName);
+                    if (extractionResult && extractionResult.success) {
+                        audioUrl = extractionResult.audioUrl;
+                        console.log('Server-side audio extraction successful:', extractionResult.audioUrl);
+                    } else {
+                        console.warn('Server-side audio extraction failed, proceeding with video-only upload');
+                    }
+                } catch (extractionError) {
+                    console.warn('Server-side audio extraction error:', extractionError.message);
+                    console.log('Proceeding with video-only upload');
+                }
+                
+                // Handle extracted audio from video (legacy client-side logic)
+                if (extractedAudioFile && extractedAudioFile.success) {
+                    if (extractedAudioFile.serverExtraction) {
+                        console.log('Server-side audio extraction will be handled by backend');
+                        // No local audio file to upload - server will handle extraction
+                    } else if (extractedAudioFile.audioPath) {
+                        try {
+                            const decodedAudioUri = decodeURI(extractedAudioFile.audioPath);
+                            const audioExists = await RNFS.exists(decodedAudioUri);
+                            if (!audioExists) {
+                                console.warn(`Extracted audio file does not exist at path: ${decodedAudioUri}`);
+                                console.log('Proceeding with video-only upload');
+                            } else {
+                                finalAudioName = extractedAudioFile.name || `audio_${Date.now()}.mp3`;
+                                const audioExtension = getFileExtension(finalAudioName);
+                                const sanitizedAudioFileName = `${audioID}_audio.${audioExtension}`;
+                                const audioFilePath = `users/${uid}/audioFile/${sanitizedAudioFileName}`;
+                        
+                                const audioContent = await RNFS.readFile(decodedAudioUri, 'base64');
+                                const audioContentType = extractedAudioFile.type || getMimeTypeFromExtension(audioExtension);
+                                
+                                const { data: audioUploadData, error: audioUploadError } = await supabase.storage
+                                    .from('user-uploads')
+                                    .upload(audioFilePath, decode(audioContent), {
+                                        contentType: audioContentType,
+                                        upsert: false
+                                    });
+                                    
+                                if (audioUploadError) {
+                                    throw new Error(`Audio upload error: ${audioUploadError.message}`);
+                                }
+                                
+                                // Get audio public URL
+                                const { data: { publicUrl: audioPublicUrl } } = supabase.storage
+                                    .from('user-uploads')
+                                    .getPublicUrl(audioFilePath);
+                                    
+                                audioUrl = audioPublicUrl;
+                            }
+                        } catch (audioError) {
+                            console.warn('Failed to upload extracted audio:', audioError.message);
+                            console.log('Proceeding with video-only upload');
+                            // Continue with video-only upload
+                        }
+                    } else {
+                        console.log('No extracted audio path available, proceeding with video-only upload');
+                    }
+                } else {
+                    console.log('Audio extraction was not successful, proceeding with video-only upload');
+                }
             } else {
-                console.log('Using original file name:', audioName);
-            }
-            const fileExtension = getFileExtension(audioName);
-            
-            // Create sanitized file path for Supabase storage - remove spaces and special characters
-            const sanitizedFileName = `${audioID}.${fileExtension}`;
-            const filePath = `users/${uid}/audioFile/${sanitizedFileName}`;
-            
-            // Verify file exists and is accessible using decoded URI
-            try {
-                // Try to get file stats to ensure it's readable
+                // Handle audio file upload (existing logic)
+                const decodedUri = decodeURI(file.uri);
+                console.log('Processing audio file:', file.name);
+                
+                // Verify file exists before proceeding
+                const fileExists = await RNFS.exists(decodedUri);
+                if (!fileExists) {
+                    throw new Error(`File does not exist at decoded path: ${decodedUri}`);
+                }
+                
+                // Ensure we have a valid file name, never undefined or null
+                let audioName = file.name;
+                if (!audioName || audioName === 'undefined' || audioName === 'null') {
+                    audioName = `audio_${Date.now()}.mp3`;
+                }
+                finalAudioName = audioName;
+                
+                const fileExtension = getFileExtension(audioName);
+                const sanitizedFileName = `${audioID}.${fileExtension}`;
+                const filePath = `users/${uid}/audioFile/${sanitizedFileName}`;
+                
+                // Verify file exists and is accessible using decoded URI
                 const fileStats = await RNFS.stat(decodedUri);
                 if (!fileStats || fileStats.size <= 0) {
                     throw new Error('File appears to be empty or inaccessible');
                 }
                 
-                console.log('File validation passed:', {
-                    size: fileStats.size,
-                    lastModified: fileStats.mtime
-                });
-            } catch (fileError) {
-                throw new Error(`File validation failed: ${fileError.message}`);
+                // Read the file as base64 using decoded URI
+                const fileContent = await RNFS.readFile(decodedUri, 'base64');
+                
+                // Determine content type from file or extension
+                const contentType = file.type || getMimeTypeFromExtension(fileExtension);
+                
+                // Upload to Supabase storage with sanitized filename
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('user-uploads')
+                    .upload(filePath, decode(fileContent), {
+                        contentType: contentType,
+                        upsert: false
+                    });
+                    
+                if (uploadError) {
+                    throw new Error(`Storage upload error: ${uploadError.message || 'Unknown error'}`);
+                }
+                
+                // Get the public URL for the uploaded file
+                const { data: { publicUrl } } = supabase.storage
+                    .from('user-uploads')
+                    .getPublicUrl(filePath);
+                    
+                audioUrl = publicUrl;
             }
             
-            // Read the file as base64 using decoded URI
-            const fileContent = await RNFS.readFile(decodedUri, 'base64');
-            
-            // Determine content type from file or extension
-            const contentType = file.type || getMimeTypeFromExtension(fileExtension);
-            
-            // Upload to Supabase storage with sanitized filename
-            const { data: uploadData, error: uploadError } = await supabase.storage
-                .from('user-uploads')
-                .upload(filePath, decode(fileContent), {
-                    contentType: contentType,
-                    upsert: false
-                });
-                
-            if (uploadError) {
-                console.error('Supabase storage upload error:', {
-                    message: uploadError.message,
-                    error: uploadError,
-                    statusCode: uploadError.statusCode
-                });
-                throw new Error(`Storage upload error: ${uploadError.message || 'Unknown error'}`);
-            }
-            
-            // Get the public URL for the uploaded file
-            const { data: { publicUrl } } = supabase.storage
-                .from('user-uploads')
-                .getPublicUrl(filePath);
-                
-            // Ensure we have a valid audio name before uploading
-            const finalAudioName = audioName || `audio_${Date.now()}.mp3`;
-            console.log('Uploading with audio name:', finalAudioName);
-            
-            // Use the new audioService to upload the audio URL with the file name
+            // Call API with both audio and video URLs
             const uploadResponse = await audioService.uploadAudioUrl(
                 uid,
-                publicUrl,
+                audioUrl,
                 selectedLanguage,
                 parseInt(duration, 10),
-                finalAudioName // Pass the validated audio name to the API
+                finalAudioName,
+                videoUrl // Pass video URL as additional parameter
             );
             
             console.log('Upload API response:', uploadResponse);
             
             if (!uploadResponse.success) {
-                throw new Error(uploadResponse.error_message || 'Failed to process audio');
+                throw new Error(uploadResponse.error_message || 'Failed to process file');
             }
-            
-            // Log successful upload details for debugging
-            console.log('Upload successful:', {
-                audioid: uploadResponse.audioid,
-                status: uploadResponse.status,
-                audioName: finalAudioName
-            });
             
             // Success handling
             setUploadData({
-                audioID: uploadResponse.audioid, // Use the server-generated audioid
-                publicUrl,
-                audioName
+                audioID: uploadResponse.audioid,
+                audioUrl,
+                videoUrl,
+                audioName: finalAudioName
             });
             
             // Force refresh from API to get the latest data
             await refreshFiles();
             
             // Custom toast implementation
-            showCustomToast('Import Complete', 'Your file has been imported successfully.', 'success');
+            const message = isVideo ? 'Your video and audio have been imported successfully.' : 'Your audio file has been imported successfully.';
+            showCustomToast('Import Complete', message, 'success');
 
             setUploading(false);
             setPopupVisible(false);
@@ -1534,12 +1814,12 @@ const AudioVideoUploadScreen = () => {
                 </View>
             </View>
             {/* Loading Indicator */}
-            {/* {uploading && (
+            {uploading && (
                 <View style={styles.uploadingOverlay}>
                     <ActivityIndicator size="large" color="#0066FEFF" />
-                    <Text style={styles.uploadingText}>Uploading Audio...</Text>
+                    <Text style={styles.uploadingText}>{uploadStep || 'Processing...'}</Text>
                 </View>
-            )} */}
+            )}
 
             {/* Search Bar */}
             <View style={styles.searchBox2}>

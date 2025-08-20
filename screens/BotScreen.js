@@ -298,6 +298,7 @@ const renderTextWithMath = (text, textStyle) => {
                 fontSize: 16,
                 color: '#007AFF',
                 maxWidth: 300,
+                marginBottom: -5,
               }}
             />
           </ScrollView>
@@ -317,6 +318,7 @@ const renderTextWithMath = (text, textStyle) => {
                 marginVertical: 8,
                 textAlign: 'center',
                 maxWidth: 350,
+                marginBottom: -5,
               }}
             />
           </ScrollView>
@@ -334,6 +336,7 @@ const renderTextWithMath = (text, textStyle) => {
                 fontSize: 16,
                 color: '#007AFF',
                 maxWidth: 300,
+                marginBottom: -5,
               }}
             />
           </ScrollView>
@@ -352,6 +355,7 @@ const renderTextWithMath = (text, textStyle) => {
                 color: '#007AFF',
                 textAlign: 'center',
                 maxWidth: 350,
+                marginBottom: -5,
               }}
             />
           </ScrollView>
@@ -1456,9 +1460,11 @@ const renderTextWithMath = (text, textStyle) => {
                             marginBottom: 4,
                           },
                           list_item: {
+                            flexDirection: 'row',
+                            alignItems: 'flex-start',
+                            marginBottom: 4,
                             color: isBot ? colors.botText : '#333333',
                             fontSize: 16,
-                            marginTop: 4,
                           },
                           bullet_list: {
                             color: isBot ? colors.botText : '#333333',
@@ -1483,6 +1489,8 @@ const renderTextWithMath = (text, textStyle) => {
                             color: colors.botText,
                             width: 20,
                             textAlign: 'right',
+                            marginTop: 2,
+                            lineHeight: 20,
                           },
                           list_item_content: {
                             flex: 1,
@@ -1493,6 +1501,10 @@ const renderTextWithMath = (text, textStyle) => {
                             marginRight: 5,
                             fontSize: 16,
                             color: colors.botText,
+                            marginTop: 0,
+                            lineHeight: 16,
+                            marginBottom: 0,
+                            paddingTop: 1,
                           },
                           blockquote: {
                             backgroundColor: 'rgba(128, 128, 128, 0.1)',
@@ -1584,7 +1596,7 @@ const renderTextWithMath = (text, textStyle) => {
                           text: (node, children, parent, styles) => {
   const textStyle = [styles.text, {color: isBot ? colors.botText : '#fff'}];
   return (
-    <View key={node.key} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
+    <View key={node.key} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' }}>
       {renderTextWithMath(node.content, textStyle)}
     </View>
   );
@@ -4081,16 +4093,17 @@ const styles = StyleSheet.create({
   mathContainer: {
     backgroundColor: '#F8F9FA',
     borderRadius: 8,
-    padding: 8,
-    marginVertical: 6,
+    padding: 6,
+    marginVertical: 2,
     borderWidth: 1,
     borderColor: '#E0E0E0',
     alignSelf: 'flex-start',
+    alignItems: 'flex-start',
     width: '100%',
     maxWidth: '100%',
     overflow: 'hidden',
-    minHeight: 40,
-    justifyContent: 'center',
+    minHeight: 30,
+    justifyContent: 'flex-start',
   },
   mathText: {
     fontFamily: 'monospace',
@@ -4099,6 +4112,7 @@ const styles = StyleSheet.create({
     color: '#333333', // Default color that will be overridden with inline style
     letterSpacing: 1,
     flexShrink: 1,
+    marginBottom: -5,
   },
   headingContainer: {
     flexDirection: 'row',
@@ -4155,11 +4169,14 @@ const styles = StyleSheet.create({
   inlineMathContainer: {
     backgroundColor: '#F8F9FA',
     borderRadius: 4,
-    padding: 4,
+    padding: 2,
     marginHorizontal: 2,
+    marginVertical: -2,
     borderWidth: 1,
     borderColor: '#E0E0E0',
     alignSelf: 'flex-start',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
   },
   formulaContainer: {
     flexDirection: 'row',
@@ -4472,6 +4489,11 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 4,
   },
+  list_item: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 4,
+  },
   ordered_list_icon: {
     marginRight: 5,
     fontWeight: 'bold',
@@ -4484,6 +4506,8 @@ const styles = StyleSheet.create({
     color: '#333333',
     width: 20,
     textAlign: 'right',
+    marginTop: 2,
+    lineHeight: 20,
   },
   list_item_content: {
     flex: 1,
@@ -4494,6 +4518,10 @@ const styles = StyleSheet.create({
     marginRight: 5,
     fontSize: 16,
     color: '#333333',
+    marginTop: 0,
+    lineHeight: 16,
+    marginBottom: 0,
+    paddingTop: 1,
   },
   chineseHeadingContainer: {
     flexDirection: 'row',

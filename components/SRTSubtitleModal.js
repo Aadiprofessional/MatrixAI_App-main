@@ -605,10 +605,10 @@ const SRTSubtitleModal = ({
                                         disabled={srtSegments.length === 0}
                                     >
                                         <LinearGradient
-                                            colors={['#FF6B6B', '#FF8E53']}
+                                            colors={['#13EF97', '#1D8EC4']}
                                             style={styles.gradientButton}
-                                            start={{ x: 0, y: 0 }}
-                                            end={{ x: 1, y: 0 }}
+                                            start={{ x: 1, y: 0 }}
+                                            end={{ x: 0, y: 0 }}
                                         >
                                             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                                 <MaterialIcons name="download" size={16} color="#ffffff" style={{ marginRight: 5 }} />

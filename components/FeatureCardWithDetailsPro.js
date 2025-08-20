@@ -34,7 +34,6 @@ const FeatureCardWithDetailsPro = () => {
             <MaterialCommunityIcons name="video-outline" size={30} color="#FF6600" style={styles.featureIcon} />
             <View style={styles.featureTextContainer}>
               <Text style={[styles.featureTitle, {color: colors.text}]}>Advanced Video Processing</Text>
-              <Text style={[styles.featureDescription, {color: colors.text, opacity: 0.7}]}>Extract subtitles, generate SRT files, translate content, and analyze video content with AI-powered tools</Text>
             </View>
           </View>
     
@@ -42,7 +41,6 @@ const FeatureCardWithDetailsPro = () => {
             <MaterialCommunityIcons name="image-edit-outline" size={30} color="#FF6600" style={styles.featureIcon} />
             <View style={styles.featureTextContainer}>
               <Text style={[styles.featureTitle, {color: colors.text}]}>AI Image Generation</Text>
-              <Text style={[styles.featureDescription, {color: colors.text, opacity: 0.7}]}>Create stunning images from text prompts using advanced AI models with customizable styles and formats</Text>
             </View>
           </View>
           
@@ -50,7 +48,6 @@ const FeatureCardWithDetailsPro = () => {
             <MaterialCommunityIcons name="microphone" size={30} color="#FF6600" style={styles.featureIcon} />
             <View style={styles.featureTextContainer}>
               <Text style={[styles.featureTitle, {color: colors.text}]}>Speech-to-Text Conversion</Text>
-              <Text style={[styles.featureDescription, {color: colors.text, opacity: 0.7}]}>Convert audio and video files to accurate text transcriptions with multi-language support</Text>
             </View>
           </View>
        
@@ -58,7 +55,6 @@ const FeatureCardWithDetailsPro = () => {
             <MaterialCommunityIcons name="text-box-outline" size={30} color="#FF6600" style={styles.featureIcon} />
             <View style={styles.featureTextContainer}>
               <Text style={[styles.featureTitle, {color: colors.text}]}>AI Writing Assistant</Text>
-              <Text style={[styles.featureDescription, {color: colors.text, opacity: 0.7}]}>Get intelligent writing help, content generation, and text optimization powered by advanced AI models</Text>
             </View>
           </View>
 
@@ -66,7 +62,6 @@ const FeatureCardWithDetailsPro = () => {
             <MaterialCommunityIcons name="translate" size={30} color="#FF6600" style={styles.featureIcon} />
             <View style={styles.featureTextContainer}>
               <Text style={[styles.featureTitle, {color: colors.text}]}>Multi-Language Translation</Text>
-              <Text style={[styles.featureDescription, {color: colors.text, opacity: 0.7}]}>Translate subtitles, text, and content across multiple languages with high accuracy</Text>
             </View>
           </View>
 
@@ -74,7 +69,6 @@ const FeatureCardWithDetailsPro = () => {
             <MaterialIcons name="file-download" size={30} color="#FF6600" style={styles.featureIcon} />
             <View style={styles.featureTextContainer}>
               <Text style={[styles.featureTitle, {color: colors.text}]}>Export & Download</Text>
-              <Text style={[styles.featureDescription, {color: colors.text, opacity: 0.7}]}>Download SRT files, transcriptions, and generated content in various formats for easy sharing</Text>
             </View>
           </View>
         </View>
@@ -160,7 +154,7 @@ const styles = StyleSheet.create({
   },
   featureItem: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: 15,
   },
   featureIcon: {

@@ -38,6 +38,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
 
   import { useNavigation } from '@react-navigation/native';
   import Sound from 'react-native-sound';
+  import Video from 'react-native-video'; // Import Video component
   import ForceDirectedGraph from '../components/mindMap';
   import { Picker } from '@react-native-picker/picker';
   import DropDownPicker from 'react-native-dropdown-picker';
@@ -79,12 +80,19 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
       const speedTimerRef = useRef(null);
       const [playbackSpeed, setPlaybackSpeed] = useState(1.0); // State for tracking current playback speed
       const [isSpeedDropdownVisible, setIsSpeedDropdownVisible] = useState(false); // State for dropdown visibility
+      const [videoPlaybackSpeed, setVideoPlaybackSpeed] = useState(1.0); // State for video playback speed
+      const [isVideoSpeedDropdownVisible, setIsVideoSpeedDropdownVisible] = useState(false); // State for video speed dropdown
    
       const [sliderWidth, setSliderWidth] = useState(Dimensions.get('window').width);
       const [isLoading, setIsLoading] = useState(true);
       const [paragraphs, setParagraphs] = useState([]);
       const paragraphRefs = useRef({});
       const [audioUrl, setAudioUrl] = useState('');
+      const [videoUrl, setVideoUrl] = useState(''); // Video URL from API
+      const [isVideoPlaying, setIsVideoPlaying] = useState(false); // Video playback state
+      const [videoDuration, setVideoDuration] = useState(0); // Video duration
+      const [videoPosition, setVideoPosition] = useState(0); // Current video position
+      const videoRef = useRef(null); // Video player reference
       const [keyPoints, setKeypoints] = useState('');
       const [XMLData, setXMLData] = useState('');
       const [duration, setDuration] = useState('');
@@ -113,11 +121,26 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
           wordIndex: 0,
           word: ''
       });
+      const [currentSubtitleWords, setCurrentSubtitleWords] = useState([]);
       
       // SRT Subtitle Modal states
       const [isSRTModalVisible, setIsSRTModalVisible] = useState(false);
       const [wordsData, setWordsData] = useState([]);
       const [currentTime, setCurrentTime] = useState(0);
+      
+      // Video subtitle overlay states
+      const [currentSubtitleText, setCurrentSubtitleText] = useState('');
+      const [showSubtitles, setShowSubtitles] = useState(true);
+      
+      // Video controls visibility and auto-hide states
+      const [showVideoControls, setShowVideoControls] = useState(true);
+      const [controlsTimeout, setControlsTimeout] = useState(null);
+      const [isUserInteracting, setIsUserInteracting] = useState(false);
+      const [persistentControls, setPersistentControls] = useState(false);
+      
+      // Animation values for smooth transitions
+      const controlsOpacity = useRef(new Animated.Value(1)).current;
+      const subtitleOpacity = useRef(new Animated.Value(1)).current;
 
       // Add helper function to centralize scroll decision logic
       const canScrollToCurrentParagraph = () => {
@@ -158,6 +181,11 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
           return false; // Can't scroll now
         }
         
+        // Check if scrollViewRef is available
+        if (!scrollViewRef.current) {
+          return false; // ScrollView not available
+        }
+        
         // Update timestamp of last scroll attempt
         lastAutoScrollTimeRef.current = Date.now();
         
@@ -178,11 +206,14 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                 return;
               }
               
-              // Perform the actual scroll
-              scrollViewRef.current.scrollTo({
-                y: y - 20,
-                animated: true
-              });
+              // Additional null check before scrolling
+              if (scrollViewRef.current) {
+                // Perform the actual scroll
+                scrollViewRef.current.scrollTo({
+                  y: y - 20,
+                  animated: true
+                });
+              }
               
               // Release the mutex after animation completes
               setTimeout(() => {
@@ -196,11 +227,14 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                 return;
               }
               
-              // Fallback scroll
-              scrollViewRef.current.scrollTo({
-                y: targetParagraphIndex * 200,
-                animated: true
-              });
+              // Additional null check before fallback scroll
+              if (scrollViewRef.current) {
+                // Fallback scroll
+                scrollViewRef.current.scrollTo({
+                  y: targetParagraphIndex * 200,
+                  animated: true
+                });
+              }
               
               // Release the mutex after animation
               setTimeout(() => {
@@ -399,6 +433,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                         setTranscription(cachedData.transcription || '');
                         setParagraphs(cachedData.paragraphs || []);
                         setAudioUrl(cachedData.audioUrl || '');
+                        setVideoUrl(cachedData.videoUrl || ''); // Load cached video URL
                         setKeypoints(cachedData.keyPoints || '');
                         setXMLData(cachedData.XMLData || '');
                         setDuration(cachedData.duration || 0);
@@ -1227,9 +1262,218 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
         }
     };
 
+    // Video player functions
+    const toggleVideoPlayback = () => {
+        setIsVideoPlaying(!isVideoPlaying);
+    };
+
+    const toggleVideoPlaybackSpeed = (selectedSpeed) => {
+        setVideoPlaybackSpeed(selectedSpeed);
+        setIsVideoSpeedDropdownVisible(false);
+    };
+
+    const seekVideo = (seconds) => {
+        if (!videoRef.current) return;
+        
+        const newPosition = Math.max(0, Math.min(videoPosition + seconds, videoDuration));
+        videoRef.current.seek(newPosition);
+        setVideoPosition(newPosition);
+    };
+
+    const onVideoProgress = (data) => {
+        setVideoPosition(data.currentTime);
+        updateSubtitleText(data.currentTime);
+        
+        // Sync with existing word timing and paragraph highlighting
+        onAudioProgress({
+            currentTime: data.currentTime,
+            duration: videoDuration
+        });
+    };
+
+    const onVideoLoad = (data) => {
+        setVideoDuration(data.duration);
+        // Ensure controls are visible when video loads
+        setShowVideoControls(true);
+        setIsUserInteracting(false);
+        
+        // Set controls to full opacity
+        Animated.parallel([
+            Animated.timing(controlsOpacity, {
+                toValue: 1,
+                duration: 300,
+                useNativeDriver: true,
+            }),
+            Animated.timing(subtitleOpacity, {
+                toValue: 1,
+                duration: 300,
+                useNativeDriver: true,
+            })
+        ]).start();
+        
+        // Clear any existing timeout
+        if (controlsTimeout) {
+            clearTimeout(controlsTimeout);
+            setControlsTimeout(null);
+        }
+    };
+
+    const updateSubtitleText = (currentTime) => {
+        if (!wordsData || wordsData.length === 0) {
+            setCurrentSubtitleText('');
+            setCurrentSubtitleWords([]);
+            return;
+        }
+
+        // Find words within 6-second intervals
+        const intervalStart = Math.floor(currentTime / 6) * 6;
+        const intervalEnd = intervalStart + 6;
+        
+        const wordsInInterval = wordsData.filter(word => {
+            const wordTime = parseFloat(word.start);
+            return wordTime >= intervalStart && wordTime < intervalEnd;
+        });
+
+        if (wordsInInterval.length > 0) {
+            const subtitleText = wordsInInterval.map(word => word.word).join(' ');
+            setCurrentSubtitleText(subtitleText);
+            setCurrentSubtitleWords(wordsInInterval);
+        } else {
+            setCurrentSubtitleText('');
+            setCurrentSubtitleWords([]);
+        }
+    };
+
+    // Video controls auto-hide functionality
+    const showVideoControlsTemporarily = () => {
+        setShowVideoControls(true);
+        setIsUserInteracting(true);
+        
+        // Animate controls to visible
+        Animated.parallel([
+            Animated.timing(controlsOpacity, {
+                toValue: 1,
+                duration: 300,
+                useNativeDriver: true,
+            }),
+            Animated.timing(subtitleOpacity, {
+                toValue: 1,
+                duration: 300,
+                useNativeDriver: true,
+            })
+        ]).start();
+        
+        // Clear existing timeout
+        if (controlsTimeout) {
+            clearTimeout(controlsTimeout);
+        }
+        
+        // Only set timeout to hide controls if video is playing and persistent controls is disabled
+        // Controls should remain visible when video is paused or persistent controls is enabled
+        if (isVideoPlaying && !persistentControls) {
+            const newTimeout = setTimeout(() => {
+                // Double-check if video is still playing and persistent controls is still disabled
+                if (isVideoPlaying && !persistentControls) {
+                    // Animate controls to hidden
+                    Animated.parallel([
+                        Animated.timing(controlsOpacity, {
+                            toValue: 0,
+                            duration: 300,
+                            useNativeDriver: true,
+                        }),
+                        Animated.timing(subtitleOpacity, {
+                            toValue: 0.8,
+                            duration: 300,
+                            useNativeDriver: true,
+                        })
+                    ]).start(() => {
+                        setShowVideoControls(false);
+                    });
+                }
+                setIsUserInteracting(false);
+            }, 5000); // Increased timeout to 5 seconds for better UX
+            
+            setControlsTimeout(newTimeout);
+        } else {
+            // If video is paused, keep controls visible and clear any timeout
+            setIsUserInteracting(false);
+        }
+    };
+
+    const handleVideoTouch = () => {
+        if (showVideoControls && !persistentControls) {
+            // If controls are visible and persistent controls is disabled, hide them immediately
+            setShowVideoControls(false);
+            if (controlsTimeout) {
+                clearTimeout(controlsTimeout);
+                setControlsTimeout(null);
+            }
+            
+            // Animate controls to hidden
+            Animated.parallel([
+                Animated.timing(controlsOpacity, {
+                    toValue: 0,
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(subtitleOpacity, {
+                    toValue: 0.8,
+                    duration: 300,
+                    useNativeDriver: true,
+                })
+            ]).start();
+        } else if (!showVideoControls) {
+            // If controls are hidden, show them temporarily
+            showVideoControlsTemporarily();
+        }
+        // If persistent controls is enabled and controls are visible, do nothing (keep them visible)
+    };
+
+    const handleVideoPlayPause = () => {
+        toggleVideoPlayback();
+        
+        // Clear any existing timeout first
+        if (controlsTimeout) {
+            clearTimeout(controlsTimeout);
+            setControlsTimeout(null);
+        }
+        
+        if (!isVideoPlaying) {
+            // If starting to play, show controls and set auto-hide timer
+            showVideoControlsTemporarily();
+        } else {
+            // If pausing, keep controls visible permanently
+            setShowVideoControls(true);
+            setIsUserInteracting(false);
+            
+            // Ensure controls are fully visible when paused
+            Animated.parallel([
+                Animated.timing(controlsOpacity, {
+                    toValue: 1,
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(subtitleOpacity, {
+                    toValue: 1,
+                    duration: 300,
+                    useNativeDriver: true,
+                })
+            ]).start();
+        }
+    };
+
    
     
  
+    // Cleanup timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (controlsTimeout.current) {
+                clearTimeout(controlsTimeout.current);
+            }
+        };
+    }, []);
+
     useEffect(() => {
         // Basic Sound.js configuration
         Sound.setCategory('Playback');
@@ -1420,6 +1664,25 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
         
         return () => clearInterval(interval);
     }, [isAudioPlaying, sound, isSeeking, audioDuration]);
+
+    // Video player useEffect
+    useEffect(() => {
+        if (videoUrl) {
+            setShowSubtitles(true); // Always show subtitles for video
+            setIsVideoPlaying(false); // Start paused
+            setVideoPosition(0);
+        }
+    }, [videoUrl]);
+
+    // Update subtitle text when video position changes
+    useEffect(() => {
+        if (videoUrl && isVideoPlaying) {
+            const interval = setInterval(() => {
+                updateSubtitleText(videoPosition);
+            }, 100);
+            return () => clearInterval(interval);
+        }
+    }, [videoUrl, isVideoPlaying, videoPosition, wordsData]);
 
     const handleShare = async () => {
         try {
@@ -1774,6 +2037,9 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
 
                 // Directly use the audio_url from the response
                 setAudioUrl(data.audioUrl || ''); // Note: audioService uses audioUrl instead of audio_url
+                
+                // Set video URL if available from API response
+                setVideoUrl(data.video_file || '');
 
                 // Process words_data if available
                 if (data.words_data && Array.isArray(data.words_data) && data.words_data.length > 0) {
@@ -1811,6 +2077,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                         transcription: transcriptionData,
                         paragraphs: paragraphs || [],
                         audioUrl: data.audioUrl || '', // Note: audioService uses audioUrl instead of audio_url
+                        videoUrl: data.video_file || '', // Cache video URL
                         keyPoints: data.key_points || '',
                         XMLData: data.xml_data || '',
                         duration: audioDur,
@@ -2038,7 +2305,191 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
             {/* Header Section */}
           
 
-{audioUrl && (
+{/* Conditional rendering: Video player if videoUrl exists, otherwise audio player */}
+{videoUrl ? (
+    <View style={styles.videoPlayerContainer}>
+        <Video
+            ref={videoRef}
+            source={{ uri: videoUrl }}
+            style={styles.videoPlayer}
+            controls={false}
+            resizeMode="contain"
+            paused={!isVideoPlaying}
+            rate={videoPlaybackSpeed}
+            onProgress={onVideoProgress}
+            onLoad={onVideoLoad}
+            onError={(error) => console.error('Video error:', error)}
+        />
+        
+        {/* Touch overlay for showing/hiding controls */}
+        <TouchableWithoutFeedback onPress={handleVideoTouch}>
+            <View style={styles.videoTouchOverlay} />
+        </TouchableWithoutFeedback>
+        
+        {/* Subtitle overlay with word highlighting */}
+        {showSubtitles && currentSubtitleWords.length > 0 && (
+            <Animated.View style={[
+                styles.subtitleOverlay, 
+                { 
+                    opacity: subtitleOpacity,
+                    bottom: showVideoControls ? 80 : 15
+                }
+            ]}>
+                <View style={styles.subtitleWordsContainer}>
+                    {currentSubtitleWords.map((word, index) => {
+                        const wordStart = parseFloat(word.start);
+                        const wordEnd = parseFloat(word.end);
+                        const isActive = videoPosition >= wordStart && videoPosition <= wordEnd;
+                        
+                        return (
+                            <Text
+                                key={`${word.start}-${index}`}
+                                style={[
+                                    styles.subtitleWord,
+                                    isActive && styles.activeSubtitleWord
+                                ]}
+                            >
+                                {word.word}{index < currentSubtitleWords.length - 1 ? ' ' : ''}
+                            </Text>
+                        );
+                    })}
+                </View>
+            </Animated.View>
+        )}
+        
+        {/* YouTube-like Video Controls - conditionally visible */}
+        {showVideoControls && (
+            <Animated.View style={[styles.youtubeVideoControlsContainer, { opacity: controlsOpacity }]}>
+                {/* Full-width Timeline */}
+                <View style={styles.timelineContainer}>
+                    <Slider
+                        style={styles.fullWidthSlider}
+                        minimumValue={0}
+                        maximumValue={videoDuration}
+                        value={videoPosition}
+                        onValueChange={(value) => {
+                            if (videoRef.current) {
+                                videoRef.current.seek(value);
+                                setVideoPosition(value);
+                            }
+                        }}
+                        onSlidingStart={() => setIsUserInteracting(true)}
+                        onSlidingComplete={() => {
+                            setIsUserInteracting(false);
+                            showVideoControlsTemporarily();
+                        }}
+                        minimumTrackTintColor="#007BFF"
+                        maximumTrackTintColor="rgba(255, 255, 255, 0.4)"
+                        thumbTintColor="#007BFF"
+                    />
+                </View>
+                
+                {/* Control Buttons Row */}
+                <View style={styles.controlButtonsRow}>
+                    {/* Left side controls */}
+                    <View style={styles.leftControls}>
+                        <TouchableOpacity
+                            style={styles.skipButton}
+                            onPress={() => {
+                                const newTime = Math.max(0, videoPosition - 10);
+                                if (videoRef.current) {
+                                    videoRef.current.seek(newTime);
+                                    setVideoPosition(newTime);
+                                }
+                            }}
+                        >
+                            <MaterialIcons name="replay-10" size={24} color="#fff" />
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                            style={styles.youtubePlayButton}
+                            onPress={handleVideoPlayPause}
+                        >
+                            <MaterialIcons
+                                name={isVideoPlaying ? 'pause' : 'play-arrow'}
+                                size={32}
+                                color="#fff"
+                            />
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                            style={styles.skipButton}
+                            onPress={() => {
+                                const newTime = Math.min(videoDuration, videoPosition + 10);
+                                if (videoRef.current) {
+                                    videoRef.current.seek(newTime);
+                                    setVideoPosition(newTime);
+                                }
+                            }}
+                        >
+                            <MaterialIcons name="forward-10" size={24} color="#fff" />
+                        </TouchableOpacity>
+                        
+                        <View style={styles.timeDisplay}>
+                            <Text style={styles.timeText}>
+                                {formatTime(videoPosition)} / {formatTime(videoDuration)}
+                            </Text>
+                        </View>
+                    </View>
+                    
+                    {/* Right side controls */}
+                    <View style={styles.rightControls}>
+                        <TouchableOpacity 
+                            style={[styles.lockButton, persistentControls && { backgroundColor: 'rgba(255, 0, 0, 0.3)' }]}
+                            onPress={() => setPersistentControls(!persistentControls)}
+                        >
+                            <MaterialIcons 
+                                name={persistentControls ? "lock" : "lock-open"} 
+                                size={18} 
+                                color={persistentControls ? "#ff0000" : "white"} 
+                            />
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                            style={styles.speedButton}
+                            onPress={() => setIsVideoSpeedDropdownVisible(true)}
+                        >
+                            <Text style={styles.speedButtonText}>{videoPlaybackSpeed}x</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Animated.View>
+        )}
+        
+        {isVideoSpeedDropdownVisible && (
+            <Modal
+                transparent={true}
+                animationType="fade"
+                visible={isVideoSpeedDropdownVisible}
+                onRequestClose={() => setIsVideoSpeedDropdownVisible(false)}
+            >
+                <TouchableWithoutFeedback onPress={() => setIsVideoSpeedDropdownVisible(false)}>
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.speedPickerContainer}>
+                            {[0.75, 1.0, 1.25, 1.5, 2.0].map((speed) => (
+                                <TouchableOpacity
+                                    key={speed}
+                                    style={[
+                                        styles.speedOption,
+                                        videoPlaybackSpeed === speed && styles.selectedSpeedOption
+                                    ]}
+                                    onPress={() => toggleVideoPlaybackSpeed(speed)}
+                                >
+                                    <Text style={[
+                                        styles.speedOptionText,
+                                        videoPlaybackSpeed === speed && styles.selectedSpeedOptionText
+                                    ]}>
+                                        {speed}x
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </View>
+                </TouchableWithoutFeedback>
+            </Modal>
+        )}
+    </View>
+) : audioUrl && (
     <Animated.View style={[
         styles.audioPlayerContainer,
         {
@@ -2338,7 +2789,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
 
 
 
-            <View style={styles.buttonsContainer}>
+            <View style={[styles.buttonsContainer, videoUrl && { marginTop: 0 }]}>
                 <TouchableOpacity
                     style={[styles.button, selectedButton === 'transcription' ? styles.selectedButton : null]}
                     onPress={() => handleButtonPress('transcription')}>
@@ -2521,14 +2972,24 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                                                         style={[wordIdx === currentWordIndex.wordIndex ? styles.highlightedWord : styles.word, {color: colors.text}]}
                                                         onPress={() => {
                                                             // Jump to this word's timestamp when clicked
-                                                            if (sound && wordData.start !== undefined) {
+                                                            if (wordData.start !== undefined) {
                                                                 const newPosition = wordData.start;
-                                                                sound.setCurrentTime(newPosition);
-                                                                setAudioPosition(newPosition);
                                                                 
-                                                                // If audio is playing, ensure the wave animation is also playing
-                                                                if (isAudioPlaying && waveAnimationRef.current) {
-                                                                    waveAnimationRef.current.play();
+                                                                // Handle video player seeking
+                                                                if (videoUrl && videoRef.current) {
+                                                                    videoRef.current.seek(newPosition);
+                                                                    setVideoPosition(newPosition);
+                                                                }
+                                                                
+                                                                // Handle audio player seeking
+                                                                if (sound && audioUrl) {
+                                                                    sound.setCurrentTime(newPosition);
+                                                                    setAudioPosition(newPosition);
+                                                                    
+                                                                    // If audio is playing, ensure the wave animation is also playing
+                                                                    if (isAudioPlaying && waveAnimationRef.current) {
+                                                                        waveAnimationRef.current.play();
+                                                                    }
                                                                 }
                                                                 
                                                                 console.log("User clicked word - explicitly overriding manual scroll");
@@ -2550,7 +3011,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                                                                 // Trigger progress update to update highlighted paragraph
                                                                 onAudioProgress({
                                                                     currentTime: newPosition,
-                                                                    duration: audioDuration
+                                                                    duration: videoUrl ? videoDuration : audioDuration
                                                                 });
                                                                 
                                                                 // Reset seeking state after a short delay
@@ -2913,6 +3374,202 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         marginBottom: 2,
     },
+    videoPlayerContainer: {
+        marginTop: 8,
+        marginBottom: 8,
+        backgroundColor: '#000',
+        borderRadius: 15,
+        overflow: 'hidden',
+        position: 'relative',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 8,
+    },
+    videoPlayer: {
+        width: '100%',
+        height: 220,
+        backgroundColor: '#000',
+    },
+    subtitleOverlay: {
+        position: 'absolute',
+        bottom: 80,
+        left: 15,
+        right: 15,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        borderRadius: 12,
+        padding: 12,
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.5,
+        shadowRadius: 4,
+        elevation: 5,
+    },
+    subtitleText: {
+        color: '#fff',
+        fontSize: 16,
+        textAlign: 'center',
+        lineHeight: 22,
+    },
+    subtitleWordsContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    subtitleWord: {
+        color: '#fff',
+        fontSize: 16,
+        lineHeight: 24,
+        marginHorizontal: 1,
+        textShadowColor: 'rgba(0, 0, 0, 0.8)',
+        textShadowOffset: { width: 1, height: 1 },
+        textShadowRadius: 2,
+    },
+    activeSubtitleWord: {
+        color: '#FFD700',
+        fontWeight: 'bold',
+        backgroundColor: 'rgba(255, 215, 0, 0.3)',
+        borderRadius: 6,
+        paddingHorizontal: 4,
+        paddingVertical: 2,
+        marginHorizontal: 1,
+        textShadowColor: 'rgba(0, 0, 0, 0.9)',
+        textShadowOffset: { width: 1, height: 1 },
+        textShadowRadius: 3,
+    },
+    // YouTube-like Video Controls Styles
+    youtubeVideoControlsContainer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderTopLeftRadius: 12,
+        borderTopRightRadius: 12,
+        zIndex: 2,
+    },
+    timelineContainer: {
+        width: '100%',
+        marginBottom: 6,
+    },
+    fullWidthSlider: {
+        width: '100%',
+        height: 30,
+    },
+    controlButtonsRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    leftControls: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    rightControls: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    skipButton: {
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: 20,
+        padding: 8,
+        marginHorizontal: 4,
+    },
+    youtubePlayButton: {
+        backgroundColor: 'rgba(255, 255, 255, 0.15)',
+        borderRadius: 25,
+        padding: 10,
+        marginHorizontal: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 3,
+        elevation: 3,
+    },
+    timeDisplay: {
+        marginLeft: 12,
+        paddingHorizontal: 8,
+    },
+
+    lockButton: {
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: 18,
+        padding: 8,
+        marginHorizontal: 3,
+    },
+    settingsButton: {
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: 18,
+        padding: 8,
+        marginHorizontal: 3,
+    },
+    fullscreenButton: {
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: 18,
+        padding: 8,
+        marginHorizontal: 3,
+    },
+    // Legacy styles (keeping for compatibility)
+    videoControlsContainer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 15,
+        paddingBottom: 20,
+        borderTopLeftRadius: 15,
+        borderTopRightRadius: 15,
+        zIndex: 2,
+    },
+    videoPlayButton: {
+        backgroundColor: '#007bff',
+        borderRadius: 30,
+        padding: 12,
+        marginRight: 15,
+        shadowColor: '#007bff',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.5,
+        shadowRadius: 4,
+        elevation: 5,
+    },
+    videoProgressContainer: {
+        flex: 1,
+    },
+    videoSlider: {
+        width: '100%',
+        height: 40,
+    },
+    videoTouchOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 80,
+        backgroundColor: 'transparent',
+        zIndex: 1,
+    },
+    videoControlButton: {
+        backgroundColor: 'rgba(255, 255, 255, 0.15)',
+        borderRadius: 25,
+        padding: 10,
+        marginLeft: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.3)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 3,
+        elevation: 3,
+    },
     audioControlsContainer: {
         position: 'absolute',
         backgroundColor: '#D5D5D6FF',
@@ -3008,8 +3665,12 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     timeText: {
-        fontSize: 14,
-        color: '#666',
+        fontSize: 12,
+        color: '#fff',
+        fontWeight: '500',
+        textShadowColor: 'rgba(0, 0, 0, 0.8)',
+        textShadowOffset: { width: 1, height: 1 },
+        textShadowRadius: 2,
     },
     customThumb: {
         position: 'absolute',
@@ -3705,7 +4366,8 @@ zIndex:101,
         borderRadius: 15,
         paddingHorizontal: 8,
         paddingVertical: 4,
-        marginHorizontal: -10,
+        marginLeft: 8,
+        marginRight: 8,
         backgroundColor: '#f0f0f0',
         alignItems: 'center',
         justifyContent: 'center',
