@@ -21,7 +21,7 @@ const AddonScreen = ({ navigation }) => {
     };
     
     // Navigate directly to payment screen
-    navigation.navigate('AntomPaymentScreen', {
+    navigation.navigate('AirwallexPaymentScreen', {
       orderData: orderData
     });
   };

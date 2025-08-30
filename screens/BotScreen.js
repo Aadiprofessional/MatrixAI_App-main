@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -143,7 +143,19 @@ const persistEvent = (event) => {
   // Add state to track keyboard visibility
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   
-  // Track keyboard visibility
+  // Debounced data fetching refs
+  const fetchTimeoutRef = useRef(null);
+  const lastFetchTime = useRef(0);
+  const FETCH_DEBOUNCE_DELAY = 300; // 300ms debounce
+  const MIN_FETCH_INTERVAL = 1000; // Minimum 1 second between fetches
+  
+  // Pagination state for lazy loading
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [messageOffset, setMessageOffset] = useState(0);
+  const MESSAGE_PAGE_SIZE = 20;
+  
+  // Track keyboard visibility with optimized listeners
   useEffect(() => {
     const keyboardWillShowListener = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
@@ -164,12 +176,15 @@ const persistEvent = (event) => {
     return () => {
       keyboardWillShowListener.remove();
       keyboardWillHideListener.remove();
-      // Cleanup timeout ref to prevent memory leaks
+      // Cleanup timeout refs to prevent memory leaks
       if (sendTimeoutRef.current) {
         clearTimeout(sendTimeoutRef.current);
       }
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
     };
-  }, [messages.length]);
+  }, []); // Remove messages.length dependency to prevent unnecessary re-renders
 
   // Set initial chat ID from route params if available - prevent infinite updates
   useEffect(() => {
@@ -237,7 +252,7 @@ const persistEvent = (event) => {
       keyboardDidHideListener.remove();
       backHandler.remove();
     };
-  }, [keyboardVisible]);
+  }, []); // Remove keyboardVisible dependency to prevent unnecessary re-renders
 
   const onDeleteChat = async (chatId) => {
     try {
@@ -281,95 +296,133 @@ const persistEvent = (event) => {
 const renderTextWithMath = (text, textStyle) => {
   if (!text) return null;
   
-  // Split text by both LaTeX expressions and custom math tags
-  const parts = text.split(/(\\\([^\)]*\\\)|\\\[[^\]]*\\\]|<math>[\s\S]*?<\/math>|<math3>[\s\S]*?<\/math3>)/);
+  // Process the text to handle math3 tags first
+  let processedText = text;
+  let components = [];
+  let lastIndex = 0;
   
-  return parts.map((part, index) => {
-    // Check if this part is a LaTeX expression
-    if (part.match(/^\\\([^\)]*\\\)$/)) {
-      // Inline math expression
-      const mathContent = part.slice(2, -2); // Remove \( and \)
-      return (
-        <View key={index} style={styles.inlineMathContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <MathView
-              math={mathContent}
-              style={{
-                fontSize: 16,
-                color: '#007AFF',
-                maxWidth: 300,
-                marginBottom: -5,
-              }}
-            />
-          </ScrollView>
-        </View>
-      );
-    } else if (part.match(/^\\\[[^\]]*\\\]$/)) {
-      // Block math expression
-      const mathContent = part.slice(2, -2); // Remove \[ and \]
-      return (
-        <View key={index} style={styles.mathContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <MathView
-              math={mathContent}
-              style={{
-                fontSize: 18,
-                color: '#007AFF',
-                marginVertical: 8,
-                textAlign: 'center',
-                maxWidth: 350,
-                marginBottom: -5,
-              }}
-            />
-          </ScrollView>
-        </View>
-      );
-    } else if (part.match(/^<math>[\s\S]*?<\/math>$/)) {
-      // Custom inline math tag
-      const mathContent = part.slice(6, -7); // Remove <math> and </math>
-      return (
-        <View key={index} style={styles.inlineMathContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <MathView
-              math={mathContent}
-              style={{
-                fontSize: 16,
-                color: '#007AFF',
-                maxWidth: 300,
-                marginBottom: -5,
-              }}
-            />
-          </ScrollView>
-        </View>
-      );
-    } else if (part.match(/^<math3>[\s\S]*?<\/math3>$/)) {
-      // Custom display math tag
-      const mathContent = part.slice(7, -8); // Remove <math3> and </math3>
-      return (
-        <View key={index} style={styles.mathContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <MathView
-              math={mathContent}
-              style={{
-                fontSize: 18,
-                color: '#007AFF',
-                textAlign: 'center',
-                maxWidth: 350,
-                marginBottom: -5,
-              }}
-            />
-          </ScrollView>
-        </View>
-      );
-    } else {
-      // Regular text
-      return (
-        <Text key={index} style={textStyle}>
-          {part}
+  // Find all math3 tags in the text
+  const math3Regex = /<math3>([\s\S]*?)<\/math3>/g;
+  let match;
+  
+  while ((match = math3Regex.exec(processedText)) !== null) {
+    // Add text before the math3 tag
+    if (match.index > lastIndex) {
+      const textBefore = processedText.substring(lastIndex, match.index);
+      components.push(
+        <Text key={`text-${lastIndex}`} style={textStyle}>
+          {textBefore}
         </Text>
       );
     }
-  });
+    
+    // Add the math3 content
+    const mathContent = match[1]; // The content inside the math3 tags
+    components.push(
+      <View key={`math3-${match.index}`} style={styles.mathContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <MathView
+            math={mathContent}
+            style={{
+              fontSize: 18,
+              color: '#007AFF',
+              textAlign: 'center',
+              maxWidth: 350,
+              marginBottom: -5,
+            }}
+          />
+        </ScrollView>
+      </View>
+    );
+    
+    lastIndex = match.index + match[0].length;
+  }
+  
+  // Add any remaining text after the last math3 tag
+  if (lastIndex < processedText.length) {
+    const textAfter = processedText.substring(lastIndex);
+    
+    // Process other math tags in the remaining text
+    const parts = textAfter.split(/(\\\([^\)]*\\\)|\\\[[^\]]*\\\]|<math>[\s\S]*?<\/math>)/);
+    
+    parts.forEach((part, index) => {
+      try {
+        if (part.match(/^\\\([^\)]*\\\)$/)) {
+          // Inline math expression
+          const inlineMathContent = part.slice(2, -2); // Remove \( and \)
+          components.push(
+            <View key={`inline-${lastIndex}-${index}`} style={styles.inlineMathContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <MathView
+                  math={inlineMathContent}
+                  style={{
+                    fontSize: 16,
+                    color: '#007AFF',
+                    maxWidth: 300,
+                    marginBottom: -5,
+                  }}
+                />
+              </ScrollView>
+            </View>
+          );
+        } else if (part.match(/^\\\[[^\]]*\\\]$/)) {
+          // Block math expression
+          const blockMathContent = part.slice(2, -2); // Remove \[ and \]
+          components.push(
+            <View key={`block-${lastIndex}-${index}`} style={styles.mathContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <MathView
+                  math={blockMathContent}
+                  style={{
+                    fontSize: 18,
+                    color: '#007AFF',
+                    marginVertical: 8,
+                    textAlign: 'center',
+                    maxWidth: 350,
+                    marginBottom: -5,
+                  }}
+                />
+              </ScrollView>
+            </View>
+          );
+        } else if (part.match(/^<math>[\s\S]*?<\/math>$/)) {
+          // Custom inline math tag
+          const mathContent = part.slice(6, -7); // Remove <math> and </math>
+          components.push(
+            <View key={`math-${lastIndex}-${index}`} style={styles.inlineMathContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <MathView
+                  math={mathContent}
+                  style={{
+                    fontSize: 16,
+                    color: '#007AFF',
+                    maxWidth: 300,
+                    marginBottom: -5,
+                  }}
+                />
+              </ScrollView>
+            </View>
+          );
+        } else if (part.trim()) {
+          // Regular text (only if not empty)
+          components.push(
+            <Text key={`text-${lastIndex}-${index}`} style={textStyle}>
+              {part}
+            </Text>
+          );
+        }
+      } catch (error) {
+        console.warn('Error rendering math content:', error);
+        components.push(
+          <Text key={`error-${lastIndex}-${index}`} style={textStyle}>
+            {part}
+          </Text>
+        );
+      }
+    });
+  }
+  
+  return components.length > 0 ? components : <Text style={textStyle}>{text}</Text>;
 };
   // Helper function to check if text contains math expressions
 
@@ -2100,83 +2153,160 @@ const renderTextWithMath = (text, textStyle) => {
     };
   }, [route.params?.chatid]);
 
-  // Add useEffect to handle authentication-dependent data loading
+  // Debounced fetch function to prevent excessive API calls
+  const debouncedFetchChats = useCallback(async (userId, force = false) => {
+    const now = Date.now();
+    
+    // Check if we should debounce this call
+    if (!force && (now - lastFetchTime.current) < MIN_FETCH_INTERVAL) {
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
+      
+      fetchTimeoutRef.current = setTimeout(() => {
+        debouncedFetchChats(userId, true);
+      }, FETCH_DEBOUNCE_DELAY);
+      return;
+    }
+    
+    lastFetchTime.current = now;
+    setIsChatsLoading(true);
+    
+    try {
+      console.log('Debounced fetch for user:', userId);
+      
+      // Fetch chats with limit to reduce initial load
+      const { data: userChats, error: chatError } = await supabase
+        .from('user_chats')
+        .select('*')
+        .eq('user_id', userId)
+        .order('updated_at', { ascending: false })
+        .limit(20); // Limit initial fetch
+      
+      if (chatError) {
+        console.error('Error fetching user chats:', chatError);
+        const newChatId = Date.now().toString();
+        startNewChat(newChatId);
+        setDataLoaded(true);
+        return;
+      }
+      
+      // Process chats with message limit
+      const processedChats = userChats.map(chat => {
+        const processedMessages = processMessages((chat.messages || []).slice(-20)); // Limit to last 20 messages
+        
+        return {
+          id: chat.chat_id,
+          name: chat.name || 'Chat',
+          description: chat.description || '',
+          role: chat.role || '',
+          roleDescription: chat.role_description || '',
+          messages: processedMessages,
+        };
+      });
+      
+      setChats(processedChats);
+      
+      if (processedChats.length > 0) {
+        const targetChatId = route.params?.chatid || processedChats[0].id;
+        const targetChat = processedChats.find(chat => chat.id === targetChatId) || processedChats[0];
+        
+        setCurrentChatId(targetChat.id);
+        setMessages(targetChat.messages);
+        setCurrentRole(targetChat.role);
+        setCurrentRoleDescription(targetChat.roleDescription);
+      }
+      
+      setDataLoaded(true);
+      
+      // Optimized scroll
+      requestAnimationFrame(() => {
+        if (flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: false });
+        }
+      });
+      
+    } catch (error) {
+      console.error('Error in debouncedFetchChats:', error);
+      if (chats.length === 0) {
+        const newChatId = Date.now().toString();
+        startNewChat(newChatId);
+      }
+    } finally {
+      setIsChatsLoading(false);
+    }
+  }, [chats.length, route.params?.chatid]);
+
+  // Load older messages function for pagination
+  const loadOlderMessages = useCallback(async () => {
+    if (isLoadingOlderMessages || !hasMoreMessages || !currentChatId || !uid) {
+      return;
+    }
+    
+    setIsLoadingOlderMessages(true);
+    
+    try {
+      const { data: chatData, error } = await supabase
+        .from('user_chats')
+        .select('messages')
+        .eq('user_id', uid)
+        .eq('chat_id', currentChatId)
+        .single();
+      
+      if (error) {
+        console.error('Error loading older messages:', error);
+        return;
+      }
+      
+      const allMessages = chatData?.messages || [];
+      const currentMessageCount = messages.length;
+      const totalMessages = allMessages.length;
+      
+      // Check if there are more messages to load
+      if (currentMessageCount >= totalMessages) {
+        setHasMoreMessages(false);
+        return;
+      }
+      
+      // Calculate how many more messages to load
+      const startIndex = Math.max(0, totalMessages - currentMessageCount - MESSAGE_PAGE_SIZE);
+      const endIndex = totalMessages - currentMessageCount;
+      const olderMessages = allMessages.slice(startIndex, endIndex);
+      
+      if (olderMessages.length > 0) {
+        const processedOlderMessages = processMessages(olderMessages);
+        setMessages(prevMessages => [...processedOlderMessages, ...prevMessages]);
+        setMessageOffset(prev => prev + olderMessages.length);
+      } else {
+        setHasMoreMessages(false);
+      }
+      
+    } catch (error) {
+      console.error('Error in loadOlderMessages:', error);
+    } finally {
+      setIsLoadingOlderMessages(false);
+    }
+  }, [isLoadingOlderMessages, hasMoreMessages, currentChatId, uid, messages.length]);
+
+  // Handle scroll to top for loading older messages
+  const handleScrollToTop = useCallback(() => {
+    if (hasMoreMessages && !isLoadingOlderMessages) {
+      loadOlderMessages();
+    }
+  }, [hasMoreMessages, isLoadingOlderMessages, loadOlderMessages]);
+
+  // Optimized useEffect to handle authentication-dependent data loading
   useEffect(() => {
     console.log('=== AUTH DEPENDENT USEEFFECT ===');
     console.log('uid:', uid);
     console.log('loading:', loading);
     
     // Only fetch chats when authentication is ready (not loading) and we have a uid
-    if (!loading && uid) {
-      console.log('Authentication ready, fetching user chats...');
-      // Re-fetch chats when uid becomes available
-      const fetchUserChats = async () => {
-        setIsChatsLoading(true);
-        
-        try {
-          console.log('=== FETCH USER CHATS (AUTH READY) ===');
-          console.log('Using uid:', uid);
-          
-          // Fetch all chats for the current user, ordered by most recent
-          const { data: userChats, error: chatError } = await supabase
-            .from('user_chats')
-            .select('*')
-            .eq('user_id', uid)
-            .order('updated_at', { ascending: false });
-          
-          if (chatError) {
-            console.error('Error fetching user chats:', chatError);
-            // Create a new chat as fallback
-            const newChatId = Date.now().toString();
-            startNewChat(newChatId);
-            setDataLoaded(true);
-            setIsChatsLoading(false);
-            return;
-          }
-          
-          console.log('Fetched chats count:', userChats?.length || 0);
-          
-          // Process the chats to match the local state format
-          const processedChats = userChats.map(chat => {
-            const processedMessages = processMessages(chat.messages || []);
-            
-            return {
-              id: chat.chat_id,
-              name: chat.name || 'Chat',
-              description: chat.description || '',
-              role: chat.role || '',
-              roleDescription: chat.role_description || '',
-              messages: processedMessages,
-            };
-          });
-          
-          // Update state with all fetched chats
-          setChats(processedChats);
-          
-          // If we have chats and no current chat is selected
-          if (processedChats.length > 0 && !currentChatId) {
-            const firstChat = processedChats[0];
-            console.log('Setting first chat as current:', firstChat.id);
-            setCurrentChatId(firstChat.id);
-            setMessages(firstChat.messages);
-          }
-          
-          setDataLoaded(true);
-          setIsChatsLoading(false);
-          
-        } catch (error) {
-          console.error('Error in fetchUserChats (auth ready):', error);
-          setIsChatsLoading(false);
-        }
-      };
-      
-      fetchUserChats();
-    } else if (!loading && !uid) {
-      console.log('No authenticated user, using local storage');
-      // Handle case where user is not authenticated
-      setIsChatsLoading(false);
+    if (!loading && uid && !dataLoaded) {
+      console.log('Authentication ready, fetching user chats with debouncing...');
+      debouncedFetchChats(uid);
     }
-  }, [uid, loading]);
+  }, [uid, loading, dataLoaded, debouncedFetchChats]); // Optimized dependencies
 
   // Modify the startNewChat to accept chatId parameter and ensure proper initialization
   const startNewChat = async (customChatId) => {
@@ -3061,22 +3191,28 @@ const renderTextWithMath = (text, textStyle) => {
     }, 2000);
   };
   
+  // Memoize the last message to prevent unnecessary effect triggers
+  const lastMessage = useMemo(() => {
+    return messages.length > 0 ? messages[messages.length - 1] : null;
+  }, [messages.length, messages[messages.length - 1]?.id, messages[messages.length - 1]?.isStreaming]);
+
   // Add an effect to handle scrolling when messages change - only for new messages from user or bot
   useEffect(() => {
-    if (messages.length > 0 && !isUserScrolling) {
-      const lastMsg = messages[messages.length - 1];
+    if (lastMessage && !isUserScrolling) {
       // Only auto-scroll for genuinely new messages (user messages or completed bot messages)
-      if (lastMsg && lastMsg.id !== lastScrolledMessageId.current && 
-          (lastMsg.sender === 'user' || (lastMsg.sender === 'bot' && !lastMsg.isStreaming))) {
-        lastScrolledMessageId.current = lastMsg.id;
-        setTimeout(() => {
+      if (lastMessage.id !== lastScrolledMessageId.current && 
+          (lastMessage.sender === 'user' || (lastMessage.sender === 'bot' && !lastMessage.isStreaming))) {
+        lastScrolledMessageId.current = lastMessage.id;
+        const timeoutId = setTimeout(() => {
           if (!isUserScrolling) {
             scrollToBottom();
           }
         }, 300); // Increased delay to give user more time
+        
+        return () => clearTimeout(timeoutId);
       }
     }
-  }, [messages, isUserScrolling]);
+  }, [lastMessage, isUserScrolling]);
 
   const navigateToSubscription = () => {
     setLowBalanceModalVisible(false);
@@ -3158,6 +3294,26 @@ const renderTextWithMath = (text, textStyle) => {
                 style={styles.messagesList}
                 onScroll={handleScroll}
                 scrollEventThrottle={200}
+                // Lazy loading optimizations
+                initialNumToRender={10} // Only render first 10 messages initially
+                maxToRenderPerBatch={5} // Render 5 messages per batch
+                windowSize={10} // Keep 10 screens worth of messages in memory
+                removeClippedSubviews={true} // Remove off-screen views to save memory
+                getItemLayout={(data, index) => ({
+                  length: 80, // Estimated message height
+                  offset: 80 * index,
+                  index,
+                })}
+                // Pagination for loading older messages
+                onEndReached={handleScrollToTop}
+                onEndReachedThreshold={0.1}
+                inverted={true} // Invert to load older messages at top
+                ListHeaderComponent={isLoadingOlderMessages ? (
+                  <View style={styles.loadingOlderContainer}>
+                    <ActivityIndicator size="small" color="#4C8EF7" />
+                    <Text style={styles.loadingOlderText}>Loading older messages...</Text>
+                  </View>
+                ) : null}
                 onContentSizeChange={() => {
                   // Only auto-scroll during initial load or when actively streaming
                   // Remove excessive auto-scroll that causes constant scrolling issues
@@ -3168,6 +3324,9 @@ const renderTextWithMath = (text, textStyle) => {
                     flatListRef.current.scrollToEnd({ animated: false });
                   }
                 }}
+                // Performance optimizations
+                updateCellsBatchingPeriod={50}
+                legacyImplementation={false}
                 // Removed maintainVisibleContentPosition as it interferes with manual scrolling
               />
             ) : (
@@ -3550,7 +3709,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 10,
     backgroundColor: '#FFFFFF',
- 
+    zIndex: 10,
   },
   headerIcon: {
     width: 30,
@@ -3820,7 +3979,7 @@ const styles = StyleSheet.create({
     left: '50%',
     transform: [{ translateX: '-50%' }, { translateY: '-50%' }],
     alignItems: 'center',
-
+    zIndex: 1,
   },
   placeholderImage: {
     width: 100,
@@ -4900,6 +5059,17 @@ const styles = StyleSheet.create({
   rechargeButtonText: {
     color: '#fff',
     fontWeight: '500',
+  },
+  loadingOlderContainer: {
+    padding: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  loadingOlderText: {
+    marginLeft: 10,
+    color: '#666',
+    fontSize: 14,
   },
 
 

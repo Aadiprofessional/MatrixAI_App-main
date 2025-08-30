@@ -113,6 +113,7 @@ const AudioVideoUploadScreen = () => {
     const [extractedAudioFile, setExtractedAudioFile] = useState(null); // For storing extracted audio from video
     const [uploading, setUploading] = useState(false); // For upload indicator
     const [uploadStep, setUploadStep] = useState(''); // Track current upload step
+    const [processingModalVisible, setProcessingModalVisible] = useState(false); // For processing modal
    
     const [duration, setDuration] = useState(null);
     const audioRecorderPlayer = new AudioRecorderPlayer();
@@ -565,9 +566,8 @@ const AudioVideoUploadScreen = () => {
                 // Set the file
                 setAudioFile(file);
                 
-                // Show loading indicator while processing
-                setUploading(true);
-                setUploadStep('Uploading video to storage...');
+                // Show processing modal while processing
+                setProcessingModalVisible(true);
                 
                 try {
                     let durationInSeconds;
@@ -608,13 +608,11 @@ const AudioVideoUploadScreen = () => {
                         console.log('Step 1 completed: Video uploaded to:', videoUrl);
                         
                         // STEP 2: Extract audio from video using API
-                        setUploadStep('Extracting audio from video...');
                         console.log('Step 2: Extracting audio from video...');
                         
                         const extractionResult = await extractAudioFromVideo(videoUrl, file.name);
                         
                         if (extractionResult.success) {
-                            setUploadStep('Processing complete!');
                             console.log('Step 2 completed: Audio extracted successfully');
                             console.log('Audio URL:', extractionResult.audioUrl);
                             console.log('Video URL:', extractionResult.videoUrl);
@@ -638,10 +636,9 @@ const AudioVideoUploadScreen = () => {
                             // Use the duration from the API response
                             durationInSeconds = extractionResult.duration || 60;
                             
-                            // Hide loading after a brief delay
+                            // Hide processing modal after a brief delay
                             setTimeout(() => {
-                                setUploading(false);
-                                setUploadStep('');
+                                setProcessingModalVisible(false);
                             }, 1000);
                         } else {
                             throw new Error(extractionResult.error || 'Audio extraction failed');
@@ -662,12 +659,16 @@ const AudioVideoUploadScreen = () => {
                     if (!isVideo) {
                         setUploading(false);
                         setUploadStep('');
+                    } else {
+                        // For video files, hide processing modal if there was an error
+                        setProcessingModalVisible(false);
                     }
                     setPopupVisible(true); // Show popup after file processing
                 }
             }
         } catch (err) {
             setUploading(false);
+            setProcessingModalVisible(false);
             if (DocumentPicker.isCancel(err)) {
                 console.log('User cancelled file picker.');
             } else {
@@ -1813,13 +1814,20 @@ const AudioVideoUploadScreen = () => {
     <Text style={[styles.helpText]}>{t('voiceMemoTranscriptionTutorial')}</Text>
                 </View>
             </View>
-            {/* Loading Indicator */}
-            {uploading && (
-                <View style={styles.uploadingOverlay}>
-                    <ActivityIndicator size="large" color="#0066FEFF" />
-                    <Text style={styles.uploadingText}>{uploadStep || 'Processing...'}</Text>
+            {/* Processing Modal */}
+            <Modal
+                visible={processingModalVisible}
+                transparent={true}
+                animationType="fade"
+            >
+                <View style={styles.modalContainer}>
+                    <View style={[styles.modalContent, {backgroundColor: colors.card}]}>
+                        <ActivityIndicator size="large" color="#0066FEFF" style={{marginBottom: 20}} />
+                        <Text style={[styles.modalTitle, {color: colors.text}]}>{t('processingVideo') || 'Processing the video'}</Text>
+                        <Text style={[styles.processingSubtext, {color: colors.text}]}>{t('pleaseWait') || 'Please wait...'}</Text>
+                    </View>
                 </View>
-            )}
+            </Modal>
 
             {/* Search Bar */}
             <View style={styles.searchBox2}>
@@ -2064,21 +2072,7 @@ const styles = StyleSheet.create({
     },
    
    
-    uploadingOverlay: {
-        padding: 10,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: 'rgba(0, 0, 0, 0)',
-        borderRadius: 5, // Optional, for rounded corners
-        marginVertical: 10, // Adjust based on how much space you want above and below
-        zIndex: 100, // Optional, depending on your layout
-    },
-    
-    uploadingText: {
-        marginTop: 10,
-        color: '#0478F4FF',
-        fontSize: 16,
-    },
+
     deleteAllButtonText: {
         color: '#fff',
         fontSize: 12,
@@ -2497,6 +2491,11 @@ color:'#000',
         fontWeight: 'bold',
         marginBottom: 15,
         textAlign: 'center',
+    },
+    processingSubtext: {
+        fontSize: 14,
+        textAlign: 'center',
+        opacity: 0.7,
     },
     modalButtons: {
         flexDirection: 'row',

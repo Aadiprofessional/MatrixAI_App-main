@@ -81,7 +81,7 @@
     "react-native-view-shot": "^4.0.3",
     "react-native-vision-camera": "^4.6.4",
     "react-native-vosk": "^0.3.2",
-    "react-native-webview": "^13.13.4",
+    "react-native-webview": "^13.16.0",
     "svg-png-converter": "^0.0.9",
     "uuid": "^11.1.0"
   },

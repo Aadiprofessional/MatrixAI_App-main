@@ -12,7 +12,7 @@ import { useAuthUser } from '../../hooks/useAuthUser';
 const SubscriptionScreen = ({ navigation }) => {
   const { uid } = useAuthUser();
   const coinCount = useCoinsSubscription(uid);
-  const [selectedPlan, setSelectedPlan] = useState('Tester'); // Default selected plan as Tester
+  const [selectedPlan, setSelectedPlan] = useState('Basic'); // Default selected plan as Basic
   const [coins, setCoins] = useState(null);
   const [loading, setLoading] = useState(true);
 console.log(uid);
@@ -23,30 +23,49 @@ console.log(uid);
   };
 
   const getButtonPrice = () => {
-    if (selectedPlan === 'Tester') {
-      return '$50 HKD';
-    } else if (selectedPlan === 'Monthly') {
-      return '$138 HKD';
-    } else if (selectedPlan === 'Yearly') {
-      return '$1490 HKD';
+    if (selectedPlan === 'Basic') {
+      return '50 HKD';
+    } else if (selectedPlan === 'Premium') {
+      return '150 HKD';
+    } else if (selectedPlan === 'Enterprise') {
+      return '500 HKD';
+    }
+  };
+
+  const getPlanAmount = () => {
+    if (selectedPlan === 'Basic') {
+      return 50;
+    } else if (selectedPlan === 'Premium') {
+      return 150;
+    } else if (selectedPlan === 'Enterprise') {
+      return 500;
     }
   };
 
   const getPlanText = () => {
-    if (selectedPlan === 'Tester') {
-      return '*Your coins will auto expire after 15 Days.';
-    } else if (selectedPlan === 'Monthly') {
-      return '*Your coins will auto expire after 1 Month.';
-    } else if (selectedPlan === 'Yearly') {
-      return '*You will receive 1380 coins per month and these coins will expire after each month.';
+    if (selectedPlan === 'Basic') {
+      return '*Basic plan includes 450 coins valid for 1 month.';
+    } else if (selectedPlan === 'Premium') {
+      return '*Premium plan includes 1500 coins valid for 1 month.';
+    } else if (selectedPlan === 'Enterprise') {
+      return '*Enterprise plan includes 5000 coins valid for 1 month.';
     }
   };
 
   const handleBuyNow = () => {
-    navigation.navigate('BUYSubscription', {
-      uid: uid,
-      plan: selectedPlan,
-      price: getButtonPrice()
+    // Prepare order data for Airwallex payment
+    const orderData = {
+      type: 'subscription',
+      planId: selectedPlan.toLowerCase(),
+      name: `${selectedPlan} Plan`,
+      amount: getPlanAmount(),
+      currency: 'HKD',
+      quantity: 1
+    };
+    
+    // Navigate to Airwallex payment screen
+    navigation.navigate('AirwallexPaymentScreen', {
+      orderData: orderData
     });
   };
 
@@ -95,12 +114,12 @@ console.log(uid);
       {/* Plans */}
       <View style={styles.plansContainer}>
         <TouchableOpacity
-          style={[styles.plan, selectedPlan === 'Tester' && styles.activePlan]}
-          onPress={() => handlePlanSelect('Tester')}
+          style={[styles.plan, selectedPlan === 'Basic' && styles.activePlan]}
+          onPress={() => handlePlanSelect('Basic')}
         >
-          <Text style={styles.planTitle}>Tester</Text>
+          <Text style={styles.planTitle}>Basic</Text>
           <Text style={styles.planPrice2}>
-            $50 HKD
+            50 HKD
           </Text>
           <View style={styles.planDiscountContainer}>
             <Text style={styles.planDiscountPlaceholder}> </Text>
@@ -114,46 +133,42 @@ console.log(uid);
         </TouchableOpacity>
         
         <TouchableOpacity
-          style={[styles.plan, selectedPlan === 'Monthly' && styles.activePlan]}
-          onPress={() => handlePlanSelect('Monthly')}
+          style={[styles.plan, selectedPlan === 'Premium' && styles.activePlan]}
+          onPress={() => handlePlanSelect('Premium')}
         >
-          <Text style={styles.planTitle}>Monthly</Text>
+          <Text style={styles.planTitle}>Premium</Text>
           <Text style={styles.planPrice2}>
-            $138 HKD
+            150 HKD
           </Text>
           <View style={styles.planDiscountContainer}>
             <Text style={styles.planDiscountPlaceholder}> </Text>
           </View>
           <View style={styles.planPriceContainer}>
             <Text style={styles.planPrice}>
-             1380
+             1500
             </Text>
            <Image source={require('../../assets/coin.png')} style={styles.planIcon} />
           </View>
         </TouchableOpacity>
       
         <TouchableOpacity
-          style={[styles.plan, selectedPlan === 'Yearly' && styles.activePlan]}
-          onPress={() => handlePlanSelect('Yearly')}
+          style={[styles.plan, selectedPlan === 'Enterprise' && styles.activePlan]}
+          onPress={() => handlePlanSelect('Enterprise')}
         >
-          <Text style={styles.planTitle}>Yearly</Text>
+          <Text style={styles.planTitle}>Enterprise</Text>
           <Text style={styles.planPrice2}>
-            $1490 HKD
+            500 HKD
           </Text>
           <View style={styles.planDiscountContainer}>
-            <Text style={styles.planPrice3}>
-              $1656 HKD
-            </Text>
             <Text style={styles.planPrice4}>
-              Save 10%
+              Best Value
             </Text>
           </View>
           <View style={styles.planPriceContainer}>
             <Text style={styles.planPrice}>
-             1380
+             5000
             </Text>
            <Image source={require('../../assets/coin.png')} style={styles.planIcon} />
-           <Text style={styles.planPrice}>/Month</Text>
           </View>
         </TouchableOpacity>
       </View>

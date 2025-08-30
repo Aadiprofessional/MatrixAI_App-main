@@ -204,9 +204,9 @@ const ProfileScreen = ({ navigation }) => {
         ]);
     };
 
-    const MenuItem = ({ iconName, label, onPress }) => (
+    const MenuItem = ({ iconName, label, onPress, isLast = false }) => (
         <TouchableOpacity 
-            style={[styles.menuItem, {backgroundColor: colors.card, borderBottomColor: colors.border}]} 
+            style={[styles.menuItem, {backgroundColor: colors.card, borderBottomColor: colors.border, borderBottomWidth: isLast ? 0 : 1}]} 
             onPress={onPress}
         >
             <View style={[styles.iconContainer]}>
@@ -343,12 +343,9 @@ const ProfileScreen = ({ navigation }) => {
                         iconName="people-outline" 
                         label={t('referEarn')} 
                         onPress={handleInside} 
+                        isLast={true}
                     />
-                    <MenuItem 
-                        iconName="cash-outline" 
-                        label={t('rewards')} 
-                        onPress={() => navigation.navigate('AddProductScreen')}
-                    />
+                  
                     
                 </ThemedCard>
 
@@ -365,6 +362,7 @@ const ProfileScreen = ({ navigation }) => {
                         iconName="star-outline" 
                         label={t('rateUs')} 
                         onPress={() => navigation.navigate('FeedbackScreen')} 
+                        isLast={true}
                     />
                 </ThemedCard>
 
@@ -380,6 +378,7 @@ const ProfileScreen = ({ navigation }) => {
                         iconName="log-out-outline" 
                         label={t('logout')} 
                         onPress={handleLogout} 
+                        isLast={true}
                     />
                 </ThemedCard>
                 
@@ -498,8 +497,6 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         paddingVertical: 15,
-        borderBottomWidth: 1,
-        borderBottomColor: '#F0F0F0',
     },
     iconContainer: {
         marginRight: 15,

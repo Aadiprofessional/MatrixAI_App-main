@@ -351,7 +351,12 @@ const ContentWriterContent = () => {
             resolve(fullContent);
           } else {
             console.error('Request failed with status:', xhr.status);
-            reject(new Error(`Request failed with status ${xhr.status}`));
+            console.error('Response text:', xhr.responseText);
+            console.error('Request headers:', {
+              'Authorization': `Bearer ${DASHSCOPE_API_KEY ? '[PRESENT]' : '[MISSING]'}`,
+              'Content-Type': 'application/json'
+            });
+            reject(new Error(`Request failed with status ${xhr.status}: ${xhr.responseText}`));
           }
         };
         
@@ -490,6 +495,8 @@ const ContentWriterContent = () => {
         language: 'en'
       };
       
+      console.log('Saving content with data:', JSON.stringify(requestData, null, 2));
+      
       const response = await axios.post(
         'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/content/saveContent',
         requestData,
@@ -503,6 +510,11 @@ const ContentWriterContent = () => {
       return response.data;
     } catch (error) {
       console.error('Error saving content:', error);
+      console.error('Request data:', JSON.stringify(requestData, null, 2));
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+      }
       return null;
     }
   };
@@ -603,12 +615,16 @@ const ContentWriterContent = () => {
       
       const userId = uid;
       
+      const requestData = {
+        uid: userId,
+        contentId: contentId
+      };
+      
+      console.log('Sharing content with data:', JSON.stringify(requestData, null, 2));
+      
       const response = await axios.post(
         'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/content/shareContent',
-        {
-          uid: userId,
-          contentId: contentId
-        },
+        requestData,
         {
           headers: {
             'Content-Type': 'application/json'
@@ -619,6 +635,11 @@ const ContentWriterContent = () => {
       return response.data.shareId;
     } catch (error) {
       console.error('Error sharing content:', error);
+      console.error('Request data:', JSON.stringify({ uid: userId, contentId: contentId }, null, 2));
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+      }
       return null;
     }
   };
@@ -718,11 +739,11 @@ const ContentWriterContent = () => {
         setGeneratedContent(streamingContent);
       });
       
-      // Create a new history item
+      // Create a new history item using the raw AI response
       const newHistoryItem = {
         id: Date.now().toString(),
         prompt: prompt,
-        content: streamingContent,
+        content: fullResponse, // Use raw AI response instead of formatted streamingContent
         type: contentType,
         tone: tone,
         wordCount: wordCount,

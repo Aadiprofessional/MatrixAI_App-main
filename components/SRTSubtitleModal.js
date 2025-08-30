@@ -226,7 +226,7 @@ const SRTSubtitleModal = ({
     const handleEditSegment = (segment, index) => {
         Alert.prompt(
             'Edit Segment',
-            `Edit the text for segment ${segment.id}:`,
+            `Edit the text for segment ${segment.id}:\n\n⚠️ Warning: Edited text will disappear once you leave this screen.`,
             [
                 {
                     text: 'Cancel',

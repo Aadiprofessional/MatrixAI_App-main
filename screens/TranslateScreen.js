@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, forwardRef } from 'react';
+const coin = require('../assets/coin.png');
 const formatTime = (seconds) => {
     const minutes = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -47,8 +48,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
   import { useTheme } from '../context/ThemeContext';
   import { useLanguage } from '../context/LanguageContext';
   import audioService from '../services/audioService'; // Import audioService
-  import paymentService from '../services/paymentService'; // Import payment service
-  import { useCoinsSubscription } from '../hooks/useCoinsSubscription'; // Import useCoinsSubscription hook
+  import { AZURE_TRANSLATION_KEY } from '@env';
   import SRTSubtitleModal from '../components/SRTSubtitleModal'; // Import SRT Subtitle Modal
 
     const TranslateScreen = ({ route }) => {
@@ -101,7 +101,6 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
       const [showMindMap, setShowMindMap] = useState(false);
       const [isMindMapGenerated, setIsMindMapGenerated] = useState(false);
       const [isMindMapGenerating, setIsMindMapGenerating] = useState(false);
-      const coinCount = useCoinsSubscription(uid);
       const scrollViewRef = useRef(null);
       const [isSeeking, setIsSeeking] = useState(false);
       const userScrollTimeoutRef = useRef(null);
@@ -115,7 +114,6 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
       const lastAutoScrollTimeRef = useRef(0);
 
       const isTranscriptionEmpty = transcription  === '';
-      const coin = require('../assets/coin.png');
       const [currentWordIndex, setCurrentWordIndex] = useState({
           paraIndex: 0,
           wordIndex: 0,
@@ -134,13 +132,28 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
       
       // Video controls visibility and auto-hide states
       const [showVideoControls, setShowVideoControls] = useState(true);
-      const [controlsTimeout, setControlsTimeout] = useState(null);
+      const controlsTimeout = useRef(null);
       const [isUserInteracting, setIsUserInteracting] = useState(false);
       const [persistentControls, setPersistentControls] = useState(false);
       
       // Animation values for smooth transitions
       const controlsOpacity = useRef(new Animated.Value(1)).current;
       const subtitleOpacity = useRef(new Animated.Value(1)).current;
+
+      // New state variables for translation management
+      const [availableTranslations, setAvailableTranslations] = useState({});
+      const [dynamicLanguages, setDynamicLanguages] = useState([]);
+      const [translatedData, setTranslatedData] = useState({});
+    
+    // Word editing modal states
+    const [isWordEditModalVisible, setIsWordEditModalVisible] = useState(false);
+    const [editingWordData, setEditingWordData] = useState(null);
+    const [editedWord, setEditedWord] = useState('');
+    const [editedPunctuatedWord, setEditedPunctuatedWord] = useState(''); // Store full translated_data from API
+   
+     
+      const [isTranslating, setIsTranslating] = useState(false);
+
 
       // Add helper function to centralize scroll decision logic
       const canScrollToCurrentParagraph = () => {
@@ -347,6 +360,14 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
       const [selectedButton, setSelectedButton] = useState('transcription');
       const [selectedLanguage, setSelectedLanguage] = useState('zh');
       const [translatedText, setTranslatedText] = useState('');
+      
+      // Video subtitle translation states
+      const [showVideoTranslations, setShowVideoTranslations] = useState(false);
+    const [videoTranslatedWords, setVideoTranslatedWords] = useState([]);
+    const [allTranslatedWords, setAllTranslatedWords] = useState([]); // Store all translated words from wordsData
+    const [isVideoTranslationDropdownVisible, setIsVideoTranslationDropdownVisible] = useState(false);
+    const [videoTranslationLanguage, setVideoTranslationLanguage] = useState('zh');
+    const [isVideoTranslating, setIsVideoTranslating] = useState(false);
    
     
       const [showDropdown, setShowDropdown] = useState(false);
@@ -391,6 +412,70 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
           { label: t('german'), value: 'de' },
           { label: t('hindi'), value: 'hi' },
       ];
+
+      // Language abbreviation mapping
+      const getLanguageAbbreviation = (languageCode) => {
+          const abbreviations = {
+              'zh': 'CH',
+              'en': 'EN',
+              'zh-TW': 'TW',
+              'es': 'ES',
+              'fr': 'FR',
+              'de': 'DE',
+              'hi': 'HI'
+          };
+          return abbreviations[languageCode] || languageCode.toUpperCase();
+      };
+      
+      // Helper function to merge static languages with dynamic saved languages
+      const getMergedLanguages = () => {
+          const mergedLanguages = languages.map(lang => {
+              const isSaved = dynamicLanguages.includes(lang.value);
+              return {
+                  ...lang,
+                  label: isSaved ? `${lang.label} (Saved)` : lang.label,
+                  isSaved: isSaved,
+                  isUntranslated: !isSaved
+              };
+          });
+          
+          // Add dynamic languages that don't exist in static list
+          dynamicLanguages.forEach(langCode => {
+              const existsInStatic = languages.some(lang => lang.value === langCode);
+              if (!existsInStatic) {
+                  const languageName = getLanguageName(langCode);
+                  mergedLanguages.push({
+                      label: `${languageName} (Saved)`,
+                      value: langCode,
+                      isSaved: true,
+                      isUntranslated: false
+                  });
+              }
+          });
+          
+          return mergedLanguages;
+      };
+      
+      // Helper function to get language name from code
+      const getLanguageName = (langCode) => {
+          const languageNames = {
+              'zh': t('chineseSimplified'),
+              'zh-Hant': t('chineseTraditional'),
+              'zh-TW': t('chineseTraditional'),
+              'en': t('english'),
+              'es': t('spanish'),
+              'fr': t('french'),
+              'de': t('german'),
+              'hi': t('hindi'),
+              'ja': 'Japanese',
+              'ko': 'Korean',
+              'pt': 'Portuguese',
+              'ru': 'Russian',
+              'ar': 'Arabic',
+              'it': 'Italian'
+          };
+          return languageNames[langCode] || langCode.toUpperCase();
+      };
   
       // Add useEffect to sync wave animation with audio playback state
       useEffect(() => {
@@ -403,9 +488,37 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
           }
       }, [isAudioPlaying]);
 
-      const handleSelectLanguage = (value) => {
+      const handleSelectLanguage = async (value) => {
           setSelectedLanguage(value);
- 
+          
+          // Check if we have saved translations for this language
+          if (translatedData[value] && translatedData[value].transcription) {
+              // Use saved translations directly
+              const savedTranslations = translatedData[value].transcription;
+              setTranslations(savedTranslations);
+              console.log('Using saved translations for language:', value);
+              return;
+          }
+          
+          // Check for existing translations from API if not in saved data
+          try {
+              const existingTranslations = await fetchExistingTranslations(uid, audioid, value);
+              
+              if (existingTranslations && existingTranslations.length > 0) {
+                  // Use existing translations
+                  setAvailableTranslations(existingTranslations);
+                  setTranslations(existingTranslations);
+                  console.log('Using existing translations for language:', value);
+              } else {
+                  // No existing translations, call API to generate new ones
+                  console.log('No existing translations found, generating new ones for language:', value);
+                  await translateAudioText(uid, audioid, value);
+              }
+          } catch (error) {
+              console.error('Error in handleSelectLanguage:', error);
+              // Fallback to generating new translations if fetching fails
+              await translateAudioText(uid, audioid, value);
+          }
       };
   
 
@@ -545,21 +658,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
     // Function to handle mind map generation with coin deduction
     const handleGenerateMindMap = async () => {
         try {
-            // Check if user has at least 3 coins
-            if (coinCount < 3) {
-                Alert.alert(
-                    'Insufficient Coins',
-                    'You need at least 3 coins to generate a mind map.',
-                    [{ text: 'OK' }]
-                );
-                return;
-            }
-
             setIsMindMapGenerating(true);
-
-            // Deduct 3 coins
-            await paymentService.subtractCoins(uid, 3, 'Mind Map Generation');
-            // Note: coinCount will be automatically updated by useCoinsSubscription hook
             
             // Set mind map as generated
             setIsMindMapGenerated(true);
@@ -604,7 +703,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
 
     const azureEndpoint = 'https://api.cognitive.microsofttranslator.com';
     // API key should be stored securely and not hardcoded
-    const azureKey = process.env.AZURE_TRANSLATION_KEY || ''; // Use environment variable
+    const azureKey = AZURE_TRANSLATION_KEY || ''; // Use environment variable
     const region = 'eastus';
 
  
@@ -1312,9 +1411,9 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
         ]).start();
         
         // Clear any existing timeout
-        if (controlsTimeout) {
-            clearTimeout(controlsTimeout);
-            setControlsTimeout(null);
+        if (controlsTimeout.current) {
+            clearTimeout(controlsTimeout.current);
+            controlsTimeout.current = null;
         }
     };
 
@@ -1322,6 +1421,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
         if (!wordsData || wordsData.length === 0) {
             setCurrentSubtitleText('');
             setCurrentSubtitleWords([]);
+            setVideoTranslatedWords([]);
             return;
         }
 
@@ -1338,9 +1438,21 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
             const subtitleText = wordsInInterval.map(word => word.word).join(' ');
             setCurrentSubtitleText(subtitleText);
             setCurrentSubtitleWords(wordsInInterval);
+            
+            // If we have translated words, filter them for the current interval
+            if (allTranslatedWords.length > 0) {
+                const translatedWordsInInterval = allTranslatedWords.filter(word => {
+                    const wordTime = parseFloat(word.start);
+                    return wordTime >= intervalStart && wordTime < intervalEnd;
+                });
+                setVideoTranslatedWords(translatedWordsInInterval);
+            } else {
+                setVideoTranslatedWords([]);
+            }
         } else {
             setCurrentSubtitleText('');
             setCurrentSubtitleWords([]);
+            setVideoTranslatedWords([]);
         }
     };
 
@@ -1393,7 +1505,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                 setIsUserInteracting(false);
             }, 5000); // Increased timeout to 5 seconds for better UX
             
-            setControlsTimeout(newTimeout);
+            controlsTimeout.current = newTimeout;
         } else {
             // If video is paused, keep controls visible and clear any timeout
             setIsUserInteracting(false);
@@ -1404,9 +1516,9 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
         if (showVideoControls && !persistentControls) {
             // If controls are visible and persistent controls is disabled, hide them immediately
             setShowVideoControls(false);
-            if (controlsTimeout) {
-                clearTimeout(controlsTimeout);
-                setControlsTimeout(null);
+            if (controlsTimeout.current) {
+                clearTimeout(controlsTimeout.current);
+                controlsTimeout.current = null;
             }
             
             // Animate controls to hidden
@@ -1433,9 +1545,9 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
         toggleVideoPlayback();
         
         // Clear any existing timeout first
-        if (controlsTimeout) {
-            clearTimeout(controlsTimeout);
-            setControlsTimeout(null);
+        if (controlsTimeout.current) {
+            clearTimeout(controlsTimeout.current);
+            controlsTimeout.current = null;
         }
         
         if (!isVideoPlaying) {
@@ -1963,33 +2075,232 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
     // Calculate the position of the custom thumb
     const thumbPosition = (audioPosition / audioDuration) * sliderWidth;
 
-    const handleTranslateParagraph = async (index) => {
-        if (!paragraphs[index]) return;
-    
+    // New function to call translateAudioText API
+    const translateAudioText = async (language) => {
         try {
-            const data = await audioService.translateText(
-                paragraphs[index],
-                selectedLanguage,
-                azureKey,
-                region
-            );
+            setIsTranslating(true);
+            const response = await fetch('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/audio/translateAudioText', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    uid: uid,
+                    audioid: audioid,
+                    language: language
+                })
+            });
             
-            console.log('Paragraph Translation Response:', data);  // Log the response to check its structure
-    
-            // Check if the translation is available
-            if (data && data[0] && data[0].translations && data[0].translations[0]) {
-                const translation = data[0].translations[0].text;
-    
-                setTranslations((prev) => {
-                    const updatedTranslations = [...prev];
-                    updatedTranslations[index] = translation;
-                    return updatedTranslations;
-                });
+            const data = await response.json();
+            console.log('Translation API Response:', data);
+            
+            if (data.success && data.status === 'completed') {
+                // Refresh available translations after successful translation
+                await fetchExistingTranslations();
+                return true;
             } else {
-                console.error('Translation data is not in the expected format:', data);
+                console.error('Translation failed:', data);
+                return false;
             }
         } catch (error) {
-            console.error('Translation error:', error);
+            console.error('Translation API error:', error);
+            return false;
+        } finally {
+            setIsTranslating(false);
+        }
+    };
+
+    // Function to fetch existing translations
+    const fetchExistingTranslations = async () => {
+        try {
+            // This would be a GET API call to fetch existing translations
+            // For now, we'll implement the logic to handle the response structure
+            const response = await fetch(`https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/audio/getTranslations?uid=${uid}&audioid=${audioid}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                setAvailableTranslations(data.translations || {});
+                // Update transcription if available for selected language
+                if (data.translations && data.translations[selectedLanguage]) {
+                    setTranscription(data.translations[selectedLanguage].transcription || []);
+                }
+            }
+        } catch (error) {
+            console.error('Error fetching translations:', error);
+        }
+    };
+
+    // Function to edit word data
+    const editWordData = async (wordIndex, newWord, newPunctuatedWord) => {
+        try {
+            const uid = await AsyncStorage.getItem('uid');
+            const response = await fetch('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/audio/editWordData', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    uid: uid,
+                    audioId: audioId,
+                    wordIndex: wordIndex,
+                    newWord: newWord,
+                    newPunctuatedWord: newPunctuatedWord
+                }),
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                console.log('Word data updated successfully:', data);
+                return data; // Return the updated data from server
+            } else {
+                console.error('Failed to update word data:', response.status);
+                return false;
+            }
+        } catch (error) {
+            console.error('Error updating word data:', error);
+            return false;
+        }
+    };
+
+    // Function to open word edit modal
+    const openWordEditModal = (wordData, paraIndex, wordIndex) => {
+        setEditingWordData({ ...wordData, paraIndex, wordIndex });
+        setEditedWord(wordData.word || '');
+        setEditedPunctuatedWord(wordData.punctuated_word || '');
+        setIsWordEditModalVisible(true);
+    };
+
+    // Function to close word edit modal
+    const closeWordEditModal = () => {
+        setIsWordEditModalVisible(false);
+        setEditingWordData(null);
+        setEditedWord('');
+        setEditedPunctuatedWord('');
+    };
+
+    // Function to save edited word
+    const saveEditedWord = async () => {
+        if (!editingWordData) return;
+
+        const result = await editWordData(
+            editingWordData.wordIndex,
+            editedWord,
+            editedPunctuatedWord
+        );
+
+        if (result && result !== false) {
+            // Update the local word data with original values preserved
+            const updatedWordTimings = [...wordTimings];
+            if (updatedWordTimings[editingWordData.paraIndex] && 
+                updatedWordTimings[editingWordData.paraIndex].words[editingWordData.wordIndex]) {
+                const currentWord = updatedWordTimings[editingWordData.paraIndex].words[editingWordData.wordIndex];
+                updatedWordTimings[editingWordData.paraIndex].words[editingWordData.wordIndex] = {
+                    ...currentWord,
+                    word: editedWord,
+                    punctuated_word: editedPunctuatedWord,
+                    original_word: currentWord.original_word || currentWord.word,
+                    original_punctuated_word: currentWord.original_punctuated_word || currentWord.punctuated_word
+                };
+                setWordTimings(updatedWordTimings);
+            }
+
+            // Update translations if available
+            if (translatedData[selectedLanguage] && translatedData[selectedLanguage].words) {
+                const updatedTranslatedData = { ...translatedData };
+                if (updatedTranslatedData[selectedLanguage].words[editingWordData.wordIndex]) {
+                    const currentTranslatedWord = updatedTranslatedData[selectedLanguage].words[editingWordData.wordIndex];
+                    updatedTranslatedData[selectedLanguage].words[editingWordData.wordIndex] = {
+                        ...currentTranslatedWord,
+                        word: editedWord,
+                        punctuated_word: editedPunctuatedWord,
+                        original_word: currentTranslatedWord.original_word || currentTranslatedWord.word,
+                        original_punctuated_word: currentTranslatedWord.original_punctuated_word || currentTranslatedWord.punctuated_word
+                    };
+                    setTranslatedData(updatedTranslatedData);
+                }
+            }
+
+            closeWordEditModal();
+            Alert.alert('Success', 'Word updated successfully!');
+        } else {
+            Alert.alert('Error', 'Failed to update word. Please try again.');
+        }
+    };
+
+    const handleTranslateParagraph = async (index) => {
+         // This function is now simplified since we handle full audio translation
+         // Check if translation exists for selected language
+         if (availableTranslations[selectedLanguage]) {
+             // Translation already exists, use it
+             return;
+         } else {
+             // Need to translate, call the API
+             await translateAudioText(selectedLanguage);
+         }
+     };
+
+    const handleVideoSubtitleTranslation = async (targetLanguage = null) => {
+        try {
+            setIsVideoTranslating(true);
+            
+            // Check if we have wordsData to translate
+            if (!wordsData || wordsData.length === 0) {
+                Alert.alert('No Subtitles', 'No subtitle data available to translate.');
+                setIsVideoTranslating(false);
+                return;
+            }
+
+            // Use the provided language or fall back to the state variable
+            const languageToUse = targetLanguage || videoTranslationLanguage;
+            console.log('Translating all words to language:', languageToUse);
+
+            // Translate all words from wordsData at once
+            const translatedWordsData = [];
+            
+            for (const word of wordsData) {
+                try {
+                    const wordText = word.punctuated_word || word.word;
+                    const data = await audioService.translateText(
+                        wordText,
+                        languageToUse,
+                        azureKey,
+                        region
+                    );
+                    
+                    // Check if the translation is available
+                    if (data && data[0] && data[0].translations && data[0].translations[0]) {
+                        const translatedWord = data[0].translations[0].text;
+                        translatedWordsData.push({
+                            ...word,
+                            translatedWord: translatedWord
+                        });
+                    } else {
+                        // If translation fails for a word, keep the original
+                        translatedWordsData.push({
+                            ...word,
+                            translatedWord: wordText
+                        });
+                    }
+                } catch (wordError) {
+                    console.error('Error translating word:', word.word, wordError);
+                    // If translation fails for a word, keep the original
+                    const wordText = word.punctuated_word || word.word;
+                    translatedWordsData.push({
+                        ...word,
+                        translatedWord: wordText
+                    });
+                }
+            }
+            
+            console.log('Video subtitle translation completed for', translatedWordsData.length, 'words to language:', languageToUse);
+            setAllTranslatedWords(translatedWordsData);
+            setShowVideoTranslations(true);
+            
+        } catch (error) {
+            console.error('Video subtitle translation error:', error);
+            Alert.alert('Translation Error', 'Failed to translate video subtitles. Please try again.');
+        } finally {
+            setIsVideoTranslating(false);
         }
     };
    
@@ -2070,6 +2381,17 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                 // Set key points and XML data
                 setKeypoints(data.key_points || '');
                 setXMLData(data.xml_data || '');
+                
+                // Process translated_data to extract available languages
+                if (data.translated_data && typeof data.translated_data === 'object') {
+                    const availableLanguageCodes = Object.keys(data.translated_data);
+                    console.log('Available translated languages:', availableLanguageCodes);
+                    setDynamicLanguages(availableLanguageCodes);
+                    setTranslatedData(data.translated_data); // Store full translated_data
+                } else {
+                    setDynamicLanguages([]);
+                    setTranslatedData({});
+                }
                 
                 // Only cache the data if transcription is not empty and not showing the placeholder message
                 if (transcriptionData && !isPlaceholderMessage && transcriptionData.trim() !== '') {
@@ -2214,22 +2536,10 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
     };
 
     const toggleTranscriptionVisibility = async () => {
-        // If turning on translations, check coins and deduct
+        // If turning on translations
         if (!isTranscriptionVisible) {
-            if (coinCount < 1) {
-                Alert.alert('Insufficient Coins', 'You need at least 1 coin to show translations.');
-                return;
-            }
-            
-            try {
-                await paymentService.subtractCoins(uid, 1, 'Show Translation');
-                // Note: coinCount will be automatically updated by useCoinsSubscription hook
-                setTranscriptionVisible(true);
-                paragraphs.forEach((_, index) => handleTranslateParagraph(index));
-            } catch (error) {
-                Alert.alert('Error', 'Failed to process payment. Please try again.');
-                console.error('Error deducting coins:', error);
-            }
+            setTranscriptionVisible(true);
+            paragraphs.forEach((_, index) => handleTranslateParagraph(index));
         } else {
             setTranscriptionVisible(false);
         }
@@ -2326,6 +2636,40 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
             <View style={styles.videoTouchOverlay} />
         </TouchableWithoutFeedback>
         
+        {/* Top Right Translate Button */}
+        <View style={styles.topRightControls}>
+            {/* Video Translation Toggle Button - Only visible after translation is complete */}
+            {allTranslatedWords.length > 0 && (
+                <TouchableOpacity 
+                    style={[styles.topRightButton, showVideoTranslations && { backgroundColor: 'rgba(0, 255, 0, 0.3)' }]}
+                    onPress={() => setShowVideoTranslations(!showVideoTranslations)}
+                >
+                    <MaterialIcons 
+                        name="subtitles" 
+                        size={20} 
+                        color={showVideoTranslations ? "#00ff00" : "white"} 
+                    />
+                </TouchableOpacity>
+            )}
+            
+            {/* Video Translation Button */}
+            <TouchableOpacity 
+                style={[styles.topRightButton, isVideoTranslating && { backgroundColor: 'rgba(255, 165, 0, 0.3)' }]}
+                onPress={() => !isVideoTranslating && setIsVideoTranslationDropdownVisible(true)}
+                disabled={isVideoTranslating}
+            >
+                {isVideoTranslating ? (
+                    <ActivityIndicator size="small" color="orange" />
+                ) : (
+                    <MaterialIcons 
+                        name="translate" 
+                        size={20} 
+                        color={isVideoTranslating ? "orange" : "white"} 
+                    />
+                )}
+            </TouchableOpacity>
+        </View>
+        
         {/* Subtitle overlay with word highlighting */}
         {showSubtitles && currentSubtitleWords.length > 0 && (
             <Animated.View style={[
@@ -2335,25 +2679,39 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                     bottom: showVideoControls ? 80 : 15
                 }
             ]}>
-                <View style={styles.subtitleWordsContainer}>
-                    {currentSubtitleWords.map((word, index) => {
-                        const wordStart = parseFloat(word.start);
-                        const wordEnd = parseFloat(word.end);
-                        const isActive = videoPosition >= wordStart && videoPosition <= wordEnd;
-                        
-                        return (
-                            <Text
-                                key={`${word.start}-${index}`}
-                                style={[
-                                    styles.subtitleWord,
-                                    isActive && styles.activeSubtitleWord
-                                ]}
-                            >
-                                {word.word}{index < currentSubtitleWords.length - 1 ? ' ' : ''}
-                            </Text>
-                        );
-                    })}
+                {/* Original subtitles */}
+                <View>
+                    <Text style={styles.originalSubtitleText}>
+                        {currentSubtitleWords.map((word, index) => {
+                            const currentTime = videoPosition || 0;
+                            const isActive = word.start !== undefined && word.end !== undefined && 
+                                           currentTime >= parseFloat(word.start) && currentTime < parseFloat(word.end);
+                            return (
+                                <Text key={index} style={isActive ? styles.activeSubtitleWord : null}>
+                                    {word.word}{index < currentSubtitleWords.length - 1 ? ' ' : ''}
+                                </Text>
+                            );
+                        })}
+                    </Text>
                 </View>
+                
+                {/* Translated subtitles */}
+                {showVideoTranslations && videoTranslatedWords.length > 0 && (
+                    <View style={{ marginTop: 8 }}>
+                        <Text style={styles.translatedSubtitleText}>
+                            {videoTranslatedWords.map((word, index) => {
+                                const currentTime = videoPosition || 0;
+                                const isActive = word.start !== undefined && word.end !== undefined && 
+                                               currentTime >= parseFloat(word.start) && currentTime < parseFloat(word.end);
+                                return (
+                                    <Text key={index} style={isActive ? styles.activeTranslatedSubtitleWord : null}>
+                                        {word.translatedWord || word.word}{index < videoTranslatedWords.length - 1 ? ' ' : ''}
+                                    </Text>
+                                );
+                            })}
+                        </Text>
+                    </View>
+                )}
             </Animated.View>
         )}
         
@@ -2435,17 +2793,6 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                     {/* Right side controls */}
                     <View style={styles.rightControls}>
                         <TouchableOpacity 
-                            style={[styles.lockButton, persistentControls && { backgroundColor: 'rgba(255, 0, 0, 0.3)' }]}
-                            onPress={() => setPersistentControls(!persistentControls)}
-                        >
-                            <MaterialIcons 
-                                name={persistentControls ? "lock" : "lock-open"} 
-                                size={18} 
-                                color={persistentControls ? "#ff0000" : "white"} 
-                            />
-                        </TouchableOpacity>
-                        
-                        <TouchableOpacity 
                             style={styles.speedButton}
                             onPress={() => setIsVideoSpeedDropdownVisible(true)}
                         >
@@ -2480,6 +2827,45 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                                         videoPlaybackSpeed === speed && styles.selectedSpeedOptionText
                                     ]}>
                                         {speed}x
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </View>
+                </TouchableWithoutFeedback>
+            </Modal>
+        )}
+        
+        {/* Video Translation Language Dropdown Modal */}
+        {isVideoTranslationDropdownVisible && (
+            <Modal
+                transparent={true}
+                animationType="fade"
+                visible={isVideoTranslationDropdownVisible}
+                onRequestClose={() => setIsVideoTranslationDropdownVisible(false)}
+            >
+                <TouchableWithoutFeedback onPress={() => setIsVideoTranslationDropdownVisible(false)}>
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.speedPickerContainer}>
+                            <Text style={styles.modalText}>Select Translation Language</Text>
+                            {getMergedLanguages(dynamicLanguages).map((language) => (
+                                <TouchableOpacity
+                                    key={language.value}
+                                    style={[
+                                        styles.speedOption,
+                                        videoTranslationLanguage === language.value && styles.selectedSpeedOption
+                                    ]}
+                                    onPress={() => {
+                                        setVideoTranslationLanguage(language.value);
+                                        handleVideoSubtitleTranslation(language.value);
+                                        setIsVideoTranslationDropdownVisible(false);
+                                    }}
+                                >
+                                    <Text style={[
+                                        styles.speedOptionText,
+                                        videoTranslationLanguage === language.value && styles.selectedSpeedOptionText
+                                    ]}>
+                                        {language.label || getLanguageAbbreviation(language.value)}
                                     </Text>
                                 </TouchableOpacity>
                             ))}
@@ -2963,69 +3349,79 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                                     />
                                 ) : (
                                     index === currentWordIndex.paraIndex && wordTimings[index]?.words ? (
-                                        <Text style={[styles.paragraphText, {color: colors.text}]}>
+                                        <View style={styles.wordsContainer}>
                                             {wordTimings[index].words.map((wordData, wordIdx) => {
                                                 const word = wordData.punctuated_word || wordData.word;
                                                 return (
-                                                    <Text 
-                                                        key={wordIdx} 
-                                                        style={[wordIdx === currentWordIndex.wordIndex ? styles.highlightedWord : styles.word, {color: colors.text}]}
-                                                        onPress={() => {
-                                                            // Jump to this word's timestamp when clicked
-                                                            if (wordData.start !== undefined) {
-                                                                const newPosition = wordData.start;
-                                                                
-                                                                // Handle video player seeking
-                                                                if (videoUrl && videoRef.current) {
-                                                                    videoRef.current.seek(newPosition);
-                                                                    setVideoPosition(newPosition);
-                                                                }
-                                                                
-                                                                // Handle audio player seeking
-                                                                if (sound && audioUrl) {
-                                                                    sound.setCurrentTime(newPosition);
-                                                                    setAudioPosition(newPosition);
+                                                    <View key={wordIdx} style={styles.wordContainer}>
+                                                        <Text 
+                                                            style={[wordIdx === currentWordIndex.wordIndex ? styles.highlightedWord : styles.word, {color: colors.text}]}
+                                                            onPress={() => {
+                                                                // Jump to this word's timestamp when clicked
+                                                                if (wordData.start !== undefined) {
+                                                                    const newPosition = wordData.start;
                                                                     
-                                                                    // If audio is playing, ensure the wave animation is also playing
-                                                                    if (isAudioPlaying && waveAnimationRef.current) {
-                                                                        waveAnimationRef.current.play();
+                                                                    // Handle video player seeking
+                                                                    if (videoUrl && videoRef.current) {
+                                                                        videoRef.current.seek(newPosition);
+                                                                        setVideoPosition(newPosition);
                                                                     }
+                                                                    
+                                                                    // Handle audio player seeking
+                                                                    if (sound && audioUrl) {
+                                                                        sound.setCurrentTime(newPosition);
+                                                                        setAudioPosition(newPosition);
+                                                                        
+                                                                        // If audio is playing, ensure the wave animation is also playing
+                                                                        if (isAudioPlaying && waveAnimationRef.current) {
+                                                                            waveAnimationRef.current.play();
+                                                                        }
+                                                                    }
+                                                                    
+                                                                    console.log("User clicked word - explicitly overriding manual scroll");
+                                                                    // EXPLICIT USER ACTION: We should override manual scroll
+                                                                    // and reset all scroll-blocking flags since user explicitly
+                                                                    // wants to jump to this position
+                                                                    setIsUserScrolling(false);
+                                                                    hasUserScrolledRef.current = false;
+                                                                    isScrollingRef.current = false;
+                                                                    
+                                                                    // Cancel any pending reset of user scrolling state
+                                                                    if (userScrollTimeoutRef.current) {
+                                                                        clearTimeout(userScrollTimeoutRef.current);
+                                                                    }
+                                                                    
+                                                                    // Force seeking state for immediate scroll
+                                                                    setIsSeeking(true);
+                                                                    
+                                                                    // Trigger progress update to update highlighted paragraph
+                                                                    onAudioProgress({
+                                                                        currentTime: newPosition,
+                                                                        duration: videoUrl ? videoDuration : audioDuration
+                                                                    });
+                                                                    
+                                                                    // Reset seeking state after a short delay
+                                                                    setTimeout(() => {
+                                                                        setIsSeeking(false);
+                                                                    }, 100);
                                                                 }
-                                                                
-                                                                console.log("User clicked word - explicitly overriding manual scroll");
-                                                                // EXPLICIT USER ACTION: We should override manual scroll
-                                                                // and reset all scroll-blocking flags since user explicitly
-                                                                // wants to jump to this position
-                                                                setIsUserScrolling(false);
-                                                                hasUserScrolledRef.current = false;
-                                                                isScrollingRef.current = false;
-                                                                
-                                                                // Cancel any pending reset of user scrolling state
-                                                                if (userScrollTimeoutRef.current) {
-                                                                    clearTimeout(userScrollTimeoutRef.current);
-                                                                }
-                                                                
-                                                                // Force seeking state for immediate scroll
-                                                                setIsSeeking(true);
-                                                                
-                                                                // Trigger progress update to update highlighted paragraph
-                                                                onAudioProgress({
-                                                                    currentTime: newPosition,
-                                                                    duration: videoUrl ? videoDuration : audioDuration
-                                                                });
-                                                                
-                                                                // Reset seeking state after a short delay
-                                                                setTimeout(() => {
-                                                                    setIsSeeking(false);
-                                                                }, 100);
-                                                            }
-                                                        }}
-                                                    >
-                                                        {word}{' '}
-                                                    </Text>
+                                                            }}
+                                                        >
+                                                            {word}{' '}
+                                                        </Text>
+                                                        <TouchableOpacity 
+                                                            style={styles.wordEditButton}
+                                                            onPress={() => openWordEditModal(wordData, index, wordIdx)}
+                                                        >
+                                                            <Image 
+                                                                source={require('../assets/pencil.png')} 
+                                                                style={styles.wordEditIcon} 
+                                                            />
+                                                        </TouchableOpacity>
+                                                    </View>
                                                 );
                                             })}
-                                        </Text>
+                                        </View>
                                     ) : (
                                         <Text style={[
                                             styles.paragraphText,
@@ -3049,17 +3445,59 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                                     />
                                 </TouchableOpacity>
                             )}
-                            {isTranscriptionVisible && translations[index] && (
-                                <Text style={styles.translatedText}>{translations[index]}</Text>
+                            {isTranscriptionVisible && (
+                                translatedData[selectedLanguage] && translatedData[selectedLanguage].words ? (
+                                    <View style={styles.wordsContainer}>
+                                        {translatedData[selectedLanguage].words.map((wordData, wordIdx) => {
+                                            const translatedWord = wordData.punctuated_word || wordData.word;
+                                            return (
+                                                <View key={wordIdx} style={styles.wordContainer}>
+                                                    <Text 
+                                                        style={[styles.translatedText, {color: colors.text}]}
+                                                        onPress={() => {
+                                                            // Jump to this word's timestamp when clicked
+                                                            if (wordData.start !== undefined) {
+                                                                const newPosition = wordData.start;
+                                                                
+                                                                // Handle video player seeking
+                                                                if (videoUrl && videoRef.current) {
+                                                                    videoRef.current.seek(newPosition);
+                                                                    setVideoPosition(newPosition);
+                                                                }
+                                                                
+                                                                // Handle audio player seeking
+                                                                if (audioUrl && soundRef.current) {
+                                                                    soundRef.current.setCurrentTime(newPosition);
+                                                                    setCurrentTime(newPosition);
+                                                                }
+                                                            }
+                                                        }}
+                                                    >
+                                                        {translatedWord}
+                                                    </Text>
+                                                    <TouchableOpacity
+                                                        onPress={() => openWordEditModal(wordData, index, wordIdx)}
+                                                        style={styles.wordEditButton}
+                                                    >
+                                                        <Image
+                                                            source={require('../assets/pencil.png')}
+                                                            style={styles.wordEditIcon}
+                                                        />
+                                                    </TouchableOpacity>
+                                                </View>
+                                            );
+                                        })}
+                                    </View>
+                                ) : translations[index] ? (
+                                    <Text style={styles.translatedText}>{translations[index]}</Text>
+                                ) : null
                             )}
                         </View>
                     ))}
                     
                     {/* Bottom margin with thank you message */}
                     <View style={styles.bottomMarginContainer}>
-                        <Text style={styles.thankYouText}>
-                            Thank you for using Matrix AI transcription services ❤️
-                        </Text>
+                       
                     </View>
                 </ScrollView>
             )}
@@ -3175,44 +3613,40 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                 
                 {/* Language Dropdown */}
                 <View style={styles.pickerContainer2}>
-             
-             <TouchableOpacity onPress={() => setShowDropdown(!showDropdown)} >
-             <LinearGradient
-                            colors={['#13EF97', '#1D8EC4']} // Gradient colors
-                            style={styles.gradientButton} // Use a new style for the gradient
-                            start={{ x: 1, y: 0 }}
-                            end={{ x: 0, y: 0 }}
-                        >
-             <Text style={styles.dropdownButtonText}>
-               {languages.find(lang => lang.value === selectedLanguage)?.label || 'Select'}
-             </Text>
-             </LinearGradient>
-         </TouchableOpacity>
-
-         {/* Custom Dropdown Modal */}
-         <Modal
-  transparent={true}
-  animationType="slide"
-  visible={showDropdown}
-  onRequestClose={() => setShowDropdown(false)}
->
-  <TouchableWithoutFeedback onPress={() => setShowDropdown(false)}>
-    <View style={styles.modalOverlay}>
-        <View style={styles.pickerContainer}>
-        <Picker
-        selectedValue={selectedLanguage}
-        style={styles.picker}
-        itemStyle={styles.pickerItem}
-        onValueChange={(itemValue) => handleSelectLanguage(itemValue)}
-    >
-        {languages.map((lang) => (
-            <Picker.Item key={lang.value} label={lang.label} value={lang.value} />
-        ))}
-    </Picker>
-                    </View>
-    </View>
-  </TouchableWithoutFeedback>
-</Modal>
+         {/* AI-styled DropDown */}
+         <DropDownPicker
+             open={showDropdown}
+             value={selectedLanguage}
+             items={getMergedLanguages(dynamicLanguages).map(lang => ({
+                 label: lang.label || getLanguageAbbreviation(lang.value),
+                 value: lang.value
+             }))}
+             setOpen={setShowDropdown}
+             setValue={setSelectedLanguage}
+             setItems={() => {}} // merged languages array
+             onChangeValue={(value) => {
+                 if (value) {
+                     handleSelectLanguage(value);
+                 }
+             }}
+             style={styles.aiDropdownStyle}
+             dropDownContainerStyle={styles.aiDropdownContainer}
+             textStyle={styles.aiDropdownText}
+             labelStyle={styles.aiDropdownLabel}
+             selectedItemLabelStyle={styles.aiSelectedItemLabel}
+             selectedItemContainerStyle={styles.aiSelectedItemContainer}
+             itemSeparator={true}
+             itemSeparatorStyle={styles.aiItemSeparator}
+             showArrowIcon={true}
+             showTickIcon={true}
+             arrowIconStyle={styles.aiArrowIcon}
+             tickIconStyle={styles.aiTickIcon}
+             placeholder="Select Language"
+             placeholderStyle={styles.aiPlaceholder}
+             searchable={false}
+             zIndex={3000}
+             zIndexInverse={1000}
+         />
             </View>
                 <Switch
                     value={isTranscriptionVisible}
@@ -3258,6 +3692,54 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                 isDarkMode={colors.isDarkMode}
                 uid={uid}
             />
+
+            {/* Word Edit Modal */}
+            <Modal
+                visible={isWordEditModalVisible}
+                transparent={true}
+                animationType="slide"
+                onRequestClose={closeWordEditModal}
+            >
+                <View style={styles.modalContainer}>
+                    <View style={[styles.modalContent, {backgroundColor: colors.background}]}>
+                        <Text style={[styles.modalText, {color: colors.text}]}>Edit Word</Text>
+                        
+                        <Text style={[styles.languageLabel, {color: colors.text}]}>Word:</Text>
+                        <TextInput
+                            style={[styles.textInput, {color: colors.text, borderBottomColor: colors.text}]}
+                            value={editedWord}
+                            onChangeText={setEditedWord}
+                            placeholder="Enter word"
+                            placeholderTextColor={colors.text + '80'}
+                        />
+                        
+                        <Text style={[styles.languageLabel, {color: colors.text, marginTop: 15}]}>Punctuated Word:</Text>
+                        <TextInput
+                            style={[styles.textInput, {color: colors.text, borderBottomColor: colors.text}]}
+                            value={editedPunctuatedWord}
+                            onChangeText={setEditedPunctuatedWord}
+                            placeholder="Enter punctuated word"
+                            placeholderTextColor={colors.text + '80'}
+                        />
+                        
+                        <View style={{flexDirection: 'row', justifyContent: 'space-between', marginTop: 20}}>
+                            <TouchableOpacity 
+                                style={[styles.closeButton, {backgroundColor: '#666', flex: 0.45}]}
+                                onPress={closeWordEditModal}
+                            >
+                                <Text style={styles.closeButtonText}>Cancel</Text>
+                            </TouchableOpacity>
+                            
+                            <TouchableOpacity 
+                                style={[styles.closeButton, {backgroundColor: '#007BFF', flex: 0.45}]}
+                                onPress={saveEditedWord}
+                            >
+                                <Text style={styles.closeButtonText}>Save</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
 
             {/* Display the Mind Map if it's toggled on */}
             {isLoading ? (
@@ -3347,6 +3829,12 @@ const styles = StyleSheet.create({
     pickerItem: {
         color: '#000000',
     },
+
+    coinIcon:{
+        width: 20,
+        height: 20,
+        marginRight: 10,
+    },
     
     mask: {
         position: 'absolute',
@@ -3418,12 +3906,13 @@ const styles = StyleSheet.create({
         flexWrap: 'wrap',
         justifyContent: 'center',
         alignItems: 'center',
+        overflow: 'hidden',
     },
     subtitleWord: {
         color: '#fff',
-        fontSize: 16,
-        lineHeight: 24,
-        marginHorizontal: 1,
+        fontSize: 14,
+        lineHeight: 20,
+        marginHorizontal: 2,
         textShadowColor: 'rgba(0, 0, 0, 0.8)',
         textShadowOffset: { width: 1, height: 1 },
         textShadowRadius: 2,
@@ -3431,14 +3920,60 @@ const styles = StyleSheet.create({
     activeSubtitleWord: {
         color: '#FFD700',
         fontWeight: 'bold',
+        fontSize: 14,
+        lineHeight: 20,
         backgroundColor: 'rgba(255, 215, 0, 0.3)',
         borderRadius: 6,
-        paddingHorizontal: 4,
-        paddingVertical: 2,
-        marginHorizontal: 1,
+        paddingHorizontal: 2,
+        paddingVertical: 1,
         textShadowColor: 'rgba(0, 0, 0, 0.9)',
         textShadowOffset: { width: 1, height: 1 },
         textShadowRadius: 3,
+    },
+    translatedSubtitleWord: {
+        color: '#87CEEB',
+        fontSize: 12,
+        lineHeight: 18,
+        marginHorizontal: 0,
+        textShadowColor: 'rgba(0, 0, 0, 0.8)',
+        textShadowOffset: { width: 1, height: 1 },
+        textShadowRadius: 2,
+        fontStyle: 'italic',
+    },
+    activeTranslatedSubtitleWord: {
+        color: '#00BFFF',
+        fontWeight: 'bold',
+        fontSize: 12,
+        lineHeight: 18,
+        backgroundColor: 'rgba(0, 191, 255, 0.3)',
+        borderRadius: 6,
+        paddingHorizontal: 2,
+        paddingVertical: 1,
+        textShadowColor: 'rgba(0, 0, 0, 0.9)',
+        textShadowOffset: { width: 1, height: 1 },
+        textShadowRadius: 3,
+        fontStyle: 'italic',
+    },
+    translatedSubtitleText: {
+        color: '#87CEEB',
+        fontSize: 12,
+        lineHeight: 18,
+        textAlign: 'center',
+        textShadowColor: 'rgba(0, 0, 0, 0.8)',
+        textShadowOffset: { width: 1, height: 1 },
+        textShadowRadius: 2,
+        fontStyle: 'italic',
+        flexWrap: 'wrap',
+    },
+    originalSubtitleText: {
+        color: '#fff',
+        fontSize: 14,
+        lineHeight: 20,
+        textAlign: 'center',
+        textShadowColor: 'rgba(0, 0, 0, 0.8)',
+        textShadowOffset: { width: 1, height: 1 },
+        textShadowRadius: 2,
+        flexWrap: 'wrap',
     },
     // YouTube-like Video Controls Styles
     youtubeVideoControlsContainer: {
@@ -3501,7 +4036,26 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255, 255, 255, 0.1)',
         borderRadius: 18,
         padding: 8,
-        marginHorizontal: 3,
+        marginLeft: 8,
+    },
+    topRightControls: {
+        position: 'absolute',
+        top: 15,
+        right: 15,
+        flexDirection: 'row',
+        alignItems: 'center',
+        zIndex: 3,
+    },
+    topRightButton: {
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        borderRadius: 20,
+        padding: 8,
+        marginLeft: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 3,
+        elevation: 3,
     },
     settingsButton: {
         backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -4098,7 +4652,7 @@ zIndex:101,
         
     },
     pickerContainer2: {
-        width: '40%',
+        width: '30%',
       
     },
     languageSelector: {
@@ -4441,12 +4995,7 @@ generateMindMapButton: {
 },
 
 
-    coinIcon: {
-        width: 20,
-        height: 20,
-      
-        resizeMode: 'contain',
-    },
+
     generateButtonText: {
         color: '#fff',
         fontSize: 16,
@@ -4466,7 +5015,7 @@ generateMindMapButton: {
         textAlign: 'center',
     },
     bottomMarginContainer: {
-        marginTop: 100,
+        marginTop: 150,
         paddingHorizontal: 16,
         paddingBottom: 10,
     },
@@ -4476,6 +5025,83 @@ generateMindMapButton: {
         opacity: 0.3,
         textAlign: 'left',
         fontWeight: 'bold',
+    },
+    // AI-styled dropdown styles
+    aiDropdownStyle: {
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        borderColor: '#13EF97',
+        borderWidth: 2,
+        borderRadius: 12,
+        minHeight: 45,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 8,
+    },
+    aiDropdownContainer: {
+        backgroundColor: 'rgba(255, 255, 255, 0.98)',
+        borderColor: '#13EF97',
+        borderWidth: 2,
+        borderRadius: 12,
+        marginTop: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.2,
+        shadowRadius: 12,
+        elevation: 12,
+        maxHeight: 200,
+    },
+    aiDropdownText: {
+        fontSize: 14,
+        color: '#333',
+        fontWeight: '500',
+    },
+    aiDropdownLabel: {
+        fontSize: 14,
+        color: '#333',
+        fontWeight: '500',
+    },
+    aiSelectedItemLabel: {
+        color: '#1D8EC4',
+        fontWeight: '600',
+    },
+    aiSelectedItemContainer: {
+        backgroundColor: 'rgba(19, 239, 151, 0.1)',
+    },
+    aiItemSeparator: {
+        backgroundColor: 'rgba(19, 239, 151, 0.3)',
+        height: 1,
+    },
+    aiArrowIcon: {
+        tintColor: '#1D8EC4',
+    },
+    aiTickIcon: {
+        tintColor: '#13EF97',
+    },
+    aiPlaceholder: {
+        color: '#999',
+        fontSize: 14,
+        fontStyle: 'italic',
+    },
+    wordsContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+    },
+    wordContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginRight: 2,
+    },
+    wordEditButton: {
+        marginLeft: 2,
+        padding: 2,
+    },
+    wordEditIcon: {
+        width: 12,
+        height: 12,
+        opacity: 0.6,
     },
 }); 
 

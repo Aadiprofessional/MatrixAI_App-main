@@ -215,7 +215,7 @@ const HomeScreen = () => {
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: getBgColor() }]}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background}]}>
       <StatusBar barStyle={currentTheme === 'dark' ? "light-content" : "dark-content"} backgroundColor="transparent" translucent />
       
       {/* Fixed header with blur effect */}

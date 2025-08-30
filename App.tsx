@@ -80,8 +80,8 @@ import FeedbackScreen from './screens/FeedbackScreen.js';
 
 
 import PaymentSuccessScreen from './screens/coins/PaymentSuccess.js';
-import AntomPaymentScreen from './screens/coins/AntomPaymentScreen';
-import PaymentWebView from './screens/coins/PaymentWebView';
+import AirwallexPaymentScreen from './screens/coins/AirwallexPaymentScreen';
+import AirwallexWebView from './screens/coins/AirwallexWebView';
 
 
 // Import the LanguageProvider
@@ -635,13 +635,13 @@ const App = () => {
                                         options={{ headerShown: false }} 
                                     />
                                     <Stack.Screen 
-                                        name="AntomPaymentScreen" 
-                                        component={AntomPaymentScreen} 
+                                        name="AirwallexPaymentScreen" 
+                                        component={AirwallexPaymentScreen} 
                                         options={{ headerShown: false }} 
                                     />
                                     <Stack.Screen 
-                                        name="PaymentWebView" 
-                                        component={PaymentWebView} 
+                                        name="AirwallexWebView" 
+                                        component={AirwallexWebView} 
                                         options={{ headerShown: false }} 
                                     />
                                     <Stack.Screen 
