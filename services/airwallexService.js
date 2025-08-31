@@ -1,6 +1,6 @@
 class AirwallexService {
   constructor() {
-    this.baseURL = 'http://localhost:3002';
+    this.baseURL = 'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run';
     this.airwallexBaseURL = 'https://api-demo.airwallex.com';
     this.clientId = 'HlF-odCfT-OIf1s3nLgV8A';
     this.apiKey = '8e7c2b82271d5d9715b9ed2fbd70cec8e2e41b11171a1fca45690df0074299aebd4a07e79e7b3f2c399ba579d5d20ae1';

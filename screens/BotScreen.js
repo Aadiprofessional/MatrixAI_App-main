@@ -296,133 +296,141 @@ const persistEvent = (event) => {
 const renderTextWithMath = (text, textStyle) => {
   if (!text) return null;
   
-  // Process the text to handle math3 tags first
+  // Process text for special cases before splitting
   let processedText = text;
-  let components = [];
-  let lastIndex = 0;
   
-  // Find all math3 tags in the text
-  const math3Regex = /<math3>([\s\S]*?)<\/math3>/g;
-  let match;
+  // Handle binomial coefficients with various formats
+  // Format: \binom{n}{k}
+  processedText = processedText.replace(/\\binom\{(\d+)\}\{(\d+)\}/g, '\\(\\binom{$1}{$2}\\)');
   
-  while ((match = math3Regex.exec(processedText)) !== null) {
-    // Add text before the math3 tag
-    if (match.index > lastIndex) {
-      const textBefore = processedText.substring(lastIndex, match.index);
-      components.push(
-        <Text key={`text-${lastIndex}`} style={textStyle}>
-          {textBefore}
-        </Text>
+  // Format: \(\binom{n}{k}\)
+  processedText = processedText.replace(/\\\(\s*\\binom\{(\d+)\}\{(\d+)\}\s*\\\)/g, '\\(\\binom{$1}{$2}\\)');
+  
+  // Format: \\(\\binom{n}{k}\\)
+  processedText = processedText.replace(/\\\\\(\s*\\\\binom\{(\d+)\}\{(\d+)\}\s*\\\\\)/g, '\\(\\binom{$1}{$2}\\)');
+  
+  // Handle binomial notation with parentheses like (n k)
+  processedText = processedText.replace(/\\\(\s*\\?\(\\?(\d+)\\?\s*\\?(\d+)\\?\)\s*\\\)/g, '\\(\\binom{$1}{$2}\\)');
+  
+  // Handle Pascal's Triangle and tables by wrapping them in special math tags
+  if (text.includes('Pascal') && text.includes('Triangle')) {
+    // Find potential Pascal's Triangle content and wrap it
+    const triangleMatch = text.match(/Here are the first few rows of Pascal's Triangle:([\s\S]*?)(?=\n\n|$)/);
+    if (triangleMatch && triangleMatch[1]) {
+      const triangleContent = triangleMatch[1].trim();
+      processedText = processedText.replace(
+        triangleContent,
+        `<math3>\\begin{array}{ccccccc}${triangleContent
+          .replace(/\s+/g, ' & ')
+          .replace(/(\d+)\s*$/gm, '$1 \\\\')}\\end{array}</math3>`
       );
     }
-    
-    // Add the math3 content
-    const mathContent = match[1]; // The content inside the math3 tags
-    components.push(
-      <View key={`math3-${match.index}`} style={styles.mathContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <MathView
-            math={mathContent}
-            style={{
-              fontSize: 18,
-              color: '#007AFF',
-              textAlign: 'center',
-              maxWidth: 350,
-              marginBottom: -5,
-            }}
-          />
-        </ScrollView>
-      </View>
-    );
-    
-    lastIndex = match.index + match[0].length;
   }
   
-  // Add any remaining text after the last math3 tag
-  if (lastIndex < processedText.length) {
-    const textAfter = processedText.substring(lastIndex);
-    
-    // Process other math tags in the remaining text
-    const parts = textAfter.split(/(\\\([^\)]*\\\)|\\\[[^\]]*\\\]|<math>[\s\S]*?<\/math>)/);
-    
-    parts.forEach((part, index) => {
-      try {
+  // Split text by both LaTeX expressions and custom math tags
+  const parts = processedText.split(/(\\\([^\)]*\\\)|\\\[[^\]]*\\\]|<math>[\s\S]*?<\/math>|<math3>[\s\S]*?<\/math3>)/);
+  
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', width: '100%', alignItems: 'flex-start' }}>
+      {parts.map((part, index) => {
+        // Check if this part is a LaTeX expression
         if (part.match(/^\\\([^\)]*\\\)$/)) {
           // Inline math expression
-          const inlineMathContent = part.slice(2, -2); // Remove \( and \)
-          components.push(
-            <View key={`inline-${lastIndex}-${index}`} style={styles.inlineMathContainer}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <MathView
-                  math={inlineMathContent}
-                  style={{
-                    fontSize: 16,
-                    color: '#007AFF',
-                    maxWidth: 300,
-                    marginBottom: -5,
-                  }}
-                />
-              </ScrollView>
+          const mathContent = part.slice(2, -2); // Remove \( and \)
+          return (
+            <View key={index} style={{ 
+              flexShrink: 0, 
+              marginHorizontal: 2, 
+              alignSelf: 'flex-start',
+              backgroundColor: 'rgba(40, 40, 40, 0.8)', 
+              borderRadius: 4, 
+              padding: 2 
+            }}>
+              <MathView
+                math={mathContent}
+                style={{
+                  fontSize: textStyle?.fontSize || 16,
+                  color: '#FFFFFF', // Force white color for math
+                }}
+              />
             </View>
           );
         } else if (part.match(/^\\\[[^\]]*\\\]$/)) {
           // Block math expression
-          const blockMathContent = part.slice(2, -2); // Remove \[ and \]
-          components.push(
-            <View key={`block-${lastIndex}-${index}`} style={styles.mathContainer}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <MathView
-                  math={blockMathContent}
-                  style={{
-                    fontSize: 18,
-                    color: '#007AFF',
-                    marginVertical: 8,
-                    textAlign: 'center',
-                    maxWidth: 350,
-                    marginBottom: -5,
-                  }}
-                />
-              </ScrollView>
+          const mathContent = part.slice(2, -2); // Remove \[ and \]
+          return (
+            <View key={index} style={{ 
+              width: '100%', 
+              alignSelf: 'flex-start', 
+              marginVertical: 8,
+              backgroundColor: 'rgba(40, 40, 40, 0.8)', 
+              borderRadius: 8, 
+              padding: 8 
+            }}>
+              <MathView
+                math={mathContent}
+                style={{
+                  fontSize: 18,
+                  color: '#FFFFFF', // Force white color for math
+                }}
+              />
             </View>
           );
         } else if (part.match(/^<math>[\s\S]*?<\/math>$/)) {
           // Custom inline math tag
           const mathContent = part.slice(6, -7); // Remove <math> and </math>
-          components.push(
-            <View key={`math-${lastIndex}-${index}`} style={styles.inlineMathContainer}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <MathView
-                  math={mathContent}
-                  style={{
-                    fontSize: 16,
-                    color: '#007AFF',
-                    maxWidth: 300,
-                    marginBottom: -5,
-                  }}
-                />
-              </ScrollView>
+          return (
+            <View key={index} style={{ 
+              flexShrink: 0, 
+              marginHorizontal: 2, 
+              alignSelf: 'flex-start',
+              backgroundColor: 'rgba(40, 40, 40, 0.8)', 
+              borderRadius: 4, 
+              padding: 2 
+            }}>
+              <MathView
+                math={mathContent}
+                style={{
+                  fontSize: textStyle?.fontSize || 16,
+                  color: '#FFFFFF', // Force white color for math
+                }}
+              />
             </View>
           );
-        } else if (part.trim()) {
-          // Regular text (only if not empty)
-          components.push(
-            <Text key={`text-${lastIndex}-${index}`} style={textStyle}>
+        } else if (part.match(/^<math3>[\s\S]*?<\/math3>$/)) {
+          // Custom display math tag
+          const mathContent = part.slice(7, -8); // Remove <math3> and </math3>
+          return (
+            <View key={index} style={{ 
+              width: '100%', 
+              alignSelf: 'flex-start', 
+              marginVertical: 8,
+              backgroundColor: 'rgba(40, 40, 40, 0.8)', 
+              borderRadius: 8, 
+              padding: 8 
+            }}>
+              <MathView
+                math={mathContent}
+                style={{
+                  fontSize: 18,
+                  color: '#FFFFFF', // Force white color for math
+                }}
+              />
+            </View>
+          );
+        } else if (part) {
+          // Regular text
+          return (
+            <Text key={index} style={[textStyle, { flexShrink: 1, flexWrap: 'wrap' }]}>
               {part}
             </Text>
           );
+        } else {
+          return null;
         }
-      } catch (error) {
-        console.warn('Error rendering math content:', error);
-        components.push(
-          <Text key={`error-${lastIndex}-${index}`} style={textStyle}>
-            {part}
-          </Text>
-        );
-      }
-    });
-  }
-  
-  return components.length > 0 ? components : <Text style={textStyle}>{text}</Text>;
+      })}
+    </View>
+  );
 };
   // Helper function to check if text contains math expressions
 
@@ -877,12 +885,12 @@ const renderTextWithMath = (text, textStyle) => {
             setSelectedImage(null);
             setInputText('');
 
-            // Save user's message to chat history
-            await saveChatHistory(JSON.stringify({
-              type: 'image_message',
-              image: imageUrl,
-              text: captionText
-            }), 'user');
+            // Commented out saving logic as requested
+            // await saveChatHistory(JSON.stringify({
+            //   type: 'image_message',
+            //   image: imageUrl,
+            //   text: captionText
+            // }), 'user');
 
             // Create a streaming bot message that will be updated in real-time
             const streamingMessageId = 'streaming-' + Date.now().toString();
@@ -920,8 +928,8 @@ const renderTextWithMath = (text, textStyle) => {
                 : msg
             ));
             
-            // Save the bot response to chat history
-            await saveChatHistory(fullResponse, 'bot', 1);
+            // Commented out saving logic as requested
+            // await saveChatHistory(fullResponse, 'bot', 1);
 
             // Show success feedback
             Toast.show({
@@ -1002,8 +1010,8 @@ const renderTextWithMath = (text, textStyle) => {
             
             // Removed auto-scroll after sending message to prevent unwanted scrolling
 
-            // Save the user's message to Supabase
-            await saveChatHistory(inputText, 'user');
+            // Commented out saving logic as requested
+            // await saveChatHistory(inputText, 'user');
             
             // Process the message with an AI service
             await fetchDeepSeekResponse(inputText);
@@ -1648,11 +1656,8 @@ const renderTextWithMath = (text, textStyle) => {
                           },
                           text: (node, children, parent, styles) => {
   const textStyle = [styles.text, {color: isBot ? colors.botText : '#fff'}];
-  return (
-    <View key={node.key} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-      {renderTextWithMath(node.content, textStyle)}
-    </View>
-  );
+  // Simple text rendering without complex containers
+  return renderTextWithMath(node.content, textStyle);
 }
                         }}
                       >
@@ -1674,16 +1679,7 @@ const renderTextWithMath = (text, textStyle) => {
                 </Animatable.View>
               </TouchableOpacity>
               
-              {/* Coin cost indicator for user messages - only show when coins were recently deducted */}
-              {isUser && recentCoinDeductions.has(item.id) && (
-                <View style={styles.coinIndicator}>
-                  <Image 
-                    source={require('../assets/coin.png')} 
-                    style={styles.coinIcon} 
-                  />
-                  <Text style={styles.coinText}>-{item.image ? '2' : '1'}</Text>
-                </View>
-              )}
+              {/* Coin display removed as requested */}
               
               {/* Message action buttons - now outside the bubble */}
               <View style={[
@@ -1900,6 +1896,16 @@ const renderTextWithMath = (text, textStyle) => {
         console.log('About to query user_chats table with userId:', userId);
         
         // Fetch all chats for the current user, ordered by most recent
+        // Commented out database fetch to prevent errors with non-existent table
+        // Create a new chat directly instead of trying to fetch from database
+        const newChatId = Date.now().toString();
+        console.log('Creating new chat with ID:', newChatId);
+        startNewChat(newChatId);
+        setDataLoaded(true);
+        setIsChatsLoading(false);
+        return;
+        
+        /* Commented out to prevent errors with non-existent table
         const { data: userChats, error: chatError } = await supabase
           .from('user_chats')
           .select('*')
@@ -1922,6 +1928,7 @@ const renderTextWithMath = (text, textStyle) => {
           setIsChatsLoading(false);
           return;
         }
+        */
         
         console.log('=== PROCESSING FETCHED CHATS ===');
         // Process the chats to match the local state format and ensure messages is an array
@@ -2175,6 +2182,14 @@ const renderTextWithMath = (text, textStyle) => {
     try {
       console.log('Debounced fetch for user:', userId);
       
+      // Commented out database fetch to prevent errors
+      // Create a new chat instead of fetching from database
+      const newChatId = Date.now().toString();
+      startNewChat(newChatId);
+      setDataLoaded(true);
+      return;
+      
+      /* Commented out to prevent errors with non-existent table
       // Fetch chats with limit to reduce initial load
       const { data: userChats, error: chatError } = await supabase
         .from('user_chats')
@@ -2190,6 +2205,7 @@ const renderTextWithMath = (text, textStyle) => {
         setDataLoaded(true);
         return;
       }
+      */
       
       // Process chats with message limit
       const processedChats = userChats.map(chat => {
@@ -3307,7 +3323,7 @@ const renderTextWithMath = (text, textStyle) => {
                 // Pagination for loading older messages
                 onEndReached={handleScrollToTop}
                 onEndReachedThreshold={0.1}
-                inverted={true} // Invert to load older messages at top
+                inverted={false} // Display messages in chronological order
                 ListHeaderComponent={isLoadingOlderMessages ? (
                   <View style={styles.loadingOlderContainer}>
                     <ActivityIndicator size="small" color="#4C8EF7" />
@@ -4234,15 +4250,17 @@ const styles = StyleSheet.create({
   },
   botTextContainer: {
     flexDirection: 'column',
-    flexShrink: 1,
     width: '100%',
-    overflow: 'hidden',
+    overflow: 'visible',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   userTextContainer: {
     flexDirection: 'column',
-    flexShrink: 1,
     width: '100%',
-    overflow: 'hidden',
+    overflow: 'visible',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   textLine: {
     flexDirection: 'row',
@@ -4755,6 +4773,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     maxWidth: '90%',
     overflow: 'hidden',
+  },
+  // New improved math container styles
+  blockMathContainer: {
+    width: '100%',
+    padding: 12,
+    marginVertical: 10,
+    backgroundColor: 'rgba(240, 240, 240, 0.3)',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+  },
+  inlineMathWrapper: {
+    marginHorizontal: 4,
+    marginVertical: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(240, 240, 240, 0.1)',
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
   },
 
   dayRow: {

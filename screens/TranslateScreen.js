@@ -644,8 +644,10 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
   
 
     const toggleEdit = (index) => {
-        const newEditingStates = [...editingStates];
-        newEditingStates[index] = !newEditingStates[index];
+        // Reset all other paragraph editing states
+        const newEditingStates = Array(editingStates.length).fill(false);
+        // Toggle the current paragraph's editing state
+        newEditingStates[index] = !editingStates[index];
         setEditingStates(newEditingStates);
     };
 
@@ -2141,17 +2143,29 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                 },
                 body: JSON.stringify({
                     uid: uid,
-                    audioId: audioId,
+                    audioId: audioid, // Fixed: using audioid from route.params
                     wordIndex: wordIndex,
                     newWord: newWord,
-                    newPunctuatedWord: newPunctuatedWord
+                    newPunctuatedWord: newPunctuatedWord || newWord // Use newWord as fallback if newPunctuatedWord is not provided
                 }),
             });
 
             if (response.ok) {
                 const data = await response.json();
                 console.log('Word data updated successfully:', data);
-                return data; // Return the updated data from server
+                
+                // Update wordsData with the new word
+                if (data.success && wordsData && wordsData.length > wordIndex) {
+                    const updatedWordsData = [...wordsData];
+                    updatedWordsData[wordIndex] = {
+                        ...updatedWordsData[wordIndex],
+                        word: newWord,
+                        punctuated_word: newPunctuatedWord || newWord
+                    };
+                    setWordsData(updatedWordsData);
+                }
+                
+                return data.success; // Return success status
             } else {
                 console.error('Failed to update word data:', response.status);
                 return false;
@@ -2182,14 +2196,15 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
     const saveEditedWord = async () => {
         if (!editingWordData) return;
 
-        const result = await editWordData(
+        // Call the API to update the word data
+        const success = await editWordData(
             editingWordData.wordIndex,
             editedWord,
             editedPunctuatedWord
         );
 
-        if (result && result !== false) {
-            // Update the local word data with original values preserved
+        if (success) {
+            // Update the local word data
             const updatedWordTimings = [...wordTimings];
             if (updatedWordTimings[editingWordData.paraIndex] && 
                 updatedWordTimings[editingWordData.paraIndex].words[editingWordData.wordIndex]) {
@@ -2218,6 +2233,21 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                     };
                     setTranslatedData(updatedTranslatedData);
                 }
+            }
+            
+            // Update the paragraphs with the new word data
+            if (wordsData && wordsData.length > editingWordData.wordIndex) {
+                const updatedWordsData = [...wordsData];
+                updatedWordsData[editingWordData.wordIndex] = {
+                    ...updatedWordsData[editingWordData.wordIndex],
+                    word: editedWord,
+                    punctuated_word: editedPunctuatedWord
+                };
+                
+                // Update the paragraphs
+                const { paragraphs: updatedParagraphs } = createParagraphsFromWordsData(updatedWordsData);
+                setParagraphs(updatedParagraphs);
+                setWordsData(updatedWordsData);
             }
 
             closeWordEditModal();
@@ -3333,20 +3363,25 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                             )}
                             <View style={styles.paragraphRow}>
                                 {editingStates[index] ? (
-                                    <TextInput
-                                        style={[
-                                            styles.paragraphText,
-                                            styles.editableText,
-                                            // Remove the highlightedParagraph style when editing
-                                        ]}
-                                        value={para}
-                                        onChangeText={(text) => {
-                                            const newParagraphs = [...paragraphs];
-                                            newParagraphs[index] = text;
-                                            setParagraphs(newParagraphs);
-                                        }}
-                                        multiline
-                                    />
+                                    <View style={styles.wordsContainer}>
+                                        {para.split(' ').map((word, wordIdx) => (
+                                            <TouchableOpacity 
+                                                key={wordIdx}
+                                                onPress={() => {
+                                                    // Find the corresponding word data
+                                                    const wordData = wordTimings[index]?.words?.[wordIdx] || {
+                                                        word: word,
+                                                        punctuated_word: word
+                                                    };
+                                                    openWordEditModal(wordData, index, wordIdx);
+                                                }}
+                                            >
+                                                <Text style={[styles.word, {color: colors.text, marginRight: 5}]}>
+                                                    {word}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
                                 ) : (
                                     index === currentWordIndex.paraIndex && wordTimings[index]?.words ? (
                                         <View style={styles.wordsContainer}>
@@ -3357,67 +3392,63 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                                                         <Text 
                                                             style={[wordIdx === currentWordIndex.wordIndex ? styles.highlightedWord : styles.word, {color: colors.text}]}
                                                             onPress={() => {
-                                                                // Jump to this word's timestamp when clicked
-                                                                if (wordData.start !== undefined) {
-                                                                    const newPosition = wordData.start;
-                                                                    
-                                                                    // Handle video player seeking
-                                                                    if (videoUrl && videoRef.current) {
-                                                                        videoRef.current.seek(newPosition);
-                                                                        setVideoPosition(newPosition);
-                                                                    }
-                                                                    
-                                                                    // Handle audio player seeking
-                                                                    if (sound && audioUrl) {
-                                                                        sound.setCurrentTime(newPosition);
-                                                                        setAudioPosition(newPosition);
+                                                                if (editingStates[index]) {
+                                                                    // If paragraph is in edit mode, open edit modal for this word
+                                                                    openWordEditModal(wordData, index, wordIdx);
+                                                                } else {
+                                                                    // Jump to this word's timestamp when clicked (normal behavior)
+                                                                    if (wordData.start !== undefined) {
+                                                                        const newPosition = wordData.start;
                                                                         
-                                                                        // If audio is playing, ensure the wave animation is also playing
-                                                                        if (isAudioPlaying && waveAnimationRef.current) {
-                                                                            waveAnimationRef.current.play();
+                                                                        // Handle video player seeking
+                                                                        if (videoUrl && videoRef.current) {
+                                                                            videoRef.current.seek(newPosition);
+                                                                            setVideoPosition(newPosition);
                                                                         }
+                                                                        
+                                                                        // Handle audio player seeking
+                                                                        if (sound && audioUrl) {
+                                                                            sound.setCurrentTime(newPosition);
+                                                                            setAudioPosition(newPosition);
+                                                                            
+                                                                            // If audio is playing, ensure the wave animation is also playing
+                                                                            if (isAudioPlaying && waveAnimationRef.current) {
+                                                                                waveAnimationRef.current.play();
+                                                                            }
+                                                                        }
+                                                                        
+                                                                        console.log("User clicked word - explicitly overriding manual scroll");
+                                                                        // EXPLICIT USER ACTION: We should override manual scroll
+                                                                        // and reset all scroll-blocking flags since user explicitly
+                                                                        // wants to jump to this position
+                                                                        setIsUserScrolling(false);
+                                                                        hasUserScrolledRef.current = false;
+                                                                        isScrollingRef.current = false;
+                                                                        
+                                                                        // Cancel any pending reset of user scrolling state
+                                                                        if (userScrollTimeoutRef.current) {
+                                                                            clearTimeout(userScrollTimeoutRef.current);
+                                                                        }
+                                                                        
+                                                                        // Force seeking state for immediate scroll
+                                                                        setIsSeeking(true);
+                                                                        
+                                                                        // Trigger progress update to update highlighted paragraph
+                                                                        onAudioProgress({
+                                                                            currentTime: newPosition,
+                                                                            duration: videoUrl ? videoDuration : audioDuration
+                                                                        });
+                                                                        
+                                                                        // Reset seeking state after a short delay
+                                                                        setTimeout(() => {
+                                                                            setIsSeeking(false);
+                                                                        }, 100);
                                                                     }
-                                                                    
-                                                                    console.log("User clicked word - explicitly overriding manual scroll");
-                                                                    // EXPLICIT USER ACTION: We should override manual scroll
-                                                                    // and reset all scroll-blocking flags since user explicitly
-                                                                    // wants to jump to this position
-                                                                    setIsUserScrolling(false);
-                                                                    hasUserScrolledRef.current = false;
-                                                                    isScrollingRef.current = false;
-                                                                    
-                                                                    // Cancel any pending reset of user scrolling state
-                                                                    if (userScrollTimeoutRef.current) {
-                                                                        clearTimeout(userScrollTimeoutRef.current);
-                                                                    }
-                                                                    
-                                                                    // Force seeking state for immediate scroll
-                                                                    setIsSeeking(true);
-                                                                    
-                                                                    // Trigger progress update to update highlighted paragraph
-                                                                    onAudioProgress({
-                                                                        currentTime: newPosition,
-                                                                        duration: videoUrl ? videoDuration : audioDuration
-                                                                    });
-                                                                    
-                                                                    // Reset seeking state after a short delay
-                                                                    setTimeout(() => {
-                                                                        setIsSeeking(false);
-                                                                    }, 100);
                                                                 }
                                                             }}
                                                         >
                                                             {word}{' '}
                                                         </Text>
-                                                        <TouchableOpacity 
-                                                            style={styles.wordEditButton}
-                                                            onPress={() => openWordEditModal(wordData, index, wordIdx)}
-                                                        >
-                                                            <Image 
-                                                                source={require('../assets/pencil.png')} 
-                                                                style={styles.wordEditIcon} 
-                                                            />
-                                                        </TouchableOpacity>
                                                     </View>
                                                 );
                                             })}
@@ -3693,48 +3724,47 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                 uid={uid}
             />
 
-            {/* Word Edit Modal */}
+            {/* Word Edit Modal - Very Simple Style */}
             <Modal
                 visible={isWordEditModalVisible}
                 transparent={true}
-                animationType="slide"
+                animationType="fade"
                 onRequestClose={closeWordEditModal}
             >
-                <View style={styles.modalContainer}>
-                    <View style={[styles.modalContent, {backgroundColor: colors.background}]}>
-                        <Text style={[styles.modalText, {color: colors.text}]}>Edit Word</Text>
+                <View style={styles.simpleModalOverlay}>
+                    <View style={styles.simpleModalContent}>
+                        <View style={styles.simpleModalHeader}>
+                            <Text style={styles.simpleModalTitle}>Edit Word</Text>
+                            <TouchableOpacity onPress={closeWordEditModal} style={styles.simpleCloseButton}>
+                                <Text style={styles.simpleCloseButtonText}>✕</Text>
+                            </TouchableOpacity>
+                        </View>
                         
-                        <Text style={[styles.languageLabel, {color: colors.text}]}>Word:</Text>
                         <TextInput
-                            style={[styles.textInput, {color: colors.text, borderBottomColor: colors.text}]}
+                            style={styles.simpleTextInput}
                             value={editedWord}
-                            onChangeText={setEditedWord}
+                            onChangeText={(text) => {
+                                setEditedWord(text);
+                                setEditedPunctuatedWord(text); // Keep both values in sync
+                            }}
                             placeholder="Enter word"
-                            placeholderTextColor={colors.text + '80'}
+                            placeholderTextColor="#999"
+                            autoFocus={true}
                         />
                         
-                        <Text style={[styles.languageLabel, {color: colors.text, marginTop: 15}]}>Punctuated Word:</Text>
-                        <TextInput
-                            style={[styles.textInput, {color: colors.text, borderBottomColor: colors.text}]}
-                            value={editedPunctuatedWord}
-                            onChangeText={setEditedPunctuatedWord}
-                            placeholder="Enter punctuated word"
-                            placeholderTextColor={colors.text + '80'}
-                        />
-                        
-                        <View style={{flexDirection: 'row', justifyContent: 'space-between', marginTop: 20}}>
+                        <View style={styles.simpleButtonContainer}>
                             <TouchableOpacity 
-                                style={[styles.closeButton, {backgroundColor: '#666', flex: 0.45}]}
+                                style={styles.simpleCancelButton}
                                 onPress={closeWordEditModal}
                             >
-                                <Text style={styles.closeButtonText}>Cancel</Text>
+                                <Text style={styles.simpleCancelButtonText}>Cancel</Text>
                             </TouchableOpacity>
                             
                             <TouchableOpacity 
-                                style={[styles.closeButton, {backgroundColor: '#007BFF', flex: 0.45}]}
+                                style={styles.simpleSaveButton}
                                 onPress={saveEditedWord}
                             >
-                                <Text style={styles.closeButtonText}>Save</Text>
+                                <Text style={styles.saveButtonText}>Save</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -3757,6 +3787,205 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
 };
 
 const styles = StyleSheet.create({
+    // Simple Modal Styles
+    simpleModalOverlay: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    },
+    simpleModalContent: {
+        width: '90%',
+        borderRadius: 10,
+        padding: 20,
+        backgroundColor: '#FFFFFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+        elevation: 5,
+    },
+    simpleModalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 20,
+    },
+    simpleModalTitle: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#000000',
+    },
+    simpleCloseButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#FF6B00',
+    },
+    simpleCloseButtonText: {
+        fontSize: 18,
+        color: '#FFFFFF',
+        fontWeight: 'bold',
+    },
+    simpleTextInput: {
+        height: 50,
+        borderWidth: 1,
+        borderColor: '#CCCCCC',
+        borderRadius: 5,
+        paddingHorizontal: 15,
+        fontSize: 18,
+        fontWeight: 'normal',
+        color: '#000000',
+        backgroundColor: '#FFFFFF',
+        marginBottom: 20,
+    },
+    simpleButtonContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+    },
+    simpleCancelButton: {
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        borderRadius: 5,
+        backgroundColor: '#EEEEEE',
+        width: '45%',
+        alignItems: 'center',
+    },
+    simpleCancelButtonText: {
+        color: '#000000',
+        fontWeight: '600',
+        fontSize: 16,
+    },
+    simpleSaveButton: {
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        borderRadius: 5,
+        backgroundColor: '#007AFF',
+        width: '45%',
+        alignItems: 'center',
+    },
+    simpleSaveButtonText: {
+        color: '#FFFFFF',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
+    
+    // Old styles kept for reference
+    modalOverlay: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    },
+    modalContent: {
+        width: '90%',
+        borderRadius: 12,
+        padding: 20,
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        borderWidth: 1,
+        borderColor: '#00C2FF',
+        shadowColor: '#00C2FF',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.5,
+        shadowRadius: 10,
+        elevation: 10,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 5,
+    },
+    modalTitle: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        color: 'black',
+        letterSpacing: 0.5,
+    },
+    closeButton: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#FF6B00',
+        borderWidth: 2,
+        borderColor: 'rgba(255, 107, 0, 0.3)',
+    },
+    closeButtonText: {
+        fontSize: 18,
+        color: 'white',
+        fontWeight: 'bold',
+    },
+    divider: {
+        height: 2,
+        backgroundColor: '#00C2FF',
+        marginVertical: 15,
+        width: '100%',
+        shadowColor: '#00C2FF',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.8,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    textInput: {
+        height: 50,
+        borderWidth: 1,
+        borderColor: '#ccc',
+        borderRadius: 8,
+        paddingHorizontal: 15,
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#000000',
+        backgroundColor: '#ffffff',
+        marginVertical: 15,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 2,
+        elevation: 2,
+    },
+    buttonContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: 10,
+    },
+    cancelButton: {
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        borderRadius: 25,
+        backgroundColor: 'rgba(0, 0, 0, 0.05)',
+        borderWidth: 1,
+        borderColor: '#999',
+        width: '45%',
+        alignItems: 'center',
+    },
+    cancelButtonText: {
+        color: 'black',
+        fontWeight: '600',
+        fontSize: 16,
+    },
+    saveButton: {
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        borderRadius: 25,
+        backgroundColor: '#00C2FF',
+        width: '45%',
+        alignItems: 'center',
+        shadowColor: '#00C2FF',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.5,
+        shadowRadius: 5,
+        elevation: 5,
+    },
+    saveButtonText: {
+        color: 'white',
+        fontWeight: 'bold',
+        fontSize: 16,
+        letterSpacing: 0.5,
+    },
 
     progressTrail: {
         position: 'absolute',
