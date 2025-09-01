@@ -3,87 +3,221 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Image,
   ActivityIndicator,
   Alert,
+  TouchableOpacity,
   SafeAreaView,
+  ScrollView,
+  Image,
 } from 'react-native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
-import { useAuthUser } from '../../hooks/useAuthUser';
 import airwallexService from '../../services/airwallexService';
+import { initialize, presentEntirePaymentFlow } from 'airwallex-payment-react-native';
+import { useAuth } from '../../context/AuthContext';
 
 const AirwallexPaymentScreen = ({ route, navigation }) => {
   const { orderData } = route.params;
+  const { uid } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [processingPayment, setProcessingPayment] = useState(false);
-  const { session } = useAuthUser();
+  const [paymentIntent, setPaymentIntent] = useState(null);
+  const [error, setError] = useState(null);
 
-  const handleProceedToPayment = async () => {
+  useEffect(() => {
+    createPaymentIntent();
+  }, []);
+
+  const createPaymentIntent = async () => {
     try {
-      setProcessingPayment(true);
+      setLoading(true);
+      setError(null);
       
-      // Create payment intent with correct HKD amount
-      let paymentResponse;
+      console.log('Creating payment intent for order:', orderData);
       
-      if (orderData.type === 'subscription') {
-        paymentResponse = await airwallexService.createSubscriptionPayment(
-          orderData.planId,
-          orderData.amount
-        );
-      } else if (orderData.type === 'addon') {
-        paymentResponse = await airwallexService.createAddonPayment(
-          orderData.addonId,
-          orderData.amount
-        );
-      } else {
-        // Regular payment
-        paymentResponse = await airwallexService.createPaymentIntent(
-          orderData.amount
-        );
+      // Check if Airwallex service has valid credentials configured
+      const hasCredentials = airwallexService.hasValidCredentials();
+      
+      if (!hasCredentials) {
+        console.log('⚠️ Airwallex credentials not configured, using backend fallback');
+        
+        // Show setup instructions if backend also fails
+        const showSetupInstructions = () => {
+          Alert.alert(
+            '🔧 Airwallex Setup Required',
+            'To enable payments, you need to configure Airwallex credentials:\n\n1. Create sandbox account at airwallex.com\n2. Generate Client ID and API key\n3. Set environment variables:\n   - AIRWALLEX_CLIENT_ID\n   - AIRWALLEX_API_KEY\n\n📋 Alternative: Configure backend API with proper credentials',
+            [
+              { text: 'Continue with Backend', style: 'default' },
+              { text: 'Setup Guide', style: 'default', onPress: () => {
+                // Could navigate to setup instructions or open documentation
+                console.log('Opening setup guide...');
+              }}
+            ]
+          );
+        };
+        
+        // Try backend fallback first, show instructions only if that fails too
+        try {
+          const backendResult = await airwallexService.createPaymentIntent({
+            amount: orderData.amount,
+            currency: orderData.currency || 'HKD',
+            merchantOrderId: airwallexService.generateMerchantOrderId(`${orderData.type}_${orderData.addonId || orderData.subscriptionId}`),
+            returnUrl: 'matrixai://payment/result',
+            uid: uid || 'anonymous_user',
+            plan: orderData.name,
+          });
+          
+          if (!backendResult.success) {
+            showSetupInstructions();
+            return;
+          }
+          
+          console.log('✅ Payment intent created via backend:', backendResult);
+          setPaymentIntent(backendResult);
+          return;
+        } catch (backendError) {
+          console.error('Backend fallback failed:', backendError);
+          showSetupInstructions();
+          return;
+        }
       }
-
-      if (!paymentResponse.success) {
-        throw new Error(paymentResponse.error);
-      }
-
-      // Navigate to WebView with hosted payment URL
-      const hostedPaymentUrl = airwallexService.getHostedPaymentUrl(
-        paymentResponse.data.client_secret
-      );
-
-      navigation.navigate('AirwallexWebView', {
-        paymentUrl: hostedPaymentUrl,
-        paymentIntentId: paymentResponse.data.id,
-        orderData: orderData,
-        onPaymentComplete: handlePaymentComplete
+      
+      // Use direct Airwallex API integration when credentials are configured
+      console.log('✅ Using direct Airwallex API integration');
+      
+      // Extract numeric value from amount (similar to web implementation)
+      const numericAmount = typeof orderData.amount === 'string' 
+        ? parseFloat(orderData.amount.replace(/[^0-9.]/g, ''))
+        : orderData.amount;
+      
+      const paymentResponse = await airwallexService.createPaymentIntent({
+        amount: Math.round(numericAmount), // HKD amount as-is (no cents conversion)
+        currency: orderData.currency || 'HKD',
+        merchantOrderId: airwallexService.generateMerchantOrderId(`${orderData.type}_${orderData.addonId || orderData.subscriptionId}`),
+        returnUrl: 'matrixai://payment/result',
+        uid: uid || 'anonymous_user',
+        plan: orderData.name,
       });
-
+      
+      if (!paymentResponse.success) {
+        throw new Error(paymentResponse.error || 'Failed to create payment intent');
+      }
+      
+      console.log('✅ Payment intent created successfully:', paymentResponse);
+      setPaymentIntent(paymentResponse);
     } catch (error) {
-      console.error('Payment creation error:', error);
-      Alert.alert(
-        'Payment Error',
-        error.message || 'Failed to create payment. Please try again.',
-        [{ text: 'OK' }]
-      );
+      console.error('Error creating payment intent:', error);
+      setError(error.message || 'Failed to create payment intent');
+      Alert.alert('Error', error.message || 'Failed to create payment intent');
     } finally {
-      setProcessingPayment(false);
+      setLoading(false);
     }
   };
 
-  const handlePaymentComplete = (status) => {
-    if (status === 'SUCCEEDED') {
-      navigation.navigate('PaymentSuccessScreen', { orderData });
-    } else {
-      Alert.alert(
-        'Payment Failed',
-        'Your payment could not be processed. Please try again.',
-        [{ text: 'OK' }]
-      );
+  const handlePayment = async () => {
+    if (!paymentIntent) {
+      Alert.alert('Error', 'Payment intent not created');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      console.log('Starting payment process with intent:', paymentIntent.id);
+      console.log('Airwallex SDK initialize function:', { initialize });
+      console.log('Airwallex SDK initialize function:', initialize);
+      console.log('presentEntirePaymentFlow function:', typeof presentEntirePaymentFlow);
+      
+      // Check if Airwallex SDK functions are available
+      if (!initialize || typeof initialize !== 'function' || !presentEntirePaymentFlow || typeof presentEntirePaymentFlow !== 'function') {
+        console.error('Airwallex SDK functions not properly loaded');
+        Alert.alert(
+          'Payment Error', 
+          'Payment system is not available. Please try again later or contact support.',
+          [{ text: 'OK', onPress: () => navigation.goBack() }]
+        );
+        return;
+      }
+      
+      // Step 1: Initialize Airwallex SDK only
+      console.log('Payment intent created successfully:', paymentIntent);
+      console.log('Payment intent ID:', paymentIntent.data?.id);
+      console.log('Client secret exists:', !!paymentIntent.data?.client_secret);
+      
+      console.log('Step 1: Initializing Airwallex SDK...');
+      try {
+        await initialize({
+          enableLogging: true
+        });
+        console.log('✅ Step 1 SUCCESS: Airwallex SDK initialized successfully');
+         
+         // Step 2: Present the entire payment flow
+         console.log('Step 2: Presenting payment flow...');
+         
+         if (!paymentIntent.data || !paymentIntent.data.id || !paymentIntent.data.client_secret) {
+           throw new Error('Invalid payment intent data');
+         }
+         
+         // Create PaymentSession object according to Airwallex documentation
+         const session = {
+           type: 'OneOff',
+           paymentIntentId: paymentIntent.data.id,
+           currency: orderData.currency.toUpperCase(),
+           countryCode: 'US',
+           amount: orderData.amount,
+           isBillingRequired: false,
+           isEmailRequired: false,
+           paymentMethods: ['card'],
+           clientSecret: paymentIntent.data.client_secret
+         };
+         
+         console.log('Payment session created:', session);
+         
+         const result = await presentEntirePaymentFlow(session);
+         
+         console.log('✅ Step 2 SUCCESS: Payment flow completed:', result);
+         
+         // Handle payment result
+         if (result.status === 'success') {
+           console.log('Payment successful, navigating to success screen');
+           navigation.navigate('PaymentSuccess', {
+             paymentIntentId: paymentIntent.data.id,
+             amount: orderData.amount,
+             currency: orderData.currency,
+             orderData: orderData
+           });
+         } else {
+           console.log('Payment failed or cancelled:', result);
+           Alert.alert(
+             'Payment Status',
+             `Payment ${result.status}: ${result.message || 'Please try again'}`,
+             [{ text: 'OK', onPress: () => navigation.goBack() }]
+           );
+         }
+      } catch (initError) {
+        console.error('❌ Step 1 FAILED: SDK initialization error:', initError);
+        
+        // Check if it's an authentication error
+        const isAuthError = initError.message && initError.message.includes('Access denied, authentication failed');
+        
+        Alert.alert(
+          isAuthError ? '🔐 Authentication Required' : 'Payment System Error',
+          isAuthError 
+            ? 'Airwallex sandbox credentials are required for payments.\n\n📋 Setup Steps:\n1. Create account at airwallex.com\n2. Generate sandbox API keys\n3. Configure backend credentials\n4. Set useTestMode = false\n\n💡 Current: Test mode with mock data'
+            : `SDK initialization failed: ${initError.message || initError}`,
+          [{ text: 'OK', onPress: () => navigation.goBack() }]
+        );
+        return;
+      }
+    } catch (error) {
+      console.error('Payment error:', error);
+      Alert.alert('Error', 'Payment failed. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
+
+
 
   const formatAmount = (amount) => {
     return `${amount}.00 HKD`;
@@ -174,11 +308,11 @@ const AirwallexPaymentScreen = ({ route, navigation }) => {
       {/* Footer */}
       <View style={styles.footer}>
         <TouchableOpacity
-          style={[styles.payButton, processingPayment && styles.disabledButton]}
-          onPress={handleProceedToPayment}
-          disabled={processingPayment}
+          style={[styles.payButton, (loading || !paymentIntent) && styles.disabledButton]}
+          onPress={handlePayment}
+          disabled={loading || !paymentIntent}
         >
-          {processingPayment ? (
+          {loading ? (
             <ActivityIndicator color="#FFFFFF" size="small" />
           ) : (
             <Text style={styles.payButtonText}>

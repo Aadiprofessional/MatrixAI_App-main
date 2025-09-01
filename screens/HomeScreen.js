@@ -158,6 +158,26 @@ const HomeScreen = () => {
   ];
 
   const renderTool = ({ item, index }) => {
+    // Responsive sizing based on screen width
+    const cardWidth = (width - 40) / 2;
+    const isSmallScreen = width < 375;
+    const isMediumScreen = width >= 375 && width < 414;
+    
+    // Dynamic sizing calculations
+    const iconSize = isSmallScreen ? 20 : isMediumScreen ? 24 : 26;
+    const iconContainerSize = isSmallScreen ? 40 : isMediumScreen ? 44 : 48;
+    const cardHeight = isSmallScreen ? 140 : isMediumScreen ? 150 : 160;
+    const titleFontSize = isSmallScreen ? 14 : isMediumScreen ? 15 : 16;
+    const descriptionFontSize = isSmallScreen ? 10 : isMediumScreen ? 11 : 12;
+    const cardPadding = isSmallScreen ? 12 : isMediumScreen ? 14 : 16;
+    const iconMarginBottom = isSmallScreen ? 8 : isMediumScreen ? 10 : 12;
+    
+    // Clone the icon with responsive size
+    const responsiveIcon = React.cloneElement(item.icon, {
+      size: iconSize,
+      color: "#FFFFFF"
+    });
+    
     return (
       <Animated.View
         style={{
@@ -169,7 +189,7 @@ const HomeScreen = () => {
         }}
       >
         <TouchableOpacity 
-          style={styles.toolCard}
+          style={[styles.toolCard, { width: cardWidth }]}
           onPress={() => navigation.navigate(item.screen)}
           activeOpacity={0.8}
         >
@@ -179,16 +199,31 @@ const HomeScreen = () => {
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >
-            <View style={styles.toolCardContent}>
-              <View style={styles.toolIconWrapper}>
-                <Animated.View style={[styles.iconGlow, { transform: [{ scale: pulseAnim }] }]} />
-                <View style={styles.toolIconContainer}>
-                  {item.icon}
+            <View style={[styles.toolCardContent, { padding: cardPadding, height: cardHeight }]}>
+              <View style={[styles.toolIconWrapper, { marginBottom: iconMarginBottom }]}>
+                <Animated.View style={[
+                  styles.iconGlow, 
+                  { 
+                    transform: [{ scale: pulseAnim }],
+                    width: iconContainerSize,
+                    height: iconContainerSize,
+                    borderRadius: iconContainerSize * 0.25
+                  }
+                ]} />
+                <View style={[
+                  styles.toolIconContainer,
+                  {
+                    width: iconContainerSize,
+                    height: iconContainerSize,
+                    borderRadius: iconContainerSize * 0.25
+                  }
+                ]}>
+                  {responsiveIcon}
                 </View>
               </View>
               <View style={styles.toolTextContainer}>
-                <Text style={styles.toolTitle}>{item.title}</Text>
-                <Text style={styles.toolDescription}>{item.description}</Text>
+                <Text style={[styles.toolTitle, { fontSize: titleFontSize }]}>{item.title}</Text>
+                <Text style={[styles.toolDescription, { fontSize: descriptionFontSize }]}>{item.description}</Text>
               </View>
             </View>
           </LinearGradient>
@@ -588,7 +623,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   toolCard: {
-    width: (width - 40) / 2,
     borderRadius: 16,
     overflow: 'hidden',
     elevation: 6,
@@ -605,35 +639,30 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   toolCardContent: {
-    padding: 16,
-    height: 160,
+    // Dynamic padding and height set in renderTool function
   },
   toolIconWrapper: {
-    marginBottom: 12,
     position: 'relative',
+    // Dynamic marginBottom set in renderTool function
   },
   iconGlow: {
     position: 'absolute',
     top: 0,
     left: 0,
-    width: 48,
-    height: 48,
-    borderRadius: 12,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     shadowColor: '#FFFFFF',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.6,
     shadowRadius: 12,
+    // Dynamic width, height, and borderRadius set in renderTool function
   },
   toolIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
     backgroundColor: 'rgba(255, 255, 255, 0.25)',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.4)',
+    // Dynamic width, height, and borderRadius set in renderTool function
   },
   toolTextContainer: {
     flex: 1,
@@ -641,15 +670,15 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   toolTitle: {
-    fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
     marginBottom: 4,
+    // Dynamic fontSize set in renderTool function
   },
   toolDescription: {
-    fontSize: 12,
     color: 'rgba(255, 255, 255, 0.8)',
     lineHeight: 16,
+    // Dynamic fontSize set in renderTool function
   },
   // Features section
   featuresContainer: {

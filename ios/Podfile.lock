@@ -1,4 +1,14 @@
 PODS:
+  - Airwallex (6.1.8):
+    - Airwallex/AirwallexPaymentSheet (= 6.1.8)
+  - airwallex-payment-react-native (0.1.1):
+    - Airwallex (~> 6.1.6)
+    - React-Core
+  - Airwallex/AirwallexCore (6.1.8)
+  - Airwallex/AirwallexPayment (6.1.8):
+    - Airwallex/AirwallexCore
+  - Airwallex/AirwallexPaymentSheet (6.1.8):
+    - Airwallex/AirwallexPayment
   - AppAuth (1.7.6):
     - AppAuth/Core (= 1.7.6)
     - AppAuth/ExternalUserAgent (= 1.7.6)
@@ -2426,6 +2436,8 @@ PODS:
   - Yoga (0.0.0)
 
 DEPENDENCIES:
+  - Airwallex (~> 6.1.1)
+  - airwallex-payment-react-native (from `../node_modules/airwallex-payment-react-native`)
   - boost (from `../node_modules/react-native/third-party-podspecs/boost.podspec`)
   - BVLinearGradient (from `../node_modules/react-native-linear-gradient`)
   - DoubleConversion (from `../node_modules/react-native/third-party-podspecs/DoubleConversion.podspec`)
@@ -2540,6 +2552,7 @@ DEPENDENCIES:
 
 SPEC REPOS:
   trunk:
+    - Airwallex
     - AppAuth
     - BEMCheckBox
     - GoogleSignIn
@@ -2558,6 +2571,8 @@ SPEC REPOS:
     - StripeUICore
 
 EXTERNAL SOURCES:
+  airwallex-payment-react-native:
+    :path: "../node_modules/airwallex-payment-react-native"
   boost:
     :podspec: "../node_modules/react-native/third-party-podspecs/boost.podspec"
   BVLinearGradient:
@@ -2779,6 +2794,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
 SPEC CHECKSUMS:
+  Airwallex: 693adfbe048b1f1891bd6314f3f9f27134558987
+  airwallex-payment-react-native: 4de4688bc34577788fdfafa7c55b47c790241574
   AppAuth: d4f13a8fe0baf391b2108511793e4b479691fb73
   BEMCheckBox: 5ba6e37ade3d3657b36caecc35c8b75c6c2b1a4e
   boost: 7e761d76ca2ce687f7cc98e698152abd03a18f90
@@ -2905,6 +2922,6 @@ SPEC CHECKSUMS:
   VisionCamera: f56eaedde0d3fa095143b78374d29e89e71735f9
   Yoga: b94ff2d7559cb66837c97a3f394ddb817faad4d6
 
-PODFILE CHECKSUM: 0f1600526450820e2981b2578496e8ef24df2107
+PODFILE CHECKSUM: 59c8c65133ad34b09ca6efad42e635b2e280d64e
 
 COCOAPODS: 1.16.2

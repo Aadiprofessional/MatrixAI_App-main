@@ -2258,16 +2258,28 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
     };
 
     const handleTranslateParagraph = async (index) => {
-         // This function is now simplified since we handle full audio translation
-         // Check if translation exists for selected language
-         if (availableTranslations[selectedLanguage]) {
-             // Translation already exists, use it
-             return;
-         } else {
-             // Need to translate, call the API
-             await translateAudioText(selectedLanguage);
-         }
-     };
+        // Check if translation exists for selected language
+        if (availableTranslations[selectedLanguage]) {
+            // Translation already exists, use it
+            console.log('Using saved translation for language:', selectedLanguage);
+            // Show the translation directly
+            setTranslatedText(availableTranslations[selectedLanguage].text || '');
+            return;
+        } else if (dynamicLanguages.includes(selectedLanguage) && translatedData[selectedLanguage]) {
+            // If language is in dynamicLanguages but not in availableTranslations,
+            // it means we need to load it from the cached data
+            console.log('Using cached translation for language:', selectedLanguage);
+            // Show the translation directly from cached data
+            setTranslatedText(translatedData[selectedLanguage].text || '');
+            return;
+        } else {
+            // Need to translate, call the API
+            console.log('Translating to language:', selectedLanguage);
+            setIsTranslating(true);
+            await translateAudioText(selectedLanguage);
+            setIsTranslating(false);
+        }
+    };
 
     const handleVideoSubtitleTranslation = async (targetLanguage = null) => {
         try {
@@ -2282,8 +2294,50 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
 
             // Use the provided language or fall back to the state variable
             const languageToUse = targetLanguage || videoTranslationLanguage;
-            console.log('Translating all words to language:', languageToUse);
+            console.log('Processing subtitles for language:', languageToUse);
+            
+            // Check if this language is already saved in availableTranslations
+            if (availableTranslations[languageToUse] && availableTranslations[languageToUse].words) {
+                console.log('Using saved translations for language:', languageToUse);
+                
+                // Use the saved translations
+                const savedTranslatedWords = wordsData.map((word, index) => {
+                    const savedTranslation = availableTranslations[languageToUse].words[index];
+                    return {
+                        ...word,
+                        translatedWord: savedTranslation ? savedTranslation.text || savedTranslation.word : word.word
+                    };
+                });
+                
+                setAllTranslatedWords(savedTranslatedWords);
+                setShowVideoTranslations(true);
+                setIsVideoTranslating(false);
+                return;
+            }
+            
+            // If language is in dynamicLanguages but not in availableTranslations, 
+            // it means we need to load it from the API response
+            if (dynamicLanguages.includes(languageToUse) && translatedData[languageToUse]) {
+                console.log('Using cached translations for language:', languageToUse);
+                
+                // Use the cached translations
+                const cachedTranslatedWords = wordsData.map((word, index) => {
+                    const cachedTranslation = translatedData[languageToUse].words[index];
+                    return {
+                        ...word,
+                        translatedWord: cachedTranslation ? cachedTranslation.text || cachedTranslation.word : word.word
+                    };
+                });
+                
+                setAllTranslatedWords(cachedTranslatedWords);
+                setShowVideoTranslations(true);
+                setIsVideoTranslating(false);
+                return;
+            }
 
+            // If we reach here, we need to translate using the API
+            console.log('Translating all words to language:', languageToUse);
+            
             // Translate all words from wordsData at once
             const translatedWordsData = [];
             
@@ -2685,7 +2739,23 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
             {/* Video Translation Button */}
             <TouchableOpacity 
                 style={[styles.topRightButton, isVideoTranslating && { backgroundColor: 'rgba(255, 165, 0, 0.3)' }]}
-                onPress={() => !isVideoTranslating && setIsVideoTranslationDropdownVisible(true)}
+                onPress={() => {
+                    if (isVideoTranslating) return;
+                    
+                    // Check if the current language is already saved
+                    if (dynamicLanguages.includes(videoTranslationLanguage)) {
+                        // If language is saved, directly show subtitles
+                        if (allTranslatedWords.length > 0) {
+                            setShowVideoTranslations(!showVideoTranslations);
+                        } else {
+                            // If translations not loaded yet, load them
+                            handleVideoSubtitleTranslation(videoTranslationLanguage);
+                        }
+                    } else {
+                        // If language not saved, show dropdown to select language
+                        setIsVideoTranslationDropdownVisible(true);
+                    }
+                }}
                 disabled={isVideoTranslating}
             >
                 {isVideoTranslating ? (
@@ -3497,7 +3567,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                                                                 }
                                                                 
                                                                 // Handle audio player seeking
-                                                                if (audioUrl && soundRef.current) {
+                                                                if (audioUrl && typeof soundRef !== 'undefined' && soundRef && soundRef.current) {
                                                                     soundRef.current.setCurrentTime(newPosition);
                                                                     setCurrentTime(newPosition);
                                                                 }
@@ -3506,15 +3576,6 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                                                     >
                                                         {translatedWord}
                                                     </Text>
-                                                    <TouchableOpacity
-                                                        onPress={() => openWordEditModal(wordData, index, wordIdx)}
-                                                        style={styles.wordEditButton}
-                                                    >
-                                                        <Image
-                                                            source={require('../assets/pencil.png')}
-                                                            style={styles.wordEditIcon}
-                                                        />
-                                                    </TouchableOpacity>
                                                 </View>
                                             );
                                         })}
