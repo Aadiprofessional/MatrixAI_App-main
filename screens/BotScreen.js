@@ -48,9 +48,33 @@ import { useAuthUser } from '../hooks/useAuthUser';
 import ImageResizer from '@bam.tech/react-native-image-resizer';
 import MathView from 'react-native-math-view';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { 
+  createNewChat, 
+  addUserMessage, 
+  addUserMessageWithAttachment,
+  startAssistantMessage, 
+  appendMessageChunk, 
+  finalizeMessage,
+  cancelMessage,
+  getNewChatMessages,
+  getChatMessagesLazy,
+  getLatestChatMessages,
+  getNewUserChats,
+  deleteNewChat,
+  updateNewChatTitle,
+  updateChatRole,
+  supabaseMessageToFrontend,
+  frontendMessageToSupabase,
+  subscribeToMessages,
+  subscribeToChats,
+  unsubscribeFromUpdates,
+  getNewChat
+} from '../services/chatService';
 import { DASHSCOPE_API_KEY } from '@env';
 import paymentService from '../services/paymentService';
 import { useTranslation } from 'react-i18next';
+import AttachmentComponent from '../components/AttachmentComponent';
+import { parseMessageForAttachments, formatMessageText } from '../utils/messageParser';
 
 // Function to decode base64 to ArrayBuffer
 const decode = (base64) => {
@@ -70,8 +94,9 @@ const persistEvent = (event) => {
   const { getThemeColors } = useTheme();
   const colors = getThemeColors();
   const { t } = useTranslation();
-  // Default fallback values for route params
-  const { chatName, chatDescription, chatImage, chatid = Date.now().toString() } = route?.params || {};
+  // Default fallback values for route params - use useMemo to prevent re-generation
+  const stableChatId = useMemo(() => Date.now().toString(), []);
+  const { chatName, chatDescription, chatImage, chatid = stableChatId } = route?.params || {};
   
   // Use ref to track if we've already processed the initial chatid
   const initialChatIdProcessed = useRef(false);
@@ -629,8 +654,24 @@ const renderTextWithMath = (text, textStyle) => {
       
       setIsLoading(true);
       
+      // Get current user session
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id || 'anonymous';
+      
+      // Start assistant message in database if authenticated
+      let assistantMessageId = null;
+      if (userId !== 'anonymous') {
+        const assistantMessage = await startAssistantMessage(
+          currentChatId,
+          userId,
+          {},
+          Date.now().toString()
+        );
+        assistantMessageId = assistantMessage?.id;
+      }
+      
       // Create a streaming bot message that will be updated in real-time
-      const streamingMessageId = 'streaming-' + Date.now().toString();
+      const streamingMessageId = assistantMessageId || 'streaming-' + Date.now().toString();
       let streamingContent = '';
       
       // Add initial empty streaming message
@@ -647,7 +688,7 @@ const renderTextWithMath = (text, textStyle) => {
       });
 
       // Define chunk handler for real-time updates
-      const handleChunk = (chunk) => {
+      const handleChunk = async (chunk) => {
         streamingContent += chunk;
         
         // Update the streaming message in real-time
@@ -657,11 +698,21 @@ const renderTextWithMath = (text, textStyle) => {
             : msg
         ));
         
+        // Append chunk to database if authenticated
+        if (assistantMessageId) {
+          await appendMessageChunk(assistantMessageId, chunk);
+        }
+        
         // Removed auto-scroll during streaming to prevent unwanted scrolling
       };
 
       // Get streaming response
       const fullResponse = await sendMessageToAI(userMessage, null, handleChunk);
+      
+      // Finalize the message in database if authenticated
+      if (assistantMessageId) {
+        await finalizeMessage(assistantMessageId);
+      }
       
       // Finalize the streaming message
       setMessages(prev => prev.map(msg => 
@@ -672,9 +723,6 @@ const renderTextWithMath = (text, textStyle) => {
       
       // Store the coins deducted for UI display
       setLastCoinsDeducted(1);
-      
-      // Save the chat history for the bot response
-      await saveChatHistory(fullResponse, 'bot', 1);
       
       // Removed auto-scroll after bot response to prevent unwanted scrolling
       
@@ -863,9 +911,26 @@ const renderTextWithMath = (text, textStyle) => {
             const captionText = inputText.trim();
             const question = captionText ? captionText : "What do you see in this image?";
             
+            // Save user message with attachment to database if authenticated
+            let userMessageId = null;
+            if (userId !== 'anonymous') {
+              const savedUserMessage = await addUserMessageWithAttachment(
+                currentChatId,
+                userId,
+                captionText,
+                imageUrl,
+                imageFileName || `image.${fileExtension}`,
+                mimeType,
+                compressedImage.size,
+                {},
+                Date.now().toString()
+              );
+              userMessageId = savedUserMessage?.id;
+            }
+            
             // Add user message to state with image property and text if provided
             const newMessage = {
-              id: Date.now().toString(),
+              id: userMessageId || Date.now().toString(),
               image: imageUrl,
               text: captionText,
               sender: 'user',
@@ -884,13 +949,6 @@ const renderTextWithMath = (text, textStyle) => {
             setMessages(prev => [...prev, newMessage]);
             setSelectedImage(null);
             setInputText('');
-
-            // Commented out saving logic as requested
-            // await saveChatHistory(JSON.stringify({
-            //   type: 'image_message',
-            //   image: imageUrl,
-            //   text: captionText
-            // }), 'user');
 
             // Create a streaming bot message that will be updated in real-time
             const streamingMessageId = 'streaming-' + Date.now().toString();
@@ -978,9 +1036,22 @@ const renderTextWithMath = (text, textStyle) => {
           try {
             setIsLoading(true);
             
+            // Save user message to database if authenticated
+            let userMessageId = null;
+            if (userId !== 'anonymous') {
+              const savedUserMessage = await addUserMessage(
+                currentChatId,
+                userId,
+                inputText,
+                {},
+                Date.now().toString()
+              );
+              userMessageId = savedUserMessage?.id;
+            }
+            
             // Create message object with timestamp
             const newMessage = {
-              id: Date.now().toString(),
+              id: userMessageId || Date.now().toString(),
               text: inputText,
               sender: 'user',
               timestamp: new Date().toISOString()
@@ -1009,9 +1080,6 @@ const renderTextWithMath = (text, textStyle) => {
             setIsTyping(false);
             
             // Removed auto-scroll after sending message to prevent unwanted scrolling
-
-            // Commented out saving logic as requested
-            // await saveChatHistory(inputText, 'user');
             
             // Process the message with an AI service
             await fetchDeepSeekResponse(inputText);
@@ -1357,14 +1425,24 @@ const renderTextWithMath = (text, textStyle) => {
   const renderMessage = ({ item }) => {
     const isBot = item.sender === 'bot';
     const isUser = item.sender === 'user';
+    
+    // Ensure text is always a string to prevent markdown parser errors
+    const messageText = typeof item.text === 'string' ? item.text : String(item.text || '');
+    
+    // Parse message for attachments (only for bot messages)
+    const { cleanText, attachments } = isBot ? parseMessageForAttachments(messageText) : { cleanText: messageText, attachments: [] };
+    
+    // Use clean text for display (without URLs) and format HTML for bot messages
+    const textToDisplay = isBot ? formatMessageText(cleanText) : messageText;
+    
     // Invert the logic: messages are expanded by default, expandedMessages tracks collapsed ones
     const isCollapsed = expandedMessages[item.id];
-    const shouldTruncate = item.text && item.text.length > 100;
+    const shouldTruncate = textToDisplay && textToDisplay.length > 100;
     
     // Implement actual text truncation logic
     const displayText = shouldTruncate && isCollapsed 
-      ? item.text.substring(0, 100) + '...' 
-      : item.text;
+      ? textToDisplay.substring(0, 100) + '...' 
+      : textToDisplay;
   
     // Function to handle long press
     const handleLongPress = () => {
@@ -1375,7 +1453,7 @@ const renderTextWithMath = (text, textStyle) => {
           {
             text: 'Copy Text',
             onPress: () => {
-              Clipboard.setString(item.text);
+              Clipboard.setString(messageText);
               Alert.alert('Success', 'Text copied to clipboard');
             }
           },
@@ -1384,7 +1462,7 @@ const renderTextWithMath = (text, textStyle) => {
             onPress: async () => {
               try {
                 await Share.share({
-                  message: item.text,
+                  message: messageText,
                 });
               } catch (error) {
                 console.error('Error sharing:', error);
@@ -1402,8 +1480,8 @@ const renderTextWithMath = (text, textStyle) => {
 
     // Handle copy text function
     const handleCopyText = () => {
-      if (item.text) {
-        Clipboard.setString(item.text);
+      if (messageText) {
+        Clipboard.setString(messageText);
         Alert.alert(t('success'), t('textCopiedToClipboard'));
       }
     };
@@ -1412,7 +1490,7 @@ const renderTextWithMath = (text, textStyle) => {
     const handleShareMessage = async () => {
       try {
         await Share.share({
-          message: item.text || '',
+          message: messageText || '',
         });
       } catch (error) {
         console.error('Error sharing:', error);
@@ -1470,6 +1548,21 @@ const renderTextWithMath = (text, textStyle) => {
                     </View>
                   )}
                   
+                  {/* Render attachments for bot messages - above text */}
+                  {isBot && attachments && attachments.length > 0 && (
+                    <View style={styles.attachmentsContainer}>
+                      {attachments.map((attachment, index) => (
+                        <AttachmentComponent
+                          key={`${item.id}-attachment-${index}`}
+                          url={attachment.url}
+                          filename={attachment.filename}
+                          fileType={attachment.fileType}
+                          colors={colors}
+                        />
+                      ))}
+                    </View>
+                  )}
+                  
                   {item.image ? (
                     <TouchableOpacity 
                       onPress={() => handleImageTap(item.image)}
@@ -1488,50 +1581,90 @@ const renderTextWithMath = (text, textStyle) => {
                           body: {
                             color: isBot ? colors.botText : '#333333',
                             fontSize: 16,
+                            lineHeight: 26,
+                            marginBottom: 8,
                           },
                           heading1: {
                             color: isBot ? colors.primary : '#333333',
-                            fontWeight: 'bold',
-                            fontSize: 22,
-                            marginTop: 12,
-                            marginBottom: 6,
-                            borderBottomWidth: 1,
-                            borderBottomColor: colors.border,
-                            paddingBottom: 6,
+                            fontWeight: '800', // Extra bold
+                            fontSize: 28,
+                            marginTop: 20,
+                            marginBottom: 12,
+                            borderBottomWidth: 2,
+                            borderBottomColor: colors.primary,
+                            paddingBottom: 8,
+                            lineHeight: 34,
                           },
                           heading2: {
                             color: isBot ? colors.primary : '#333333',
-                            fontWeight: 'bold',
-                            fontSize: 18,
-                            marginTop: 10,
-                            marginBottom: 5,
-                            paddingBottom: 4,
+                            fontWeight: '700', // Bold
+                            fontSize: 24,
+                            marginTop: 18,
+                            marginBottom: 10,
+                            paddingBottom: 6,
+                            lineHeight: 30,
                           },
                           heading3: {
                             color: isBot ? colors.primary : '#333333',
-                            fontWeight: 'bold',
+                            fontWeight: '600', // Semi-bold
+                            fontSize: 20,
+                            marginTop: 16,
+                            marginBottom: 8,
+                            lineHeight: 26,
+                          },
+                          heading4: {
+                            color: isBot ? colors.primary : '#333333',
+                            fontWeight: '600', // Semi-bold
+                            fontSize: 18,
+                            marginTop: 14,
+                            marginBottom: 6,
+                            lineHeight: 24,
+                          },
+                          heading5: {
+                            color: isBot ? colors.primary : '#333333',
+                            fontWeight: '500', // Medium
                             fontSize: 16,
-                            marginTop: 8,
+                            marginTop: 12,
+                            marginBottom: 5,
+                            lineHeight: 22,
+                          },
+                          heading6: {
+                            color: isBot ? colors.primary : '#333333',
+                            fontWeight: '500', // Medium
+                            fontSize: 14,
+                            marginTop: 10,
                             marginBottom: 4,
+                            lineHeight: 20,
                           },
                           paragraph: {
                             color: isBot ? colors.botText : '#333333',
                             fontSize: 16,
-                            marginTop: 4,
-                            marginBottom: 4,
+                            marginTop: 8,
+                            marginBottom: 12,
+                            lineHeight: 26,
+                            fontWeight: '400',
                           },
                           list_item: {
                             flexDirection: 'row',
                             alignItems: 'flex-start',
-                            marginBottom: 4,
+                            marginBottom: 8,
+                            marginTop: 4,
+                            paddingLeft: 8,
                             color: isBot ? colors.botText : '#333333',
                             fontSize: 16,
+                            lineHeight: 24,
                           },
                           bullet_list: {
                             color: isBot ? colors.botText : '#333333',
+                            marginTop: 12,
+                            marginBottom: 12,
+                            paddingLeft: 8,
                           },
                           ordered_list: {
-                            marginLeft: 10,
+                            marginLeft: 8,
+                            marginTop: 12,
+                            marginBottom: 12,
+                            paddingLeft: 8,
                           },
                           ordered_list_item: {
                             flexDirection: 'row',
@@ -1544,48 +1677,66 @@ const renderTextWithMath = (text, textStyle) => {
                             color: colors.botText,
                           },
                           list_item_number: {
-                            marginRight: 5,
-                            fontWeight: 'bold',
+                            marginRight: 8,
+                            fontWeight: '600',
                             fontSize: 16,
-                            color: colors.botText,
-                            width: 20,
+                            color: colors.primary,
+                            width: 24,
                             textAlign: 'right',
                             marginTop: 2,
-                            lineHeight: 20,
+                            lineHeight: 22,
                           },
                           list_item_content: {
                             flex: 1,
                             fontSize: 16,
                             color: colors.botText,
+                            lineHeight: 26,
+                            marginBottom: 4,
                           },
                           list_item_bullet: {
-                            marginRight: 5,
-                            fontSize: 16,
-                            color: colors.botText,
-                            marginTop: 0,
-                            lineHeight: 16,
+                            marginRight: 12,
+                            fontSize: 20,
+                            color: colors.primary,
+                            marginTop: 2,
+                            lineHeight: 24,
                             marginBottom: 0,
-                            paddingTop: 1,
+                            paddingTop: 0,
+                            fontWeight: '700',
+                            width: 20,
+                            textAlign: 'center',
                           },
                           blockquote: {
-                            backgroundColor: 'rgba(128, 128, 128, 0.1)',
+                            backgroundColor: 'rgba(128, 128, 128, 0.08)',
                             borderLeftWidth: 4,
                             borderLeftColor: colors.primary,
-                            paddingLeft: 8,
-                            paddingVertical: 4,
+                            paddingLeft: 12,
+                            paddingVertical: 12,
+                            paddingRight: 12,
                             color: colors.botText,
+                            marginVertical: 8,
+                            borderRadius: 4,
+                            fontStyle: 'italic',
                           },
                           code_block: {
-                            backgroundColor: 'rgba(128, 128, 128, 0.1)',
-                            padding: 8,
-                            borderRadius: 4,
+                            backgroundColor: 'rgba(128, 128, 128, 0.08)',
+                            padding: 12,
+                            borderRadius: 6,
                             color: colors.botText,
+                            fontFamily: 'Courier',
+                            fontSize: 14,
+                            marginVertical: 8,
+                            borderWidth: 1,
+                            borderColor: 'rgba(128, 128, 128, 0.2)',
                           },
                           code_inline: {
-                            backgroundColor: 'rgba(128, 128, 128, 0.1)',
-                            padding: 2,
-                            borderRadius: 2,
-                            color: colors.botText,
+                            backgroundColor: 'rgba(128, 128, 128, 0.08)',
+                            paddingHorizontal: 4,
+                            paddingVertical: 2,
+                            borderRadius: 3,
+                            color: colors.primary,
+                            fontFamily: 'Courier',
+                            fontSize: 14,
+                            fontWeight: '500',
                           },
                           link: {
                             color: colors.primary,
@@ -1617,6 +1768,9 @@ const renderTextWithMath = (text, textStyle) => {
                           },
                           text: {
                             color: colors.botText,
+                            fontSize: 16,
+                            lineHeight: 26,
+                            marginBottom: 4,
                           }
                         }}
                         rules={{
@@ -1638,7 +1792,7 @@ const renderTextWithMath = (text, textStyle) => {
                             if (parent.ordered) {
                               return (
                                 <View key={node.key} style={styles.ordered_list_item}>
-                                  <Text style={[styles.list_item_number, {color: '#2274F0'}]}>{node.index + 1}.</Text>
+                                  <Text style={styles.list_item_number}>{node.index + 1}.</Text>
                                   <View style={styles.list_item_content}>
                                     {children}
                                   </View>
@@ -1647,8 +1801,8 @@ const renderTextWithMath = (text, textStyle) => {
                             }
                             return (
                               <View key={node.key} style={styles.list_item}>
-                                <Text style={[styles.list_item_bullet, {color: '#2274F0'}]}>•</Text>
-                                <View style={{ flex: 1 }}>
+                                <Text style={styles.list_item_bullet}>•</Text>
+                                <View style={styles.list_item_content}>
                                   {children}
                                 </View>
                               </View>
@@ -1665,6 +1819,7 @@ const renderTextWithMath = (text, textStyle) => {
                       </Markdown>
                     </View>
                   )}
+                  
                   {shouldTruncate && (
                     <TouchableOpacity
                       style={styles.viewMoreButton}
@@ -2182,44 +2337,40 @@ const renderTextWithMath = (text, textStyle) => {
     try {
       console.log('Debounced fetch for user:', userId);
       
-      // Commented out database fetch to prevent errors
-      // Create a new chat instead of fetching from database
-      const newChatId = Date.now().toString();
-      startNewChat(newChatId);
-      setDataLoaded(true);
-      return;
+      // Fetch chats using new database structure
+      const userChats = await getNewUserChats(userId);
       
-      /* Commented out to prevent errors with non-existent table
-      // Fetch chats with limit to reduce initial load
-      const { data: userChats, error: chatError } = await supabase
-        .from('user_chats')
-        .select('*')
-        .eq('user_id', userId)
-        .order('updated_at', { ascending: false })
-        .limit(20); // Limit initial fetch
-      
-      if (chatError) {
-        console.error('Error fetching user chats:', chatError);
+      if (!userChats || userChats.length === 0) {
+        console.log('No chats found, creating new chat');
         const newChatId = Date.now().toString();
-        startNewChat(newChatId);
+        await startNewChat(newChatId);
         setDataLoaded(true);
         return;
       }
-      */
       
-      // Process chats with message limit
-      const processedChats = userChats.map(chat => {
-        const processedMessages = processMessages((chat.messages || []).slice(-20)); // Limit to last 20 messages
-        
-        return {
-          id: chat.chat_id,
-          name: chat.name || 'Chat',
-          description: chat.description || '',
-          role: chat.role || '',
-          roleDescription: chat.role_description || '',
-          messages: processedMessages,
-        };
-      });
+      // Process chats and load their messages
+      const processedChats = await Promise.all(
+        userChats.slice(0, 20).map(async (chat) => {
+          // Get latest messages for each chat
+          const chatMessages = await getLatestChatMessages(chat.id, 20);
+          
+          // Convert Supabase messages to frontend format
+          const frontendMessages = chatMessages.map(supabaseMessageToFrontend).map(msg => ({
+            ...msg,
+            text: msg.content || '', // Map content field to text field for compatibility
+            sender: msg.role === 'user' ? 'user' : 'bot' // Map role to sender for compatibility
+          }));
+          
+          return {
+            id: chat.id,
+            name: chat.title || 'Chat',
+            description: '',
+            role: chat.role || '',
+            roleDescription: '',
+            messages: frontendMessages,
+          };
+        })
+      );
       
       setChats(processedChats);
       
@@ -2230,7 +2381,6 @@ const renderTextWithMath = (text, textStyle) => {
         setCurrentChatId(targetChat.id);
         setMessages(targetChat.messages);
         setCurrentRole(targetChat.role);
-        setCurrentRoleDescription(targetChat.roleDescription);
       }
       
       setDataLoaded(true);
@@ -2246,7 +2396,7 @@ const renderTextWithMath = (text, textStyle) => {
       console.error('Error in debouncedFetchChats:', error);
       if (chats.length === 0) {
         const newChatId = Date.now().toString();
-        startNewChat(newChatId);
+        await startNewChat(newChatId);
       }
     } finally {
       setIsChatsLoading(false);
@@ -2262,43 +2412,54 @@ const renderTextWithMath = (text, textStyle) => {
     setIsLoadingOlderMessages(true);
     
     try {
-      const { data: chatData, error } = await supabase
-        .from('user_chats')
-        .select('messages')
-        .eq('user_id', uid)
-        .eq('chat_id', currentChatId)
-        .single();
+      // Get current user session
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
       
-      if (error) {
-        console.error('Error loading older messages:', error);
-        return;
-      }
-      
-      const allMessages = chatData?.messages || [];
-      const currentMessageCount = messages.length;
-      const totalMessages = allMessages.length;
-      
-      // Check if there are more messages to load
-      if (currentMessageCount >= totalMessages) {
+      if (!userId || userId === 'anonymous') {
+        // For anonymous users, no pagination needed as messages are stored locally
         setHasMoreMessages(false);
         return;
       }
       
-      // Calculate how many more messages to load
-      const startIndex = Math.max(0, totalMessages - currentMessageCount - MESSAGE_PAGE_SIZE);
-      const endIndex = totalMessages - currentMessageCount;
-      const olderMessages = allMessages.slice(startIndex, endIndex);
+      // Get the position of the oldest message currently loaded
+      let beforePosition = null;
+      if (messages.length > 0) {
+        // Find the oldest message (first in the array since messages are ordered newest to oldest)
+        const oldestMessage = messages[0];
+        beforePosition = oldestMessage.position || null;
+      }
+      
+      // Load older messages using the new lazy loading function
+      const olderMessages = await getChatMessagesLazy(
+        currentChatId,
+        MESSAGE_PAGE_SIZE,
+        beforePosition
+      );
       
       if (olderMessages.length > 0) {
-        const processedOlderMessages = processMessages(olderMessages);
-        setMessages(prevMessages => [...processedOlderMessages, ...prevMessages]);
+        // Convert to frontend format
+        const frontendMessages = olderMessages.map(supabaseMessageToFrontend).map(msg => ({
+          ...msg,
+          text: msg.content || '', // Map content field to text field for compatibility
+          sender: msg.role === 'user' ? 'user' : 'bot' // Map role to sender for compatibility
+        }));
+        
+        // Add older messages to the beginning of the current messages
+        setMessages(prevMessages => [...frontendMessages, ...prevMessages]);
         setMessageOffset(prev => prev + olderMessages.length);
+        
+        // If we got fewer messages than requested, we've reached the end
+        if (olderMessages.length < MESSAGE_PAGE_SIZE) {
+          setHasMoreMessages(false);
+        }
       } else {
         setHasMoreMessages(false);
       }
       
     } catch (error) {
       console.error('Error in loadOlderMessages:', error);
+      setHasMoreMessages(false);
     } finally {
       setIsLoadingOlderMessages(false);
     }
@@ -2395,53 +2556,31 @@ const renderTextWithMath = (text, textStyle) => {
       
       const userId = session.user.id;
       
-      // Check if the chat already exists in Supabase
-      const { data: existingChat, error: checkError } = await supabase
-        .from('user_chats')
-        .select('*')
-        .eq('chat_id', newChatId)
-        .single();
+      // Create chat in new database structure
+      const createdChatId = await createNewChat(
+        userId,
+        t('newChat'),
+        {},
+        currentRole || 'assistant'
+      );
       
-      if (checkError && checkError.code !== 'PGRST116') {
-        console.error('Error checking if chat exists:', checkError);
-      }
-      
-      // If chat already exists, just use local updates
-      if (existingChat) {
-        console.log('Chat already exists in Supabase, using existing data');
+      if (!createdChatId) {
+        console.error('Failed to create new chat in database');
+        // Continue with local state only
         return;
       }
       
-      // Create a new chat object for Supabase
-      const newChat = {
-        chat_id: newChatId,
-        user_id: userId,
-        name: 'New Chat',
-        description: '',
-        role: '',
-        role_description: '',
-        messages: [],
-        created_at: timestamp,
-        updated_at: timestamp
+      // Update the local chat object with the actual database ID
+      const updatedLocalChatObj = {
+        ...localChatObj,
+        id: createdChatId
       };
       
-      // Insert the new chat in Supabase
-      const { error: insertError } = await supabase
-        .from('user_chats')
-        .insert(newChat);
+      // Update local state with the correct ID
+      setChats(prevChats => [updatedLocalChatObj, ...prevChats.filter(chat => chat.id !== newChatId && chat.id !== createdChatId)]);
+      setCurrentChatId(createdChatId);
       
-      if (insertError) {
-        // Handle duplicate key violation specifically
-        if (insertError.code === '23505') {
-          console.log('Chat with this ID already exists in database, using local state only');
-          // No need to show an error to the user, just continue with local state
-          return;
-        }
-        console.error('Error creating new chat in Supabase:', insertError);
-        // Continue using local state, already set up above
-      } else {
-        console.log('New chat created in Supabase');
-      }
+      console.log('New chat created in Supabase with ID:', createdChatId);
     } catch (error) {
       console.error('Error during new chat creation:', error);
       // Local state has already been updated, so no need to update again
@@ -2724,6 +2863,11 @@ const renderTextWithMath = (text, textStyle) => {
       // Set the current chat ID
       setCurrentChatId(chatId);
       
+      // Reset pagination state for the new chat
+      setHasMoreMessages(true);
+      setMessageOffset(0);
+      setIsLoadingOlderMessages(false);
+      
       // Find the chat in local state
       const selectedChat = chats.find(chat => chat.id === chatId);
       
@@ -2735,48 +2879,90 @@ const renderTextWithMath = (text, textStyle) => {
           setCurrentRole('');
         }
         
-        // Process and load messages from the selected chat
-        if (selectedChat.messages && selectedChat.messages.length > 0) {
-          // Make sure processMessages function exists before calling it
-          if (typeof processMessages === 'function') {
-            // Ensure messages are properly processed for display
-            const processedMessages = processMessages(selectedChat.messages);
-            setMessages(processedMessages);
+        // Get current user session
+        const { data: { session } } = await supabase.auth.getSession();
+        const userId = session?.user?.id;
+        
+        // Load messages from database if authenticated, otherwise use local messages
+        if (userId && userId !== 'anonymous') {
+          try {
+            const dbMessages = await getLatestChatMessages(chatId, 50);
+            const frontendMessages = dbMessages.map(supabaseMessageToFrontend).map(msg => ({
+              ...msg,
+              text: msg.content || '', // Map content field to text field for compatibility
+              sender: msg.role === 'user' ? 'user' : 'bot' // Map role to sender for compatibility
+            }));
+            setMessages(frontendMessages);
             
-            // Update the chat in state with processed messages
+            // Update the chat in state with loaded messages
             setChats(prevChats => prevChats.map(chat => 
               chat.id === chatId 
-                ? { ...chat, messages: processedMessages }
+                ? { ...chat, messages: frontendMessages }
                 : chat
             ));
-          } else {
-            // If processMessages function doesn't exist, just use the messages as is
-            console.warn('processMessages function not found, using raw messages');
-            setMessages(selectedChat.messages);
+            
+            console.log('Loaded messages from database:', frontendMessages.length);
+            
+            // Log the actual loaded message count
+            console.log('Chat selected successfully:', {
+              chatId,
+              role: selectedChat.role,
+              messageCount: frontendMessages.length,
+              source: 'database'
+            });
+          } catch (error) {
+            console.error('Error loading messages from database:', error);
+            // Fallback to local messages
+            if (selectedChat.messages && selectedChat.messages.length > 0) {
+              setMessages(selectedChat.messages);
+              console.log('Chat selected successfully:', {
+                chatId,
+                role: selectedChat.role,
+                messageCount: selectedChat.messages.length,
+                source: 'local_fallback'
+              });
+            } else {
+              setMessages([]);
+              console.log('Chat selected successfully:', {
+                chatId,
+                role: selectedChat.role,
+                messageCount: 0,
+                source: 'empty_fallback'
+              });
+            }
           }
         } else {
-          setMessages([]);
+          // Use local messages for anonymous users
+          if (selectedChat.messages && selectedChat.messages.length > 0) {
+            setMessages(selectedChat.messages);
+            console.log('Chat selected successfully:', {
+              chatId,
+              role: selectedChat.role,
+              messageCount: selectedChat.messages.length,
+              source: 'local_anonymous'
+            });
+          } else {
+            setMessages([]);
+            console.log('Chat selected successfully:', {
+              chatId,
+              role: selectedChat.role,
+              messageCount: 0,
+              source: 'empty_anonymous'
+            });
+          }
         }
-        
-        console.log('Chat selected successfully:', {
-          chatId,
-          role: selectedChat.role,
-          messageCount: selectedChat.messages?.length || 0
-        });
       } else {
         console.log('Chat not found in local state, clearing messages');
         setMessages([]);
         setCurrentRole('');
       }
       
-      // Only scroll to bottom on initial chat load, not when switching between chats
-      if (!dataLoaded) {
-        setTimeout(() => {
-          if (flatListRef.current) {
-            flatListRef.current.scrollToEnd({ animated: false });
-          }
-        }, 100);
-      }
+      // Auto-scroll to bottom when loading messages
+      setTimeout(() => {
+        if (flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: false });
+        }
+      }, 100);
       
     } catch (error) {
       console.error('Error selecting chat:', error);
@@ -3301,7 +3487,7 @@ const renderTextWithMath = (text, textStyle) => {
               <FlatList
                 ref={flatListRef}
                 data={messages}
-                keyExtractor={(item) => item.id}
+                keyExtractor={(item, index) => item.id ? item.id.toString() : `message-${index}`}
                 renderItem={renderMessage}
                 contentContainerStyle={[
                   styles.messagesContainer,
@@ -3924,6 +4110,10 @@ const styles = StyleSheet.create({
     borderBottomColor: '#4C8EF7',
   },
 
+  attachmentsContainer: {
+    marginTop: 10,
+    paddingHorizontal: 5,
+  },
 
   loadingContainer: {
     position: 'relative',
