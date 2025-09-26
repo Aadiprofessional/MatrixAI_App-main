@@ -286,7 +286,7 @@ const ContentWriterContent = () => {
       try {
         // Create XMLHttpRequest for streaming
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions', true);
+        xhr.open('POST', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', true);
         xhr.setRequestHeader('Authorization', `Bearer ${DASHSCOPE_API_KEY}`);
         xhr.setRequestHeader('Content-Type', 'application/json');
         
@@ -411,7 +411,7 @@ const ContentWriterContent = () => {
         ];
         
         const requestBody = JSON.stringify({
-          model: "qwen-vl-max",
+          model: "qwen-plus",
           messages: messages,
           stream: true
         });

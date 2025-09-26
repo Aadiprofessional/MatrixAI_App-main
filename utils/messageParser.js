@@ -1,13 +1,16 @@
+// Import webhook service for file type detection
+import { getFileTypeCategory } from '../services/webhookService';
+
 // Utility function to parse bot messages and extract file attachments
 export const parseMessageForAttachments = (messageText) => {
   if (!messageText || typeof messageText !== 'string') {
     return { cleanText: messageText || '', attachments: [] };
   }
 
-  // Regular expressions to match different file URL patterns
+  // Regular expressions to match different file URL patterns - expanded for new file types
   const urlPatterns = [
-    // General URL pattern for common file extensions - prioritize modern formats
-    /https?:\/\/[^\s<>"{}|\\^`\[\]]+\.(pdf|docx|xlsx|pptx|doc|xls|ppt|txt|zip|rar|jpg|jpeg|png|gif|mp4|avi|mov|mp3|wav)(\?[^\s<>"{}|\\^`\[\]]*)?/gi,
+    // General URL pattern for common file extensions - prioritize modern formats and add new types
+    /https?:\/\/[^\s<>"{}|\\^`\[\]]+\.(pdf|docx|xlsx|pptx|doc|xls|ppt|txt|csv|json|zip|rar|jpg|jpeg|png|gif|webp|heic|heif|mp4|avi|mov|mp3|wav|m4a|flac)(\?[^\s<>"{}|\\^`\[\]]*)?/gi,
     // Supabase storage URLs
     /https?:\/\/[^\s<>"{}|\\^`\[\]]*supabase\.co\/storage\/v1\/[^\s<>"{}|\\^`\[\]]*/gi,
     // Google Drive/Docs URLs
@@ -120,23 +123,30 @@ const extractFileInfo = (url) => {
     if (filename && filename.includes('.')) {
       fileType = filename.split('.').pop().toLowerCase();
     } else {
-      // Try to determine file type from URL
+      // Try to determine file type from URL - expanded for new file types
       const urlLower = url.toLowerCase();
       if (urlLower.includes('.pdf')) fileType = 'pdf';
       else if (urlLower.includes('.doc')) fileType = urlLower.includes('.docx') ? 'docx' : 'doc';
       else if (urlLower.includes('.xls')) fileType = urlLower.includes('.xlsx') ? 'xlsx' : 'xls';
       else if (urlLower.includes('.ppt')) fileType = urlLower.includes('.pptx') ? 'pptx' : 'ppt';
       else if (urlLower.includes('.txt')) fileType = 'txt';
+      else if (urlLower.includes('.csv')) fileType = 'csv';
+      else if (urlLower.includes('.json')) fileType = 'json';
       else if (urlLower.includes('.zip')) fileType = 'zip';
       else if (urlLower.includes('.rar')) fileType = 'rar';
       else if (urlLower.includes('.jpg') || urlLower.includes('.jpeg')) fileType = 'jpg';
       else if (urlLower.includes('.png')) fileType = 'png';
       else if (urlLower.includes('.gif')) fileType = 'gif';
+      else if (urlLower.includes('.webp')) fileType = 'webp';
+      else if (urlLower.includes('.heic')) fileType = 'heic';
+      else if (urlLower.includes('.heif')) fileType = 'heif';
       else if (urlLower.includes('.mp4')) fileType = 'mp4';
       else if (urlLower.includes('.avi')) fileType = 'avi';
       else if (urlLower.includes('.mov')) fileType = 'mov';
       else if (urlLower.includes('.mp3')) fileType = 'mp3';
       else if (urlLower.includes('.wav')) fileType = 'wav';
+      else if (urlLower.includes('.m4a')) fileType = 'm4a';
+      else if (urlLower.includes('.flac')) fileType = 'flac';
     }
 
     // If no filename was extracted, create a generic one
@@ -144,10 +154,14 @@ const extractFileInfo = (url) => {
       filename = `document.${fileType || 'file'}`;
     }
 
+    // Use webhook service to determine file category
+    const fileCategory = getFileTypeCategory(fileType ? `application/${fileType}` : '', filename);
+
     return {
       url,
       filename,
-      fileType
+      fileType,
+      fileCategory
     };
   } catch (error) {
     console.error('Error parsing URL:', error);
@@ -162,11 +176,95 @@ export const hasAttachments = (messageText) => {
 };
 
 // Function to format message text by removing HTML-like tags while preserving content
+// Function to detect if text contains HTML tags
+const isHtmlContent = (text) => {
+  if (!text || typeof text !== 'string') return false;
+  
+  // Check for common HTML tags (more comprehensive)
+  const htmlTagRegex = /<\/?(?:p|div|span|br|h[1-6]|ul|ol|li|strong|b|em|i|u|code|pre|blockquote|a|img)[^>]*>/i;
+  
+  // Check for HTML entities
+  const htmlEntityRegex = /&(?:amp|lt|gt|quot|#39|apos|nbsp|copy|reg|trade|hellip|mdash|ndash|lsquo|rsquo|ldquo|rdquo);/i;
+  
+  // Check for multiple HTML indicators
+  const hasHtmlTags = htmlTagRegex.test(text);
+  const hasHtmlEntities = htmlEntityRegex.test(text);
+  
+  // If it has HTML tags or multiple HTML entities, consider it HTML
+  return hasHtmlTags || hasHtmlEntities;
+};
+
+// Function to format direct AI text (non-HTML) like ChatGPT
+const formatDirectText = (text) => {
+  console.log('Direct text formatting input:', text);
+  
+  if (!text || typeof text !== 'string') {
+    return text;
+  }
+
+  // Normalize line endings
+  let formatted = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // Handle special patterns that look like headers or structured content
+  formatted = formatted
+    // Convert "### Day 1:" style patterns to proper markdown headers
+    .replace(/^(#{1,6})\s*([^:]+):\s*$/gm, '$1 $2')
+    // Convert "#### Morning:" style patterns
+    .replace(/^(#{1,6})\s*([^:]+):\s*$/gm, '$1 $2')
+    // Convert standalone patterns like "Day 1:" to headers
+    .replace(/^(Day \d+):\s*$/gm, '## $1')
+    .replace(/^(Morning|Afternoon|Evening):\s*$/gm, '### $1')
+    // Convert patterns like "Here's a detailed 5-day itinerary" to headers
+    .replace(/^Here's a detailed (.+)$/gm, '# $1')
+    // Handle bullet points and lists - be more aggressive
+    .replace(/^[\s]*[-•]\s+/gm, '- ')
+    .replace(/^[\s]*\*\s+/gm, '- ')
+    .replace(/^[\s]*(\d+)[\.\)]\s+/gm, '$1. ')
+    // Convert lines that start with location names followed by colon to subheaders
+    .replace(/^([A-Z][^:\n]{2,30}):\s*$/gm, '### $1')
+    // Convert lines that describe activities starting with ":" to list items
+    .replace(/^:\s*(.+)$/gm, '- $1')
+    // Handle bold text patterns
+    .replace(/\*\*([^*]+)\*\*/g, '**$1**')
+    .replace(/\*([^*]+)\*/g, '*$1*')
+    // Add proper spacing around headers
+    .replace(/^(#{1,6}\s+.+)$/gm, '\n$1\n')
+    // Ensure list items have proper spacing
+    .replace(/^(-\s+.+)$/gm, '$1')
+    .replace(/^(\d+\.\s+.+)$/gm, '$1');
+
+  // Clean up excessive whitespace but preserve intentional formatting
+  formatted = formatted
+    .replace(/\n{4,}/g, '\n\n\n') // Max 3 consecutive newlines for spacing
+    .replace(/[ \t]+$/gm, '') // Remove trailing spaces
+    .replace(/^\n+/, '') // Remove leading newlines
+    .replace(/\n+$/, '') // Remove trailing newlines
+    .trim();
+
+  console.log('Direct text formatted:', formatted);
+  return formatted;
+};
+
 export const formatMessageText = (text) => {
   if (!text || typeof text !== 'string') {
     return text || '';
   }
 
+  // Detect if this is HTML content or direct AI text
+  const isHtml = isHtmlContent(text);
+  
+  // For debugging - you can remove this later
+  console.log('formatMessageText - isHTML:', isHtml, 'text preview:', text.substring(0, 100));
+  
+  if (!isHtml) {
+    // This is direct AI text, format it like ChatGPT
+    const directFormatted = formatDirectText(text);
+    console.log('Direct text formatted:', directFormatted.substring(0, 100));
+    return directFormatted;
+  }
+
+  // This is HTML content, use the existing HTML parsing logic
+  console.log('Processing as HTML content');
   let formatted = text;
 
   // Handle common HTML entities first

@@ -84,7 +84,7 @@ const ForceDirectedGraph = forwardRef(({ transcription, uid, audioid, xmlData },
   const fetchGraphData = async (transcription) => {
     try {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions', true);
+      xhr.open('POST', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', true);
       xhr.setRequestHeader('Authorization', `Bearer ${DASHSCOPE_API_KEY}`);
       xhr.setRequestHeader('Content-Type', 'application/json');
 
@@ -113,7 +113,7 @@ const ForceDirectedGraph = forwardRef(({ transcription, uid, audioid, xmlData },
       };
 
       const requestBody = JSON.stringify({
-        model: "qwen-vl-max",
+        model: "qwen-plus",
         messages: [
           {
             role: "user",

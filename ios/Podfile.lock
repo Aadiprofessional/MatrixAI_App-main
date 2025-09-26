@@ -1468,6 +1468,8 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
+  - react-native-render-html (6.3.4):
+    - React-Core
   - react-native-restart (0.0.27):
     - React-Core
   - react-native-safe-area-context (5.3.0):
@@ -2495,6 +2497,7 @@ DEPENDENCIES:
   - "react-native-image-resizer (from `../node_modules/@bam.tech/react-native-image-resizer`)"
   - "react-native-netinfo (from `../node_modules/@react-native-community/netinfo`)"
   - react-native-pdf (from `../node_modules/react-native-pdf`)
+  - react-native-render-html (from `../node_modules/react-native-render-html`)
   - react-native-restart (from `../node_modules/react-native-restart`)
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - "react-native-segmented-control (from `../node_modules/@react-native-segmented-control/segmented-control`)"
@@ -2681,6 +2684,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@react-native-community/netinfo"
   react-native-pdf:
     :path: "../node_modules/react-native-pdf"
+  react-native-render-html:
+    :path: "../node_modules/react-native-render-html"
   react-native-restart:
     :path: "../node_modules/react-native-restart"
   react-native-safe-area-context:
@@ -2861,6 +2866,7 @@ SPEC CHECKSUMS:
   react-native-image-resizer: 9e24efe3828c08a8d5553393f33695a086406340
   react-native-netinfo: cec9c4e86083cb5b6aba0e0711f563e2fbbff187
   react-native-pdf: e7980ebe741b1797f27ce451eab9dd9ca31484eb
+  react-native-render-html: 5afc4751f1a98621b3009432ef84c47019dcb2bd
   react-native-restart: 0bc732f4461709022a742bb29bcccf6bbc5b4863
   react-native-safe-area-context: 0f14bce545abcdfbff79ce2e3c78c109f0be283e
   react-native-segmented-control: bf6e0032726727498e18dd437ae88afcdbc18e99

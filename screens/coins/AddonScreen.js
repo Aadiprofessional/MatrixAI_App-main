@@ -13,9 +13,9 @@ const AddonScreen = ({ navigation }) => {
     // Prepare order data for payment screen
     const orderData = {
       type: 'addon',
-      addonId: 'addon_550_coins',
-      name: 'Addon Pack - 550 Coins',
-      amount: 50,
+      addonId: 'addon_880_coins',
+      name: 'Addon Pack - 880 Coins',
+      amount: 88,
       currency: 'HKD',
       quantity: 1
     };
@@ -70,11 +70,11 @@ const AddonScreen = ({ navigation }) => {
         <View style={[styles.plan, styles.activePlan]}>
           <Text style={styles.planTitle}>Addon Pack</Text>
           <Text style={styles.planPrice2}>
-            $50 HKD
+            $88 HKD
           </Text>
           <View style={styles.planPriceContainer}>
             <Text style={styles.planPrice}>
-              550
+              880
             </Text>
             <Image source={require('../../assets/coin.png')} style={styles.planIcon} />
           </View>
@@ -92,7 +92,7 @@ const AddonScreen = ({ navigation }) => {
 
       {/* Buy Now Button */}
       <TouchableOpacity style={styles.buyButton} onPress={handleBuyNow}>
-        <Text style={styles.buyButtonText}>Buy Now <Text style={{fontSize:18}}>$50 HKD</Text></Text>
+        <Text style={styles.buyButtonText}>Buy Now <Text style={{fontSize:18}}>$88 HKD</Text></Text>
       </TouchableOpacity>
     </LinearGradient>
   );

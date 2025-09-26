@@ -52,12 +52,12 @@ class AirwallexNative {
       const session = {
         type: 'OneOff',
         paymentIntentId: paymentIntentId,
-        currency: currency.toUpperCase(),
-        countryCode: 'US', // Default to US for sandbox
+        currency: currency,
+        countryCode: 'HK',
         amount: amount,
         isBillingRequired: false,
         isEmailRequired: false,
-        paymentMethods: ['card'],
+        paymentMethods: ['card', 'alipay', 'alipayhk', 'wechatpay', 'googlepay', 'applepay'],
         clientSecret: clientSecret,
         // Add additional required fields for SDK authentication
         returnUrl: 'matrixai://payment/result',

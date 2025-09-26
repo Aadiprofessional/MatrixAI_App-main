@@ -8,11 +8,9 @@ import {
   TouchableOpacity,
   SafeAreaView,
   ScrollView,
-  Image,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import LinearGradient from 'react-native-linear-gradient';
 import airwallexService from '../../services/airwallexService';
 import { initialize, presentEntirePaymentFlow } from 'airwallex-payment-react-native';
 import { useAuth } from '../../context/AuthContext';
@@ -163,11 +161,11 @@ const AirwallexPaymentScreen = ({ route, navigation }) => {
            type: 'OneOff',
            paymentIntentId: paymentIntent.data.id,
            currency: orderData.currency.toUpperCase(),
-           countryCode: 'US',
+           countryCode: 'HK',
            amount: orderData.amount,
            isBillingRequired: false,
            isEmailRequired: false,
-           paymentMethods: ['card'],
+           paymentMethods: ['card', 'alipay', 'alipayhk', 'wechatpay', 'googlepay', 'applepay'],
            clientSecret: paymentIntent.data.client_secret
          };
          
@@ -224,67 +222,78 @@ const AirwallexPaymentScreen = ({ route, navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <LinearGradient
-        colors={['#2274F0', '#FF6600']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.header}
-      >
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Icon name="arrow-back" size={24} color="#FFF" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Payment</Text>
-        <View style={{ width: 24 }} />
-      </LinearGradient>
+    <View style={styles.container}>
+      {/* Header */}
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <Icon name="arrow-back" size={24} color="#333" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Payment</Text>
+          <View style={styles.placeholder} />
+        </View>
+      </SafeAreaView>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Order Summary */}
         <View style={styles.orderSummaryContainer}>
           <Text style={styles.sectionTitle}>Order Summary</Text>
           
           <View style={styles.orderItem}>
             <Text style={styles.orderItemName}>{orderData.name}</Text>
-            <Text style={styles.orderItemPrice}>{formatAmount(orderData.amount)}</Text>
+            <Text style={styles.orderItemPrice}>
+              {formatAmount(orderData.amount)} HKD
+            </Text>
           </View>
-          
-          {orderData.discount && (
-            <View style={styles.orderItem}>
-              <Text style={styles.discountText}>Discount</Text>
-              <Text style={styles.discountAmount}>-{formatAmount(orderData.discount)}</Text>
-            </View>
-          )}
           
           <View style={styles.divider} />
           
-          <View style={styles.orderTotal}>
-            <Text style={styles.orderTotalText}>Total</Text>
-            <Text style={styles.orderTotalAmount}>
-              {formatAmount(orderData.amount - (orderData.discount || 0))}
+          <View style={styles.totalContainer}>
+            <Text style={styles.totalLabel}>Total</Text>
+            <Text style={styles.totalAmount}>
+              {formatAmount(orderData.amount - (orderData.discount || 0))} HKD
             </Text>
           </View>
         </View>
 
-        {/* Payment Method Info */}
+        {/* Payment Methods Available */}
         <View style={styles.paymentMethodsContainer}>
-          <Text style={styles.sectionTitle}>Payment Method</Text>
+          <Text style={styles.sectionTitle}>Payment Methods Available</Text>
           
-          <View style={styles.paymentMethodItem}>
-            <View style={styles.paymentMethodContent}>
-              <Image 
-                source={{ uri: 'https://checkout.airwallex.com/assets/airwallex-logo.png' }}
-                style={styles.paymentMethodLogo}
-                defaultSource={require('../../assets/logo.png')}
-              />
-              <View style={styles.paymentMethodDetails}>
-                <Text style={styles.paymentMethodName}>Airwallex Secure Payment</Text>
-                <Text style={styles.paymentMethodDescription}>
-                  Secure global payments • Multiple payment methods
-                </Text>
+          <View style={styles.paymentMethodsList}>
+            <View style={styles.paymentMethodRow}>
+              <View style={styles.paymentMethodIcon}>
+                <Icon name="card" size={20} color="#2274F0" />
               </View>
+              <Text style={styles.paymentMethodText}>Credit/Debit Cards</Text>
+            </View>
+            
+            <View style={styles.paymentMethodRow}>
+              <View style={styles.paymentMethodIcon}>
+                <Text style={styles.paymentMethodEmoji}>💳</Text>
+              </View>
+              <Text style={styles.paymentMethodText}>Alipay</Text>
+            </View>
+            
+            <View style={styles.paymentMethodRow}>
+              <View style={styles.paymentMethodIcon}>
+                <Text style={styles.paymentMethodEmoji}>🏦</Text>
+              </View>
+              <Text style={styles.paymentMethodText}>Alipay HK</Text>
+            </View>
+            
+            <View style={styles.paymentMethodRow}>
+              <View style={styles.paymentMethodIcon}>
+                <Text style={styles.paymentMethodEmoji}>💬</Text>
+              </View>
+              <Text style={styles.paymentMethodText}>WeChat Pay</Text>
+            </View>
+            
+            <View style={styles.paymentMethodRow}>
+              <View style={styles.paymentMethodIcon}>
+                <Text style={styles.paymentMethodEmoji}>📱</Text>
+              </View>
+              <Text style={styles.paymentMethodText}>Google Pay & Apple Pay</Text>
             </View>
           </View>
           
@@ -316,12 +325,12 @@ const AirwallexPaymentScreen = ({ route, navigation }) => {
             <ActivityIndicator color="#FFFFFF" size="small" />
           ) : (
             <Text style={styles.payButtonText}>
-              Pay {formatAmount(orderData.amount - (orderData.discount || 0))}
+              Pay {formatAmount(orderData.amount)}
             </Text>
           )}
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -330,12 +339,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8F9FA',
   },
+  safeArea: {
+    backgroundColor: '#FFFFFF',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 16,
     paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
   },
   backButton: {
     padding: 8,
@@ -343,7 +358,10 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#FFF',
+    color: '#333',
+  },
+  placeholder: {
+    width: 40,
   },
   content: {
     flex: 1,
@@ -352,7 +370,7 @@ const styles = StyleSheet.create({
   orderSummaryContainer: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    padding: 16,
+    padding: 20,
     marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -361,7 +379,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     marginBottom: 16,
     color: '#333',
@@ -369,50 +387,42 @@ const styles = StyleSheet.create({
   orderItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   orderItemName: {
     fontSize: 16,
     color: '#333',
+    flex: 1,
   },
   orderItemPrice: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#333',
-  },
-  discountText: {
-    fontSize: 16,
-    color: '#4CAF50',
-  },
-  discountAmount: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#4CAF50',
   },
   divider: {
     height: 1,
     backgroundColor: '#E0E0E0',
-    marginVertical: 12,
+    marginVertical: 16,
   },
-  orderTotal: {
+  totalContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 4,
+    alignItems: 'center',
   },
-  orderTotalText: {
+  totalLabel: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
   },
-  orderTotalAmount: {
-    fontSize: 18,
+  totalAmount: {
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#2274F0',
   },
   paymentMethodsContainer: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    padding: 16,
+    padding: 20,
     marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -420,56 +430,58 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  paymentMethodItem: {
+  paymentMethodsList: {
+    marginBottom: 16,
+  },
+  paymentMethodRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: '#2274F0',
-    backgroundColor: 'rgba(34, 116, 240, 0.05)',
+    backgroundColor: '#F8F9FA',
     borderRadius: 8,
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  paymentMethodContent: {
-    flexDirection: 'row',
+  paymentMethodIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
-    flex: 1,
-  },
-  paymentMethodLogo: {
-    width: 40,
-    height: 40,
-    borderRadius: 4,
+    justifyContent: 'center',
     marginRight: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  paymentMethodDetails: {
-    flex: 1,
-  },
-  paymentMethodName: {
+  paymentMethodEmoji: {
     fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
   },
-  paymentMethodDescription: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 2,
+  paymentMethodText: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
   },
   securityInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    borderRadius: 8,
   },
   securityText: {
     fontSize: 14,
-    color: '#666',
+    color: '#4CAF50',
     marginLeft: 8,
+    fontWeight: '500',
   },
   currencyContainer: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    padding: 16,
+    padding: 20,
     marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -479,7 +491,7 @@ const styles = StyleSheet.create({
   },
   currencyTitle: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#333',
     marginBottom: 8,
   },
@@ -496,17 +508,24 @@ const styles = StyleSheet.create({
   },
   payButton: {
     backgroundColor: '#2274F0',
-    borderRadius: 8,
+    borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#2274F0',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   disabledButton: {
     backgroundColor: '#A0A0A0',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   payButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
   },
 });

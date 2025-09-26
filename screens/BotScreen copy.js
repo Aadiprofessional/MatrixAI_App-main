@@ -606,7 +606,7 @@ const BotScreen2 = ({ navigation, route }) => {
         apiMessages.push(currentUserMessage);
 
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions', true);
+        xhr.open('POST', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', true);
         xhr.setRequestHeader('Authorization', `Bearer ${DASHSCOPE_API_KEY}`);
         xhr.setRequestHeader('Content-Type', 'application/json');
 
@@ -684,7 +684,7 @@ const BotScreen2 = ({ navigation, route }) => {
         xhr.timeout = 60000; // 60 second timeout
 
         const requestBody = JSON.stringify({
-          model: "qwen-vl-max",
+          model: "qwen-plus",
           messages: apiMessages,
           stream: true
         });

@@ -10,7 +10,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 
-const LeftNavbarBot = ({ chats, onSelectChat, onNewChat, onClose, onDeleteChat }) => {
+const LeftNavbarBot = ({ chats, onSelectChat, onNewChat, onClose, onDeleteChat, currentChatId }) => {
   const { getThemeColors } = useTheme();
   const colors = getThemeColors();
   
@@ -79,28 +79,43 @@ const LeftNavbarBot = ({ chats, onSelectChat, onNewChat, onClose, onDeleteChat }
     return sections.filter(section => section.data.length > 0);
   }, [chats]);
 
-  const renderItem = ({ item }) => (
-    <View style={[styles.chatItemContainer, { backgroundColor: colors.card }]}>
-      <TouchableOpacity
-        style={styles.chatContent}
-        onPress={() => onSelectChat(item.id)}
-      >
-        <Text style={[styles.chatName, { color: colors.text }]}>{item.name}</Text>
-        {item.role && (
-          <Text style={styles.chatRole}>Role: {item.role}</Text>
-        )}
-        <Text style={styles.chatDescription} numberOfLines={1}>
-          {item.description}
-        </Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.deleteButton}
-        onPress={() => onDeleteChat(item.id)}
-      >
-        <Ionicons name="trash-outline" size={24} color="#FF0000" />
-      </TouchableOpacity>
-    </View>
-  );
+  const renderItem = ({ item }) => {
+    const isActive = item.id === currentChatId;
+    
+    return (
+      <View style={[
+        styles.chatItemContainer, 
+        { backgroundColor: colors.card },
+        isActive && styles.activeChatContainer
+      ]}>
+        <TouchableOpacity
+          style={[styles.chatContent, isActive && styles.activeChatContent]}
+          onPress={() => onSelectChat(item.id)}
+        >
+          <Text style={[
+            styles.chatName, 
+            { color: colors.text },
+            isActive && styles.activeChatName
+          ]}>{item.name}</Text>
+          {item.role && (
+            <Text style={[styles.chatRole, isActive && styles.activeChatRole]}>Role: {item.role}</Text>
+          )}
+          <Text style={[
+            styles.chatDescription, 
+            isActive && styles.activeChatDescription
+          ]} numberOfLines={1}>
+            {item.description}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.deleteButton}
+          onPress={() => onDeleteChat(item.id)}
+        >
+          <Ionicons name="trash-outline" size={24} color="#FF0000" />
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   const renderSectionHeader = ({ section }) => (
     <View style={[styles.sectionHeaderContainer, { backgroundColor: colors.card }]}>
@@ -124,7 +139,6 @@ const LeftNavbarBot = ({ chats, onSelectChat, onNewChat, onClose, onDeleteChat }
           stickySectionHeadersEnabled={true}
           showsVerticalScrollIndicator={false}
           keyExtractor={(item) => item.id}
-          
           contentContainerStyle={styles.listContainer}
         />
       ) : (
@@ -151,7 +165,7 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: '75%',
- 
+    zIndex: 1500,
     elevation: 5,
     padding: 10,
     shadowColor: '#000',
@@ -211,6 +225,24 @@ const styles = StyleSheet.create({
   chatDescription: {
     fontSize: 12,
     color: '#666',
+  },
+  activeChatContainer: {
+    backgroundColor: '#4C8EF7',
+    borderRadius: 8,
+    marginVertical: 2,
+  },
+  activeChatContent: {
+    backgroundColor: 'transparent',
+  },
+  activeChatName: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  activeChatRole: {
+    color: '#E3F2FD',
+  },
+  activeChatDescription: {
+    color: '#E3F2FD',
   },
   emptyState: {
     flex: 1,

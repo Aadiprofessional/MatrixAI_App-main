@@ -28,7 +28,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MathJaxSvg } from 'react-native-mathjax-html-to-svg';
+// Removed KaTeX import - using simple HTML rendering instead
 import LinearGradient from 'react-native-linear-gradient';
 import axios from 'axios';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
@@ -41,45 +41,76 @@ import Toast from 'react-native-toast-message';
 import { useTheme } from '../context/ThemeContext';
 import LeftNavbarBot from '../components/LeftNavbarBot';
 import Clipboard from '@react-native-clipboard/clipboard';
-import Markdown from 'react-native-markdown-display';
+import RenderHtml from 'react-native-render-html';
+import { marked } from 'marked';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCoinsSubscription } from '../hooks/useCoinsSubscription';
 import { useAuthUser } from '../hooks/useAuthUser';
 import ImageResizer from '@bam.tech/react-native-image-resizer';
-import MathView from 'react-native-math-view';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
+
 import { 
-  createNewChat, 
-  addUserMessage, 
+  processImageUnderstanding, 
+  processDocument, 
+  generateXLSX, 
+  generateDOC,
+  getFileTypeCategory 
+} from '../services/webhookService';
+import { 
+  processExcelDocument, 
+  processPDFDocument, 
+  processWordDocument,
+  getDocumentProcessingMethod 
+} from '../utils/documentProcessor';
+import { uploadFile } from '../utils/fileUploadUtils';
+import { 
   addUserMessageWithAttachment,
-  startAssistantMessage, 
-  appendMessageChunk, 
-  finalizeMessage,
-  cancelMessage,
-  getNewChatMessages,
-  getChatMessagesLazy,
-  getLatestChatMessages,
+  createNewChat,
   getNewUserChats,
+  getNewChatMessages,
+  addUserMessage,
+  startAssistantMessage,
+  appendMessageChunk,
+  finalizeMessage,
   deleteNewChat,
   updateNewChatTitle,
-  updateChatRole,
   supabaseMessageToFrontend,
+  cancelMessage,
+  getChatMessagesLazy,
+  getLatestChatMessages,
+  updateChatRole,
   frontendMessageToSupabase,
   subscribeToMessages,
   subscribeToChats,
   unsubscribeFromUpdates,
   getNewChat
 } from '../services/chatService';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { DASHSCOPE_API_KEY } from '@env';
 import paymentService from '../services/paymentService';
 import { useTranslation } from 'react-i18next';
 import AttachmentComponent from '../components/AttachmentComponent';
 import { parseMessageForAttachments, formatMessageText } from '../utils/messageParser';
 
+import FilePreviewComponent from '../components/FilePreviewComponent';
+import { uploadFileToStorage, validateFile, generateUniqueFileName, simpleUploadToStorage } from '../utils/fileUploadUtils';
+import { analyzeMessageForImageNeeds, generateMultipleImages, createResponsePlan } from '../services/intelligentAgentService';
+import StreamingService from '../services/streamingService';
+import ImageSkeletonLoader from '../components/ImageSkeletonLoader';
+import IntelligentImageContainer from '../components/IntelligentImageContainer';
+
 // Function to decode base64 to ArrayBuffer
 const decode = (base64) => {
   const bytes = Buffer.from(base64, 'base64');
   return bytes;
+};
+
+// Function to generate UUID v4
+const generateUUID = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
 };
 
 // Add this near the top of the BotScreen component
@@ -95,7 +126,13 @@ const persistEvent = (event) => {
   const colors = getThemeColors();
   const { t } = useTranslation();
   // Default fallback values for route params - use useMemo to prevent re-generation
-  const stableChatId = useMemo(() => Date.now().toString(), []);
+  const stableChatId = useMemo(() => {
+    // Generate a proper UUID-like string instead of timestamp
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }, []);
   const { chatName, chatDescription, chatImage, chatid = stableChatId } = route?.params || {};
   
   // Use ref to track if we've already processed the initial chatid
@@ -132,8 +169,11 @@ const persistEvent = (event) => {
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [currentRole, setCurrentRole] = useState('');
   
+  // Radio button state for generate options
+  const [selectedGenerateOption, setSelectedGenerateOption] = useState(null); // 'doc' or 'xlsx'
+  
   // Add states for coins management
-  const { data: sessionData } = supabase.auth.getSession();
+  const [sessionData, setSessionData] = useState(null);
   const { uid, loading } = useAuthUser();    
   const coinCount = useCoinsSubscription(uid);
   const [lowBalanceModalVisible, setLowBalanceModalVisible] = useState(false);
@@ -147,11 +187,20 @@ const persistEvent = (event) => {
   const [imageFileName, setImageFileName] = useState('');
   const [fullScreenImage, setFullScreenImage] = useState(null);
 
+  // File attachment states
+  const [attachedFiles, setAttachedFiles] = useState([]);
+  const [showFileAttachmentSheet, setShowFileAttachmentSheet] = useState(false);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
   // Add keyboard state tracking
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [isSendDisabled, setIsSendDisabled] = useState(false); // New state to track send button disabled state
   const swipeableRefs = useRef({});
   const lastScrolledMessageId = useRef(null);
+  
+  // Enhanced streaming service instance
+  const streamingService = useRef(new StreamingService()).current;
   
   // Add debounce ref to prevent rapid successive calls
   const sendTimeoutRef = useRef(null);
@@ -179,6 +228,13 @@ const persistEvent = (event) => {
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [messageOffset, setMessageOffset] = useState(0);
   const MESSAGE_PAGE_SIZE = 20;
+  
+  // Intelligent Agent System States
+  const [pendingImages, setPendingImages] = useState([]); // Track images being generated
+  const [currentResponsePlan, setCurrentResponsePlan] = useState(null); // Current AI response plan
+  const [streamingWithImages, setStreamingWithImages] = useState(false); // Track if streaming with images
+  const [imageGenerationQueue, setImageGenerationQueue] = useState([]); // Queue for image generation
+  const [generatedImages, setGeneratedImages] = useState(new Map()); // Map of generated images by ID
   
   // Track keyboard visibility with optimized listeners
   useEffect(() => {
@@ -211,14 +267,46 @@ const persistEvent = (event) => {
     };
   }, []); // Remove messages.length dependency to prevent unnecessary re-renders
 
+  // Fetch session data properly
+  useEffect(() => {
+    const fetchSessionData = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('Error fetching session:', error);
+        } else {
+          setSessionData(data);
+        }
+      } catch (error) {
+        console.error('Error in session fetch:', error);
+      }
+    };
+    
+    fetchSessionData();
+  }, []);
+
   // Set initial chat ID from route params if available - prevent infinite updates
   useEffect(() => {
-    if (!initialChatIdProcessed.current && chatid && chatid !== 'undefined' && chatid !== 'null') {
-      console.log('Setting initial chatid from route params:', chatid);
-      setCurrentChatId(chatid);
-      initialChatIdProcessed.current = true;
-    }
-  }, [chatid]);
+    const initializeChat = async () => {
+      if (!initialChatIdProcessed.current && chatid && chatid !== 'undefined' && chatid !== 'null') {
+        console.log('Setting initial chatid from route params:', chatid);
+        
+        // If user is authenticated and this is a new chat (UUID format), create it in Supabase
+        if (sessionData?.session?.user && chatid.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+          try {
+            await createNewChat(chatid, chatName || 'New Chat');
+          } catch (error) {
+            console.log('Chat may already exist or error creating:', error);
+          }
+        }
+        
+        setCurrentChatId(chatid);
+        initialChatIdProcessed.current = true;
+      }
+    };
+    
+    initializeChat();
+  }, [chatid, sessionData, chatName]);
   
   // Start shimmer animation for skeleton loading
   useEffect(() => {
@@ -295,19 +383,16 @@ const persistEvent = (event) => {
           selectChat(remainingChats[0].id, false);
         } else {
           // If no chats remain, start a new one
-          const newChatId = Date.now().toString();
+          const newChatId = generateUUID();
           startNewChat(newChatId);
         }
       }
       
-      // Delete chat from Supabase
-      const { error: deleteError } = await supabase
-        .from('user_chats')
-        .delete()
-        .eq('chat_id', chatToDelete);
+      // Delete chat from Supabase using new schema
+      const deleteSuccess = await deleteNewChat(chatToDelete, uid);
       
-      if (deleteError) {
-        console.error('Error deleting chat from Supabase:', deleteError);
+      if (!deleteSuccess) {
+        console.error('Error deleting chat from Supabase');
         // Continue with local deletion even if server deletion fails
       } else {
         console.log('Chat deleted from Supabase');
@@ -321,148 +406,246 @@ const persistEvent = (event) => {
 const renderTextWithMath = (text, textStyle) => {
   if (!text) return null;
   
-  // Process text for special cases before splitting
-  let processedText = text;
-  
-  // Handle binomial coefficients with various formats
-  // Format: \binom{n}{k}
-  processedText = processedText.replace(/\\binom\{(\d+)\}\{(\d+)\}/g, '\\(\\binom{$1}{$2}\\)');
-  
-  // Format: \(\binom{n}{k}\)
-  processedText = processedText.replace(/\\\(\s*\\binom\{(\d+)\}\{(\d+)\}\s*\\\)/g, '\\(\\binom{$1}{$2}\\)');
-  
-  // Format: \\(\\binom{n}{k}\\)
-  processedText = processedText.replace(/\\\\\(\s*\\\\binom\{(\d+)\}\{(\d+)\}\s*\\\\\)/g, '\\(\\binom{$1}{$2}\\)');
-  
-  // Handle binomial notation with parentheses like (n k)
-  processedText = processedText.replace(/\\\(\s*\\?\(\\?(\d+)\\?\s*\\?(\d+)\\?\)\s*\\\)/g, '\\(\\binom{$1}{$2}\\)');
-  
-  // Handle Pascal's Triangle and tables by wrapping them in special math tags
-  if (text.includes('Pascal') && text.includes('Triangle')) {
-    // Find potential Pascal's Triangle content and wrap it
-    const triangleMatch = text.match(/Here are the first few rows of Pascal's Triangle:([\s\S]*?)(?=\n\n|$)/);
-    if (triangleMatch && triangleMatch[1]) {
-      const triangleContent = triangleMatch[1].trim();
-      processedText = processedText.replace(
-        triangleContent,
-        `<math3>\\begin{array}{ccccccc}${triangleContent
-          .replace(/\s+/g, ' & ')
-          .replace(/(\d+)\s*$/gm, '$1 \\\\')}\\end{array}</math3>`
-      );
-    }
-  }
-  
-  // Split text by both LaTeX expressions and custom math tags
-  const parts = processedText.split(/(\\\([^\)]*\\\)|\\\[[^\]]*\\\]|<math>[\s\S]*?<\/math>|<math3>[\s\S]*?<\/math3>)/);
+  // Simple HTML rendering without KaTeX
+  const { width } = Dimensions.get('window');
   
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', width: '100%', alignItems: 'flex-start' }}>
-      {parts.map((part, index) => {
-        // Check if this part is a LaTeX expression
-        if (part.match(/^\\\([^\)]*\\\)$/)) {
-          // Inline math expression
-          const mathContent = part.slice(2, -2); // Remove \( and \)
-          return (
-            <View key={index} style={{ 
-              flexShrink: 0, 
-              marginHorizontal: 2, 
-              alignSelf: 'flex-start',
-              backgroundColor: 'rgba(40, 40, 40, 0.8)', 
-              borderRadius: 4, 
-              padding: 2 
-            }}>
-              <MathView
-                math={mathContent}
-                style={{
-                  fontSize: textStyle?.fontSize || 16,
-                  color: '#FFFFFF', // Force white color for math
-                }}
-              />
-            </View>
-          );
-        } else if (part.match(/^\\\[[^\]]*\\\]$/)) {
-          // Block math expression
-          const mathContent = part.slice(2, -2); // Remove \[ and \]
-          return (
-            <View key={index} style={{ 
-              width: '100%', 
-              alignSelf: 'flex-start', 
-              marginVertical: 8,
-              backgroundColor: 'rgba(40, 40, 40, 0.8)', 
-              borderRadius: 8, 
-              padding: 8 
-            }}>
-              <MathView
-                math={mathContent}
-                style={{
-                  fontSize: 18,
-                  color: '#FFFFFF', // Force white color for math
-                }}
-              />
-            </View>
-          );
-        } else if (part.match(/^<math>[\s\S]*?<\/math>$/)) {
-          // Custom inline math tag
-          const mathContent = part.slice(6, -7); // Remove <math> and </math>
-          return (
-            <View key={index} style={{ 
-              flexShrink: 0, 
-              marginHorizontal: 2, 
-              alignSelf: 'flex-start',
-              backgroundColor: 'rgba(40, 40, 40, 0.8)', 
-              borderRadius: 4, 
-              padding: 2 
-            }}>
-              <MathView
-                math={mathContent}
-                style={{
-                  fontSize: textStyle?.fontSize || 16,
-                  color: '#FFFFFF', // Force white color for math
-                }}
-              />
-            </View>
-          );
-        } else if (part.match(/^<math3>[\s\S]*?<\/math3>$/)) {
-          // Custom display math tag
-          const mathContent = part.slice(7, -8); // Remove <math3> and </math3>
-          return (
-            <View key={index} style={{ 
-              width: '100%', 
-              alignSelf: 'flex-start', 
-              marginVertical: 8,
-              backgroundColor: 'rgba(40, 40, 40, 0.8)', 
-              borderRadius: 8, 
-              padding: 8 
-            }}>
-              <MathView
-                math={mathContent}
-                style={{
-                  fontSize: 18,
-                  color: '#FFFFFF', // Force white color for math
-                }}
-              />
-            </View>
-          );
-        } else if (part) {
-          // Regular text
-          return (
-            <Text key={index} style={[textStyle, { flexShrink: 1, flexWrap: 'wrap' }]}>
-              {part}
-            </Text>
-          );
-        } else {
-          return null;
-        }
-      })}
-    </View>
+    <RenderHtml
+      contentWidth={width - 40}
+      source={{ html: text }}
+      tagsStyles={{
+        body: {
+          color: textStyle?.color || colors.text,
+          fontSize: textStyle?.fontSize || 16,
+          fontFamily: textStyle?.fontFamily || 'System',
+          lineHeight: 1.5,
+        },
+        p: {
+          marginVertical: 4,
+        },
+        h1: {
+          fontSize: 24,
+          fontWeight: 'bold',
+          marginVertical: 8,
+          color: textStyle?.color || colors.text,
+        },
+        h2: {
+          fontSize: 20,
+          fontWeight: 'bold',
+          marginVertical: 6,
+          color: textStyle?.color || colors.text,
+        },
+        h3: {
+          fontSize: 18,
+          fontWeight: 'bold',
+          marginVertical: 4,
+          color: textStyle?.color || colors.text,
+        },
+        strong: {
+          fontWeight: 'bold',
+        },
+        em: {
+          fontStyle: 'italic',
+        },
+        code: {
+          backgroundColor: 'rgba(40, 40, 40, 0.8)',
+          padding: 2,
+          borderRadius: 4,
+          fontFamily: 'monospace',
+        },
+        pre: {
+          backgroundColor: 'rgba(40, 40, 40, 0.8)',
+          padding: 8,
+          borderRadius: 8,
+          fontFamily: 'monospace',
+        },
+        blockquote: {
+          borderLeftWidth: 4,
+          borderLeftColor: colors.primary || '#007AFF',
+          paddingLeft: 12,
+          marginVertical: 8,
+          fontStyle: 'italic',
+        },
+        table: {
+          borderWidth: 1,
+          borderColor: colors.border || '#E0E0E0',
+          marginVertical: 8,
+        },
+        td: {
+          borderWidth: 1,
+          borderColor: colors.border || '#E0E0E0',
+          padding: 8,
+        },
+        th: {
+          borderWidth: 1,
+          borderColor: colors.border || '#E0E0E0',
+          padding: 8,
+          fontWeight: 'bold',
+          backgroundColor: 'rgba(0, 0, 0, 0.1)',
+        },
+      }}
+    />
   );
 };
   // Helper function to check if text contains math expressions
 
+  // Function to parse intelligent messages with image skeletons and images
+  const parseIntelligentMessage = (messageText) => {
+    const parts = [];
+    let currentIndex = 0;
+    
+    // Regex patterns for image skeleton and image tags
+    const imageSkeletonRegex = /\[IMAGE_SKELETON:([^:]+):([^\]]+)\]/g;
+    const imageRegex = /\[IMAGE:([^:]+):([^\]]+)\]/g;
+    const imageErrorRegex = /\[IMAGE_ERROR:([^\]]+)\]/g;
+    
+    // Find all matches
+    const allMatches = [];
+    
+    let match;
+    while ((match = imageSkeletonRegex.exec(messageText)) !== null) {
+      allMatches.push({
+        type: 'skeleton',
+        index: match.index,
+        length: match[0].length,
+        id: match[1],
+        description: match[2],
+        fullMatch: match[0]
+      });
+    }
+    
+    imageSkeletonRegex.lastIndex = 0;
+    while ((match = imageRegex.exec(messageText)) !== null) {
+      allMatches.push({
+        type: 'image',
+        index: match.index,
+        length: match[0].length,
+        url: match[1],
+        description: match[2],
+        fullMatch: match[0]
+      });
+    }
+    
+    imageRegex.lastIndex = 0;
+    while ((match = imageErrorRegex.exec(messageText)) !== null) {
+      allMatches.push({
+        type: 'error',
+        index: match.index,
+        length: match[0].length,
+        message: match[1],
+        fullMatch: match[0]
+      });
+    }
+    
+    // Sort matches by index
+    allMatches.sort((a, b) => a.index - b.index);
+    
+    // Build parts array
+    allMatches.forEach((match, i) => {
+      // Add text before this match
+      if (match.index > currentIndex) {
+        const textPart = messageText.substring(currentIndex, match.index);
+        if (textPart.trim()) {
+          parts.push({
+            type: 'text',
+            content: textPart
+          });
+        }
+      }
+      
+      // Add the match
+      parts.push(match);
+      
+      currentIndex = match.index + match.length;
+    });
+    
+    // Add remaining text
+    if (currentIndex < messageText.length) {
+      const remainingText = messageText.substring(currentIndex);
+      if (remainingText.trim()) {
+        parts.push({
+          type: 'text',
+          content: remainingText
+        });
+      }
+    }
+    
+    // If no special tags found, return the original text as a single part
+    if (parts.length === 0) {
+      parts.push({
+        type: 'text',
+        content: messageText
+      });
+    }
+    
+    return parts;
+  };
 
   const sendMessageToAI = async (message, imageUrl = null, onChunk = null) => {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       try {
+        // First, analyze if the message needs images using intelligent agent
+        const imageAnalysis = await analyzeMessageForImageNeeds(message);
+        
+        let responsePlan = null;
+        let imagePromises = [];
+        let pendingImageData = [];
+        
+        if (imageAnalysis.needsImages && imageAnalysis.imageCount > 0) {
+          console.log('🎨 Intelligent Agent detected need for', imageAnalysis.imageCount, 'images');
+          
+          // Set streaming with images flag
+          setStreamingWithImages(true);
+          
+          // Create response plan
+          responsePlan = await createResponsePlan(message, imageAnalysis);
+          setCurrentResponsePlan(responsePlan);
+          
+          // Start parallel image generation
+          imagePromises = await generateMultipleImages(
+            imageAnalysis.imageDescriptions,
+            user?.id || 'anonymous',
+            50 // coin cost per image
+          );
+          
+          // Track pending images
+          pendingImageData = imageAnalysis.imageDescriptions.map((desc, index) => ({
+            id: `img_${Date.now()}_${index}`,
+            description: desc,
+            status: 'generating',
+            promise: imagePromises[index],
+            insertionPoint: responsePlan.imageInsertionPoints[index]?.position || 80 * (index + 1)
+          }));
+          
+          setPendingImages(pendingImageData);
+          
+          // Handle image generation completion
+          imagePromises.forEach(async (promise, index) => {
+            try {
+              const result = await promise;
+              setGeneratedImages(prev => {
+                const newMap = new Map(prev);
+                newMap.set(pendingImageData[index].id, result);
+                return newMap;
+              });
+              
+              // Update pending images status
+              setPendingImages(prev => prev.map(img => 
+                img.id === pendingImageData[index].id 
+                  ? { ...img, status: 'completed', imageUrl: result.imageUrl }
+                  : img
+              ));
+            } catch (error) {
+              console.error('Image generation failed:', error);
+              setPendingImages(prev => prev.map(img => 
+                img.id === pendingImageData[index].id 
+                  ? { ...img, status: 'failed' }
+                  : img
+              ));
+            }
+          });
+        }
+
         // Prepare API messages array with system message
         const apiMessages = [ 
           { 
@@ -470,7 +653,7 @@ const renderTextWithMath = (text, textStyle) => {
             content: [ 
               { 
                 type: "text", 
-                text: "You are an AI tutor assistant helping students with their homework and studies. Provide helpful, educational responses with clear explanations and examples that students can easily understand. Use proper markdown formatting for better readability. IMPORTANT: When including mathematical expressions, please wrap inline math with <math>...</math> tags and display math (block equations) with <math3>...</math3> tags. For example: <math>x^2 + y^2 = z^2</math> for inline math, and <math3>\\int_0^1 x^2 dx = \\frac{1}{3}</math3> for display math. This helps with proper mathematical rendering." 
+                text: "You are an AI tutor assistant helping students with their homework and studies. IMPORTANT: You must respond ONLY in valid HTML format using proper HTML tags for structure and formatting. Use HTML tags like <h1>, <h2>, <h3> for headings, <p> for paragraphs, <strong> for bold text, <em> for emphasis, <ul> and <li> for lists, <table>, <tr>, <td> for tables, <code> for inline code, <pre> for code blocks, <blockquote> for quotes, and any other appropriate HTML tags. For mathematical expressions, use LaTeX syntax wrapped in appropriate delimiters: \\( ... \\) for inline math, \\[ ... \\] for display math, or $$ ... $$ for display math. You can also use <math>...</math> for inline math and <math2>...</math2> for display math. Examples: \\(x^2 + y^2 = z^2\\) for inline, \\[\\int_0^1 x^2 dx = \\frac{1}{3}\\] for display math. Do not use markdown or any other formatting - only pure HTML with proper structure and semantic tags plus LaTeX math." 
               } 
             ] 
           }
@@ -550,13 +733,62 @@ const renderTextWithMath = (text, textStyle) => {
          apiMessages.push(currentUserMessage);
 
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions', true);
+        xhr.open('POST', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', true);
         xhr.setRequestHeader('Authorization', `Bearer ${DASHSCOPE_API_KEY}`);
         xhr.setRequestHeader('Content-Type', 'application/json');
 
         let fullContent = '';
         let processedLength = 0; // Track how much we've already processed
         let isFirstChunk = true;
+        let charCount = 0;
+        let nextImageIndex = 0;
+
+        // Intelligent chunk handler for image insertion
+        const handleIntelligentChunk = async (content_chunk) => {
+          charCount += content_chunk.length;
+          
+          // Check if we need to insert an image at this point
+          if (pendingImageData.length > 0 && 
+              nextImageIndex < pendingImageData.length && 
+              charCount >= pendingImageData[nextImageIndex].insertionPoint) {
+            
+            const pendingImage = pendingImageData[nextImageIndex];
+            
+            if (pendingImage.status === 'generating') {
+              // Show skeleton loader and wait for image
+              if (onChunk) {
+                onChunk(content_chunk + `\n[IMAGE_SKELETON:${pendingImage.id}:${pendingImage.description}]\n`);
+              }
+              
+              // Wait for image to complete
+              try {
+                await pendingImage.promise;
+                const generatedImage = generatedImages.get(pendingImage.id);
+                if (generatedImage && onChunk) {
+                  onChunk(`[IMAGE:${generatedImage.imageUrl}:${pendingImage.description}]\n`);
+                }
+              } catch (error) {
+                console.error('Failed to wait for image:', error);
+                if (onChunk) {
+                  onChunk(`[IMAGE_ERROR:Failed to generate image]\n`);
+                }
+              }
+            } else if (pendingImage.status === 'completed' && pendingImage.imageUrl) {
+              // Image is ready, insert it
+              if (onChunk) {
+                onChunk(content_chunk + `\n[IMAGE:${pendingImage.imageUrl}:${pendingImage.description}]\n`);
+              }
+            } else {
+              // Normal text streaming
+              if (onChunk) onChunk(content_chunk);
+            }
+            
+            nextImageIndex++;
+          } else {
+            // Normal text streaming
+            if (onChunk) onChunk(content_chunk);
+          }
+        };
 
         xhr.onreadystatechange = function() {
           if (xhr.readyState === 3 || xhr.readyState === 4) {
@@ -578,7 +810,20 @@ const renderTextWithMath = (text, textStyle) => {
                   
                   try {
                     const parsed = JSON.parse(data);
-                    const content_chunk = parsed.choices?.[0]?.delta?.content;
+                    let content_chunk = null;
+                    
+                    // Handle standard OpenAI format
+                    if (parsed.choices?.[0]?.delta?.content) {
+                      content_chunk = parsed.choices[0].delta.content;
+                    }
+                    // Handle n8n format - only extract content from "item" type messages
+                    else if (parsed.type === 'item' && parsed.content) {
+                      content_chunk = parsed.content;
+                    }
+                    // Skip n8n metadata messages (type: "begin", "end", etc.)
+                    else if (parsed.type && parsed.type !== 'item') {
+                      continue;
+                    }
                     
                     if (content_chunk) {
                       if (isFirstChunk) {
@@ -588,11 +833,33 @@ const renderTextWithMath = (text, textStyle) => {
                       
                       fullContent += content_chunk;
                       
-                      // Call the chunk callback immediately for real-time updates
-                      if (onChunk) {
-                        onChunk(content_chunk);
-                      }
+                      // Use intelligent chunk handler for real-time updates with image insertion
+                      handleIntelligentChunk(content_chunk);
                     }
+                  } catch (parseError) {
+                    // Skip invalid JSON lines
+                    continue;
+                  }
+                }
+                // Handle n8n format without "data: " prefix
+                else if (line.trim().startsWith('{')) {
+                  try {
+                    const parsed = JSON.parse(line.trim());
+                    // Only process n8n "item" type messages with content
+                    if (parsed.type === 'item' && parsed.content) {
+                      const content_chunk = parsed.content;
+                      
+                      if (isFirstChunk) {
+                        console.log('📝 First content chunk received (n8n format)');
+                        isFirstChunk = false;
+                      }
+                      
+                      fullContent += content_chunk;
+                      
+                      // Use intelligent chunk handler for real-time updates with image insertion
+                      handleIntelligentChunk(content_chunk);
+                    }
+                    // Skip n8n metadata messages
                   } catch (parseError) {
                     // Skip invalid JSON lines
                     continue;
@@ -603,6 +870,11 @@ const renderTextWithMath = (text, textStyle) => {
             
             // If request is complete
             if (xhr.readyState === 4) {
+              // Reset intelligent agent states
+              setStreamingWithImages(false);
+              setCurrentResponsePlan(null);
+              setPendingImages([]);
+              
               if (xhr.status === 200) {
                 console.log('✅ AI Tutor API request completed successfully');
                 console.log('📊 Final content length:', fullContent.length);
@@ -617,18 +889,24 @@ const renderTextWithMath = (text, textStyle) => {
 
         xhr.onerror = function() {
           console.error('💥 XMLHttpRequest error');
+          setStreamingWithImages(false);
+          setCurrentResponsePlan(null);
+          setPendingImages([]);
           reject(new Error('Failed to get response from AI. Please try again.'));
         };
 
         xhr.ontimeout = function() {
           console.error('💥 XMLHttpRequest timeout');
+          setStreamingWithImages(false);
+          setCurrentResponsePlan(null);
+          setPendingImages([]);
           reject(new Error('Request timed out. Please try again.'));
         };
 
         xhr.timeout = 60000; // 60 second timeout
 
         const requestBody = JSON.stringify({
-          model: "qwen-vl-max",
+          model: "qwen-plus",
           messages: apiMessages,
           stream: true
         });
@@ -638,6 +916,9 @@ const renderTextWithMath = (text, textStyle) => {
 
       } catch (error) {
         console.error('💥 Error in sendMessageToAI:', error);
+        setStreamingWithImages(false);
+        setCurrentResponsePlan(null);
+        setPendingImages([]);
         reject(new Error('Failed to get response from AI. Please try again.'));
       }
     });
@@ -657,6 +938,17 @@ const renderTextWithMath = (text, textStyle) => {
       // Get current user session
       const { data: { session } } = await supabase.auth.getSession();
       const userId = session?.user?.id || 'anonymous';
+      
+      console.log('Starting enhanced streaming with parallel image generation...');
+      
+      // Step 1: Create response plan with parallel image generation
+      const conversationHistory = messages
+        .filter(msg => !msg.isLoading && !msg.isStreaming && msg.text)
+        .slice(-6) // Last 6 messages for context
+        .map(msg => ({ sender: msg.sender, text: msg.text }));
+      
+      const responsePlan = await createResponsePlan(userMessage, conversationHistory, userId);
+      console.log('Response plan created:', responsePlan);
       
       // Start assistant message in database if authenticated
       let assistantMessageId = null;
@@ -683,12 +975,13 @@ const renderTextWithMath = (text, textStyle) => {
           id: streamingMessageId,
           text: '',
           sender: 'bot',
-          isStreaming: true
+          isStreaming: true,
+          images: [] // Initialize images array for this message
         }];
       });
 
-      // Define chunk handler for real-time updates
-      const handleChunk = async (chunk) => {
+      // Define callbacks for the enhanced streaming
+      const handleTextChunk = async (chunk) => {
         streamingContent += chunk;
         
         // Update the streaming message in real-time
@@ -702,44 +995,85 @@ const renderTextWithMath = (text, textStyle) => {
         if (assistantMessageId) {
           await appendMessageChunk(assistantMessageId, chunk);
         }
-        
-        // Removed auto-scroll during streaming to prevent unwanted scrolling
       };
 
-      // Get streaming response
-      const fullResponse = await sendMessageToAI(userMessage, null, handleChunk);
-      
-      // Finalize the message in database if authenticated
-      if (assistantMessageId) {
-        await finalizeMessage(assistantMessageId);
-      }
-      
-      // Finalize the streaming message
-      setMessages(prev => prev.map(msg => 
-        msg.id === streamingMessageId 
-          ? { ...msg, text: fullResponse, isStreaming: false, coinsDeducted: 1 }
-          : msg
-      ));
-      
-      // Store the coins deducted for UI display
-      setLastCoinsDeducted(1);
-      
-      // Removed auto-scroll after bot response to prevent unwanted scrolling
+      const handleImageReady = (imageTask) => {
+        console.log(`Image ready for insertion: ${imageTask.id}`);
+        
+        // Add image to the streaming message
+        setMessages(prev => prev.map(msg => 
+          msg.id === streamingMessageId 
+            ? { 
+                ...msg, 
+                images: [...(msg.images || []), {
+                  id: imageTask.id,
+                  url: imageTask.imageUrl,
+                  description: imageTask.description,
+                  insertedAt: streamingContent.length
+                }]
+              }
+            : msg
+        ));
+      };
+
+      const handleComplete = (error) => {
+        if (error) {
+          console.error('Streaming completed with error:', error);
+          // Handle error case
+          setMessages(prev => prev.map(msg => 
+            msg.id === streamingMessageId 
+              ? { ...msg, text: streamingContent || 'Sorry, I encountered an error. Could you try again?', isStreaming: false, hasError: true }
+              : msg
+          ));
+        } else {
+          console.log('Streaming completed successfully');
+          // Finalize the streaming message
+          setMessages(prev => prev.map(msg => 
+            msg.id === streamingMessageId 
+              ? { ...msg, text: streamingContent, isStreaming: false, coinsDeducted: 1 }
+              : msg
+          ));
+          
+          // Finalize the message in database if authenticated
+          if (assistantMessageId) {
+            finalizeMessage(assistantMessageId);
+          }
+          
+          // Save bot response to chat history
+          saveChatHistoryEnhanced(streamingContent, 'bot', 1).catch(error => {
+            console.error('Failed to save bot response:', error);
+          });
+          
+          // Store the coins deducted for UI display
+          setLastCoinsDeducted(1);
+        }
+        
+        setIsLoading(false);
+      };
+
+      // Start the enhanced streaming with parallel image generation
+      await streamingService.startStreamingWithImages(
+        userMessage,
+        conversationHistory,
+        responsePlan,
+        handleTextChunk,
+        handleImageReady,
+        handleComplete
+      );
       
     } catch (error) {
-      console.error('Error fetching streaming response:', error);
+      console.error('Error in enhanced streaming:', error);
       
-      // If we need to handle network errors, we can retry
-      if (retryCount < 1 && (error.message.includes('timeout') || error.message.includes('network'))) {
-        console.log('Retrying due to possible network error...');
+      // Retry logic for network errors
+      if (retryCount < 1 && (error.message.includes('network') || error.message.includes('timeout'))) {
+        console.log(`Retrying request (attempt ${retryCount + 1})...`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Exponential backoff
         return fetchDeepSeekResponse(userMessage, retryCount + 1);
       }
       
-      // Remove the loading indicator and add an error message
+      // Remove any loading messages and add error message
       setMessages(prev => {
-        // Filter out any loading or streaming messages
         const messagesWithoutLoading = prev.filter(msg => !msg.isLoading && !msg.isStreaming);
-        // Add the error message
         return [...messagesWithoutLoading, {
           id: Date.now().toString(),
           text: 'Sorry, I encountered an error. Could you try again?',
@@ -747,25 +1081,23 @@ const renderTextWithMath = (text, textStyle) => {
         }];
       });
       
-      // Save the error message
-      await saveChatHistory('Sorry, I encountered an error. Could you try again?', 'bot');
-      
-      // Removed auto-scroll after error to prevent unwanted scrolling
-    } finally {
+      // Save the error message to chat history
+      await saveChatHistoryEnhanced('Sorry, I encountered an error. Could you try again?', 'bot');
       setIsLoading(false);
     }
   };
 
   const handleSendMessage = async () => {
     // Enhanced protection against double-sends
-    if ((inputText.trim() || selectedImage) && !isSendDisabled && !isLoading && !isApiLoading) {
+    if ((inputText.trim() || selectedImage || attachedFiles.length > 0) && !isSendDisabled && !isLoading && !isApiLoading) {
       // Check coin requirements before processing
-      const requiredCoins = selectedImage ? 2 : 1;
+      const hasAttachments = selectedImage || attachedFiles.length > 0;
+      const requiredCoins = hasAttachments ? 2 : 1;
       
       if (coinCount < requiredCoins) {
         Alert.alert(
           'Insufficient Coins',
-          `You need ${requiredCoins} coin${requiredCoins > 1 ? 's' : ''} to ${selectedImage ? 'send an image' : 'send a message'}. Please purchase more coins to continue.`,
+          `You need ${requiredCoins} coin${requiredCoins > 1 ? 's' : ''} to ${hasAttachments ? 'send a message with attachments' : 'send a message'}. Please purchase more coins to continue.`,
           [{ text: 'OK' }]
         );
         return;
@@ -782,7 +1114,7 @@ const renderTextWithMath = (text, textStyle) => {
       try {
         // Deduct coins before processing
         try {
-          const transactionName = selectedImage ? 'Image Message' : 'Text Message';
+          const transactionName = hasAttachments ? 'Message with Attachments' : 'Text Message';
           await paymentService.subtractCoins(uid, requiredCoins, transactionName);
           // Note: coinCount will be automatically updated by useCoinsSubscription hook
         } catch (error) {
@@ -806,7 +1138,7 @@ const renderTextWithMath = (text, textStyle) => {
         
         // If there's no current chat ID, create a new chat
         if (!currentChatId) {
-          const newChatId = Date.now().toString();
+          const newChatId = generateUUID();
           console.log('Creating new chat before sending message:', newChatId);
           setCurrentChatId(newChatId);
           await startNewChat(newChatId);
@@ -911,21 +1243,22 @@ const renderTextWithMath = (text, textStyle) => {
             const captionText = inputText.trim();
             const question = captionText ? captionText : "What do you see in this image?";
             
-            // Save user message with attachment to database if authenticated
+            // Save user message with attachment using enhanced error handling
             let userMessageId = null;
             if (userId !== 'anonymous') {
-              const savedUserMessage = await addUserMessageWithAttachment(
-                currentChatId,
-                userId,
-                captionText,
-                imageUrl,
-                imageFileName || `image.${fileExtension}`,
-                mimeType,
-                compressedImage.size,
-                {},
-                Date.now().toString()
-              );
-              userMessageId = savedUserMessage?.id;
+              try {
+                const fileAttachment = {
+                  url: imageUrl,
+                  name: imageFileName || `image.${fileExtension}`,
+                  type: mimeType,
+                  size: compressedImage.size
+                };
+                const savedMessage = await saveChatHistoryEnhanced(captionText, 'user', 0, fileAttachment);
+                userMessageId = savedMessage?.id;
+              } catch (error) {
+                console.error('Failed to save image message:', error);
+                // Continue with local state update even if database save fails
+              }
             }
             
             // Add user message to state with image property and text if provided
@@ -986,8 +1319,12 @@ const renderTextWithMath = (text, textStyle) => {
                 : msg
             ));
             
-            // Commented out saving logic as requested
-            // await saveChatHistory(fullResponse, 'bot', 1);
+            // Save bot response with enhanced error handling
+            try {
+              await saveChatHistoryEnhanced(fullResponse, 'bot', 1);
+            } catch (error) {
+              console.error('Failed to save bot response:', error);
+            }
 
             // Show success feedback
             Toast.show({
@@ -1019,7 +1356,7 @@ const renderTextWithMath = (text, textStyle) => {
             });
             
             // Save the error message to chat history
-            await saveChatHistory('Sorry, I had trouble processing that image. Could you try a different image?', 'bot');
+            await saveChatHistoryEnhanced('Sorry, I had trouble processing that image. Could you try a different image?', 'bot');
           } finally {
             setIsLoading(false);
             setIsImageProcessing(false);
@@ -1031,60 +1368,236 @@ const renderTextWithMath = (text, textStyle) => {
               setIsSendDisabled(false);
             }, 1500); // Increased delay to 1.5 seconds
           }
-        } else {
-          // Regular text message handling
+        } else if (attachedFiles.length > 0) {
+          // File attachment processing
           try {
             setIsLoading(true);
+            setIsUploadingFile(true);
             
-            // Save user message to database if authenticated
-            let userMessageId = null;
-            if (userId !== 'anonymous') {
-              const savedUserMessage = await addUserMessage(
-                currentChatId,
-                userId,
-                inputText,
-                {},
-                Date.now().toString()
-              );
-              userMessageId = savedUserMessage?.id;
+            // Process each attached file
+            let processedContent = '';
+            let uploadedFiles = [];
+            
+            for (let i = 0; i < attachedFiles.length; i++) {
+              const file = attachedFiles[i];
+              setUploadProgress((i / attachedFiles.length) * 50); // First 50% for upload
+              
+              try {
+                // Upload file to storage
+                const uploadedFile = await uploadFile(file, userId);
+                uploadedFiles.push(uploadedFile);
+                
+                setUploadProgress(50 + ((i + 1) / attachedFiles.length) * 30); // Next 30% for processing
+                
+                // Process document based on type
+                const processingMethod = getDocumentProcessingMethod(file);
+                
+                if (processingMethod === 'excel') {
+                  // For Excel files, use webhook API with streaming
+                  const excelContent = await processExcelDocument(uploadedFile.publicUrl, (chunk) => {
+                    processedContent += chunk;
+                  });
+                  processedContent += `\n\n**File: ${file.name}**\n${excelContent}\n`;
+                } else if (processingMethod === 'pdf') {
+                  // For PDF files, convert to images
+                  const pdfPages = await processPDFDocument(file.uri);
+                  processedContent += `\n\n**File: ${file.name}** (${pdfPages.length} pages)\n`;
+                  // Note: PDF pages are converted to images for AI analysis
+                } else if (processingMethod === 'word') {
+                  // For Word documents, extract text content
+                  const wordContent = await processWordDocument(file.uri);
+                  processedContent += `\n\n**File: ${file.name}**\n${wordContent.text}\n`;
+                } else {
+                  processedContent += `\n\n**File: ${file.name}** (attached)\n`;
+                }
+                
+              } catch (fileError) {
+                console.error(`Error processing file ${file.name}:`, fileError);
+                processedContent += `\n\n**File: ${file.name}** (processing failed)\n`;
+              }
             }
             
-            // Create message object with timestamp
+            setUploadProgress(100);
+            
+            // Combine input text with processed file content
+            const fullMessage = inputText.trim() + (processedContent ? `\n\nAttached files:${processedContent}` : '');
+            
+            // Save user message with attachments using enhanced error handling
+            let userMessageId = null;
+            if (userId !== 'anonymous') {
+              try {
+                const fileAttachments = uploadedFiles.map(file => ({
+                  url: file.url,
+                  name: file.fileName,
+                  type: file.type || 'application/octet-stream',
+                  size: file.size || 0
+                }));
+                const savedMessage = await saveChatHistoryEnhanced(inputText.trim(), 'user', 0, fileAttachments[0], fileAttachments);
+                userMessageId = savedMessage?.id;
+              } catch (error) {
+                console.error('Failed to save file attachment message:', error);
+                // Continue with local state update even if database save fails
+              }
+            }
+            
+            // Add user message to state
             const newMessage = {
               id: userMessageId || Date.now().toString(),
-              text: inputText,
+              text: inputText.trim(),
               sender: 'user',
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
+              attachments: uploadedFiles
             };
             
             // Track this message for coin deduction display
             setRecentCoinDeductions(prev => new Set([...prev, newMessage.id]));
             
-            // Create a loading indicator message
-            const loadingMessage = {
-              id: 'loading-' + Date.now().toString(),
-              isLoading: true,
-              sender: 'bot'
+            setMessages(prev => [...prev, newMessage]);
+            setInputText('');
+            setAttachedFiles([]);
+            
+            // Create a streaming bot message
+            const streamingMessageId = 'streaming-' + Date.now().toString();
+            let streamingContent = '';
+            
+            setMessages(prev => [...prev, {
+              id: streamingMessageId,
+              text: '',
+              sender: 'bot',
+              isStreaming: true
+            }]);
+            
+            // Define chunk handler for real-time updates
+            const handleChunk = (chunk) => {
+              streamingContent += chunk;
+              setMessages(prev => prev.map(msg => 
+                msg.id === streamingMessageId 
+                  ? { ...msg, text: streamingContent }
+                  : msg
+              ));
             };
             
-            // Add both the user message and loading indicator to state
-            setMessages(prev => [...prev, newMessage, loadingMessage]);
+            // Send message with processed file content to AI
+            const fullResponse = await sendMessageToAI(fullMessage, null, handleChunk);
             
-            // Update the current chat's messages in local state
-            setChats(prevChats => prevChats.map(chat => 
-              chat.id === currentChatId ? { ...chat, messages: [...(chat.messages || []), newMessage] } : chat
+            // Finalize the streaming message
+            setMessages(prev => prev.map(msg => 
+              msg.id === streamingMessageId 
+                ? { ...msg, text: fullResponse, isStreaming: false, coinsDeducted: 1 }
+                : msg
             ));
-
-            // Clear input
+            
+            // Save bot response with enhanced error handling
+            try {
+              await saveChatHistoryEnhanced(fullResponse, 'bot', 1);
+            } catch (error) {
+              console.error('Failed to save bot response:', error);
+            }
+            
+            // Show success feedback
+            Toast.show({
+              type: 'success',
+              text1: 'Files Processed',
+              text2: 'Document analysis completed successfully!',
+              position: 'bottom',
+              visibilityTime: 1500,
+            });
+            
+          } catch (error) {
+            console.error('Error processing files:', error);
+            
+            // Remove any streaming messages and add error message
+            setMessages(prev => {
+              const messagesWithoutStreaming = prev.filter(msg => !msg.isStreaming);
+              return [...messagesWithoutStreaming, {
+                id: Date.now().toString(),
+                text: 'Sorry, I had trouble processing those files. Could you try again?',
+                sender: 'bot'
+              }];
+            });
+            
+          } finally {
+            setIsLoading(false);
+            setIsUploadingFile(false);
+            setUploadProgress(0);
+            setAttachedFiles([]);
             setInputText('');
-            setIsTyping(false);
             
-            // Removed auto-scroll after sending message to prevent unwanted scrolling
+            // Re-enable the send button
+            sendTimeoutRef.current = setTimeout(() => {
+              setIsSendDisabled(false);
+            }, 1500);
+          }
+        } else {
+          // Regular text message handling
+          try {
+            setIsLoading(true);
             
-            // Process the message with an AI service
-            await fetchDeepSeekResponse(inputText);
-            
-            // Removed auto-scroll after response to prevent unwanted scrolling
+            // Check if a generate option is selected
+            if (selectedGenerateOption) {
+              // Handle generate options
+              if (selectedGenerateOption === 'doc') {
+                await executeGenerateDOC(inputText.trim());
+              } else if (selectedGenerateOption === 'xlsx') {
+                await executeGenerateXLSX(inputText.trim());
+              }
+              
+              // Clear input and reset generate option
+              setInputText('');
+              setSelectedGenerateOption(null);
+              setIsTyping(false);
+              
+            } else {
+              // Regular message handling
+              // Save user message to database with enhanced error handling
+              let userMessageId = null;
+              if (userId !== 'anonymous') {
+                try {
+                  const savedMessage = await saveChatHistoryEnhanced(inputText, 'user');
+                  userMessageId = savedMessage?.id;
+                } catch (error) {
+                  console.error('Failed to save user message:', error);
+                  // Continue with local state update even if database save fails
+                }
+              }
+              
+              // Create message object with timestamp
+              const newMessage = {
+                id: userMessageId || Date.now().toString(),
+                text: inputText,
+                sender: 'user',
+                timestamp: new Date().toISOString()
+              };
+              
+              // Track this message for coin deduction display
+              setRecentCoinDeductions(prev => new Set([...prev, newMessage.id]));
+              
+              // Create a loading indicator message
+              const loadingMessage = {
+                id: 'loading-' + Date.now().toString(),
+                isLoading: true,
+                sender: 'bot'
+              };
+              
+              // Add both the user message and loading indicator to state
+              setMessages(prev => [...prev, newMessage, loadingMessage]);
+              
+              // Update the current chat's messages in local state
+              setChats(prevChats => prevChats.map(chat => 
+                chat.id === currentChatId ? { ...chat, messages: [...(chat.messages || []), newMessage] } : chat
+              ));
+
+              // Clear input
+              setInputText('');
+              setIsTyping(false);
+              
+              // Removed auto-scroll after sending message to prevent unwanted scrolling
+              
+              // Process the message with an AI service
+              await fetchDeepSeekResponse(inputText);
+              
+              // Removed auto-scroll after response to prevent unwanted scrolling
+            }
           } catch (error) {
             console.error('Error in message handling:', error);
             
@@ -1094,8 +1607,8 @@ const renderTextWithMath = (text, textStyle) => {
               { id: Date.now().toString(), text: 'Sorry, I encountered an error processing your message. Could you try again?', sender: 'bot' },
             ]);
             
-            // Save the error message to chat history
-            await saveChatHistory('Sorry, I encountered an error processing your message. Could you try again?', 'bot');
+            // Save the error message to chat history with enhanced error handling
+            await saveChatHistoryEnhanced('Sorry, I encountered an error processing your message. Could you try again?', 'bot');
           } finally {
             setIsLoading(false);
             
@@ -1117,21 +1630,177 @@ const renderTextWithMath = (text, textStyle) => {
     }
   };
 
+  // Enhanced chat saving function with proper error handling and retry logic
+  const saveChatHistoryEnhanced = async (messageText, sender, coinsDeducted = 0, fileAttachment = null) => {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 1000; // 1 second
+    
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        // Check if user is authenticated
+        if (!uid) {
+          console.log('No authenticated user found, skipping chat history save');
+          return { success: false, error: 'No authenticated user' };
+        }
+        
+        const userId = uid;
+        
+        // Ensure we have a valid chat ID
+        let chatIdToUse = currentChatId;
+        if (!chatIdToUse) {
+          console.log('No current chat ID, creating a new chat');
+          chatIdToUse = generateUUID();
+          setCurrentChatId(chatIdToUse);
+          
+          // Create new chat using the new chat service
+          try {
+            const newChat = await createNewChat(userId, t('newChat'), currentRole || '');
+            chatIdToUse = newChat.id;
+            setCurrentChatId(chatIdToUse);
+            
+            // Update local state
+            setChats(prevChats => [
+              {
+                id: chatIdToUse,
+                name: t('newChat'),
+                description: '',
+                role: currentRole || '',
+                roleDescription: '',
+                messages: [],
+              },
+              ...prevChats
+            ]);
+          } catch (createError) {
+            console.error('Error creating new chat:', createError);
+            return { success: false, error: 'Failed to create chat', attempt };
+          }
+        }
+        
+        // Prepare message data
+        const timestamp = new Date().toISOString();
+        let messageData = {
+          chat_id: chatIdToUse,
+          role: sender === 'bot' ? 'assistant' : 'user',
+          content: messageText,
+          status: 'done',
+          position: await getNextMessagePosition(chatIdToUse),
+          metadata: {
+            timestamp,
+            coinsDeducted: coinsDeducted || 0,
+            sender: sender
+          }
+        };
+        
+        // Handle file attachment if present
+        if (fileAttachment) {
+          // Validate file before processing
+          const validation = await validateFileEnhanced(fileAttachment);
+          if (!validation.isValid) {
+            console.error('File validation failed:', validation.error);
+            return { success: false, error: validation.error, attempt };
+          }
+          
+          try {
+            // Upload file to storage with proper error handling
+            const uploadResult = await uploadFileWithRetry(fileAttachment, userId);
+            if (!uploadResult.success) {
+              throw new Error(uploadResult.error);
+            }
+            
+            // Add file metadata to message
+            messageData.file_url = uploadResult.publicUrl;
+            messageData.file_name = fileAttachment.name || fileAttachment.fileName;
+            messageData.file_type = fileAttachment.type || fileAttachment.mime;
+            messageData.file_size = fileAttachment.size || fileAttachment.fileSize;
+            
+            console.log('File uploaded successfully:', uploadResult.publicUrl);
+          } catch (uploadError) {
+            console.error('File upload failed:', uploadError);
+            return { success: false, error: 'File upload failed: ' + uploadError.message, attempt };
+          }
+        }
+        
+        // Save message to database using direct Supabase call with proper error handling
+        try {
+          const { data: savedMessage, error: saveError } = await supabase
+            .from('messages')
+            .insert(messageData)
+            .select()
+            .single();
+          
+          if (saveError) {
+            // Check if it's a constraint violation and handle accordingly
+            if (saveError.message && saveError.message.includes('check constraint')) {
+              console.log('Retrying with different status value');
+              messageData.status = 'pending';
+              const { data: retryMessage, error: retryError } = await supabase
+                .from('messages')
+                .insert(messageData)
+                .select()
+                .single();
+              
+              if (retryError) {
+                throw retryError;
+              }
+              
+              // Update local state with the saved message
+              const frontendMessage = supabaseMessageToFrontend(retryMessage);
+              setMessages(prevMessages => [...prevMessages, frontendMessage]);
+              
+              console.log('Message saved successfully on retry:', retryMessage.id);
+              return { success: true, messageId: retryMessage.id, attempt };
+            }
+            
+            throw saveError;
+          }
+          
+          // Update local state with the saved message
+          const frontendMessage = supabaseMessageToFrontend(savedMessage);
+          setMessages(prevMessages => [...prevMessages, frontendMessage]);
+          
+          // Update chat description and name if needed
+          await updateChatMetadata(chatIdToUse, messageText, sender);
+          
+          console.log('Message saved successfully:', savedMessage.id);
+          return { success: true, messageId: savedMessage.id, attempt };
+          
+        } catch (saveError) {
+          console.error('Error saving message:', saveError);
+          throw saveError;
+        }
+        
+      } catch (error) {
+        console.error(`Attempt ${attempt} failed:`, error);
+        
+        if (attempt === MAX_RETRIES) {
+          console.error('All retry attempts failed');
+          return { 
+            success: false, 
+            error: error.message || 'Failed to save message after multiple attempts',
+            attempt 
+          };
+        }
+        
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
+      }
+    }
+  };
+
   const saveChatHistory = async (messageText, sender, coinsDeducted = 0) => {
     try {
-      // Get current user session
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) {
+      // Check if user is authenticated
+      if (!uid) {
         console.log('No authenticated user found, skipping chat history save');
         return;
       }
       
-      const userId = session.user.id;
+      const userId = uid;
       
       // Make sure we have a valid chat id
       if (!currentChatId) {
         console.log('No current chat ID, creating a new chat');
-        const newChatId = Date.now().toString();
+        const newChatId = generateUUID();
         setCurrentChatId(newChatId);
         
         // Create a new empty chat first
@@ -1148,13 +1817,18 @@ const renderTextWithMath = (text, textStyle) => {
           updated_at: timestamp
         };
         
-        // Insert the chat before adding the message
-        const { error: insertError } = await supabase
-          .from('user_chats')
-          .insert(newChat);
+        // Insert the chat before adding the message using new schema
+        const createdChatId = await createNewChat(
+          userId,
+          t('newChat'),
+          {
+            description: messageText.substring(0, 30) + (messageText.length > 30 ? '...' : '')
+          },
+          currentRole || 'assistant'
+        );
         
-        if (insertError) {
-          console.error('Error creating new chat:', insertError);
+        if (!createdChatId) {
+          console.error('Error creating new chat');
           return;
         }
         
@@ -1177,9 +1851,9 @@ const renderTextWithMath = (text, textStyle) => {
       
       // Check if chat exists in the database
       const { data: existingChat, error: chatError } = await supabase
-        .from('user_chats')
+        .from('chats')
         .select('*')
-        .eq('chat_id', chatIdToUse)
+        .eq('id', chatIdToUse)
         .single();
       
       if (chatError && chatError.code !== 'PGRST116') { // PGRST116 is "not found" error
@@ -1337,6 +2011,160 @@ const renderTextWithMath = (text, textStyle) => {
       ));
     } catch (error) {
       console.error('Error saving chat history:', error);
+    }
+  };
+
+  // Enhanced file validation function
+  const validateFileEnhanced = async (file) => {
+    try {
+      // Check if file exists and has required properties
+      if (!file) {
+        return { isValid: false, error: 'No file provided' };
+      }
+      
+      const fileName = file.name || file.fileName || '';
+      const fileSize = file.size || file.fileSize || 0;
+      const fileType = file.type || file.mime || '';
+      
+      // Check file name
+      if (!fileName || fileName.trim() === '') {
+        return { isValid: false, error: 'Invalid file name' };
+      }
+      
+      // Check file size (max 10MB)
+      const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+      if (fileSize > MAX_FILE_SIZE) {
+        return { isValid: false, error: 'File size exceeds 10MB limit' };
+      }
+      
+      // Check file type
+      const allowedTypes = [
+        'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+        'application/pdf', 'text/plain', 'text/csv',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/msword', 'application/vnd.ms-excel'
+      ];
+      
+      if (!allowedTypes.includes(fileType)) {
+        return { isValid: false, error: 'Unsupported file type: ' + fileType };
+      }
+      
+      // Additional security checks
+      const suspiciousExtensions = ['.exe', '.bat', '.cmd', '.scr', '.pif', '.com'];
+      const fileExtension = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
+      if (suspiciousExtensions.includes(fileExtension)) {
+        return { isValid: false, error: 'Potentially dangerous file type' };
+      }
+      
+      return { isValid: true };
+      
+    } catch (error) {
+      console.error('File validation error:', error);
+      return { isValid: false, error: 'File validation failed: ' + error.message };
+    }
+  };
+  
+  // Enhanced file upload with retry logic
+  const uploadFileWithRetry = async (file, userId, maxRetries = 3) => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Generate unique file name
+        const uniqueFileName = generateUniqueFileName(file.name || file.fileName);
+        const fileType = file.type || file.mime;
+        
+        // Determine upload path based on file type
+        let uploadPath;
+        if (fileType.startsWith('image/')) {
+          uploadPath = `users/${userId}/images/${uniqueFileName}`;
+        } else {
+          uploadPath = `users/${userId}/documents/${uniqueFileName}`;
+        }
+        
+        // Upload to Supabase storage
+        const { data, error } = await supabase.storage
+          .from('user-uploads')
+          .upload(uploadPath, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+        
+        if (error) {
+          throw error;
+        }
+        
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('user-uploads')
+          .getPublicUrl(uploadPath);
+        
+        return {
+          success: true,
+          publicUrl,
+          path: uploadPath,
+          fileName: uniqueFileName
+        };
+        
+      } catch (error) {
+        console.error(`Upload attempt ${attempt} failed:`, error);
+        
+        if (attempt === maxRetries) {
+          return {
+            success: false,
+            error: error.message || 'Upload failed after multiple attempts'
+          };
+        }
+        
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  };
+  
+  // Helper function to get next message position
+  const getNextMessagePosition = async (chatId) => {
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('position')
+        .eq('chat_id', chatId)
+        .order('position', { ascending: false })
+        .limit(1);
+      
+      if (error) {
+        console.error('Error getting message position:', error);
+        return 1;
+      }
+      
+      return data.length > 0 ? data[0].position + 1 : 1;
+    } catch (error) {
+      console.error('Error calculating message position:', error);
+      return 1;
+    }
+  };
+  
+  // Helper function to update chat metadata
+  const updateChatMetadata = async (chatId, messageText, sender) => {
+    try {
+      // Only update on first user message to change from "New Chat"
+      if (sender === 'user') {
+        const description = messageText.substring(0, 50) + (messageText.length > 50 ? '...' : '');
+        
+        const { error } = await supabase
+          .from('chats')
+          .update({
+            title: t('matrixAIBot'),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', chatId)
+          .eq('title', t('newChat')); // Only update if still "New Chat"
+        
+        if (error) {
+          console.error('Error updating chat metadata:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Error in updateChatMetadata:', error);
     }
   };
 
@@ -1576,17 +2404,132 @@ const renderTextWithMath = (text, textStyle) => {
                     </TouchableOpacity>
                   ) : (
                     <View style={isBot ? styles.botTextContainer : styles.userTextContainer}>
-                      <Markdown 
-                        style={{
+                      {isBot ? (
+                        // Intelligent message rendering for bot messages
+                        (() => {
+                          const messageParts = parseIntelligentMessage(displayText);
+                          return messageParts.map((part, index) => {
+                            switch (part.type) {
+                              case 'text':
+                                return (
+                                  <RenderHtml
+                                    key={`text-${index}`}
+                                    contentWidth={Dimensions.get('window').width - 100}
+                                    source={{ html: marked(part.content) }}
+                                    tagsStyles={{
+                                      body: {
+                                        color: colors.botText,
+                                        fontSize: 16,
+                                        lineHeight: 26,
+                                        margin: 0,
+                                        padding: 0,
+                                      },
+                                      h1: {
+                                        color: colors.primary,
+                                        fontWeight: '800',
+                                        fontSize: 28,
+                                        marginTop: 20,
+                                        marginBottom: 12,
+                                        borderBottomWidth: 2,
+                                        borderBottomColor: colors.primary,
+                                        paddingBottom: 8,
+                                        lineHeight: 34,
+                                      },
+                                      h2: {
+                                        color: colors.primary,
+                                        fontWeight: '700',
+                                        fontSize: 24,
+                                        marginTop: 18,
+                                        marginBottom: 10,
+                                        paddingBottom: 6,
+                                        lineHeight: 30,
+                                      },
+                                      h3: {
+                                        color: colors.primary,
+                                        fontWeight: '600',
+                                        fontSize: 20,
+                                        marginTop: 16,
+                                        marginBottom: 8,
+                                        lineHeight: 26,
+                                      },
+                                      p: {
+                                        color: colors.botText,
+                                        fontSize: 16,
+                                        marginTop: 8,
+                                        marginBottom: 12,
+                                        lineHeight: 26,
+                                        fontWeight: '400',
+                                      },
+                                      code: {
+                                        backgroundColor: 'rgba(128, 128, 128, 0.08)',
+                                        paddingHorizontal: 4,
+                                        paddingVertical: 2,
+                                        borderRadius: 3,
+                                        color: colors.primary,
+                                        fontFamily: 'Courier',
+                                        fontSize: 14,
+                                        fontWeight: '500',
+                                      },
+                                      strong: {
+                                        fontWeight: 'bold',
+                                        color: colors.botText,
+                                      },
+                                    }}
+                                  />
+                                );
+                              case 'skeleton':
+                                return (
+                                  <ImageSkeletonLoader
+                                    key={`skeleton-${index}`}
+                                    description={part.description}
+                                    colors={colors}
+                                  />
+                                );
+                              case 'image':
+                                return (
+                                  <IntelligentImageContainer
+                                    key={`image-${index}`}
+                                    imageUrl={part.url}
+                                    description={part.description}
+                                    colors={colors}
+                                  />
+                                );
+                              case 'error':
+                                return (
+                                  <View key={`error-${index}`} style={{
+                                    backgroundColor: 'rgba(255, 0, 0, 0.1)',
+                                    padding: 10,
+                                    borderRadius: 8,
+                                    marginVertical: 5,
+                                    borderLeftWidth: 3,
+                                    borderLeftColor: '#ff4444'
+                                  }}>
+                                    <Text style={{ color: '#ff4444', fontSize: 14 }}>
+                                      ⚠️ {part.message}
+                                    </Text>
+                                  </View>
+                                );
+                              default:
+                                return null;
+                            }
+                          });
+                        })()
+                      ) : (
+                        // Simple rendering for user messages
+                        <RenderHtml
+                          contentWidth={Dimensions.get('window').width - 100}
+                          source={{ html: marked(displayText) }}
+                          tagsStyles={{
                           body: {
-                            color: isBot ? colors.botText : '#333333',
+                            color: isBot ? colors.botText : '#FFFFFF',
                             fontSize: 16,
                             lineHeight: 26,
-                            marginBottom: 8,
+                            margin: 0,
+                            padding: 0,
                           },
-                          heading1: {
-                            color: isBot ? colors.primary : '#333333',
-                            fontWeight: '800', // Extra bold
+                          h1: {
+                            color: isBot ? colors.primary : '#FFFFFF',
+                            fontWeight: '800',
                             fontSize: 28,
                             marginTop: 20,
                             marginBottom: 12,
@@ -1595,115 +2538,68 @@ const renderTextWithMath = (text, textStyle) => {
                             paddingBottom: 8,
                             lineHeight: 34,
                           },
-                          heading2: {
-                            color: isBot ? colors.primary : '#333333',
-                            fontWeight: '700', // Bold
+                          h2: {
+                            color: isBot ? colors.primary : '#FFFFFF',
+                            fontWeight: '700',
                             fontSize: 24,
                             marginTop: 18,
                             marginBottom: 10,
                             paddingBottom: 6,
                             lineHeight: 30,
                           },
-                          heading3: {
-                            color: isBot ? colors.primary : '#333333',
-                            fontWeight: '600', // Semi-bold
+                          h3: {
+                            color: isBot ? colors.primary : '#FFFFFF',
+                            fontWeight: '600',
                             fontSize: 20,
                             marginTop: 16,
                             marginBottom: 8,
                             lineHeight: 26,
                           },
-                          heading4: {
-                            color: isBot ? colors.primary : '#333333',
-                            fontWeight: '600', // Semi-bold
+                          h4: {
+                            color: isBot ? colors.primary : '#FFFFFF',
+                            fontWeight: '600',
                             fontSize: 18,
                             marginTop: 14,
                             marginBottom: 6,
                             lineHeight: 24,
                           },
-                          heading5: {
-                            color: isBot ? colors.primary : '#333333',
-                            fontWeight: '500', // Medium
+                          h5: {
+                            color: isBot ? colors.primary : '#FFFFFF',
+                            fontWeight: '500',
                             fontSize: 16,
                             marginTop: 12,
                             marginBottom: 5,
                             lineHeight: 22,
                           },
-                          heading6: {
-                            color: isBot ? colors.primary : '#333333',
-                            fontWeight: '500', // Medium
+                          h6: {
+                            color: isBot ? colors.primary : '#FFFFFF',
+                            fontWeight: '500',
                             fontSize: 14,
                             marginTop: 10,
                             marginBottom: 4,
                             lineHeight: 20,
                           },
-                          paragraph: {
-                            color: isBot ? colors.botText : '#333333',
+                          p: {
+                            color: isBot ? colors.botText : '#FFFFFF',
                             fontSize: 16,
                             marginTop: 8,
                             marginBottom: 12,
                             lineHeight: 26,
                             fontWeight: '400',
                           },
-                          list_item: {
-                            flexDirection: 'row',
-                            alignItems: 'flex-start',
+                          li: {
+                            color: isBot ? colors.botText : '#FFFFFF',
+                            fontSize: 16,
+                            lineHeight: 24,
                             marginBottom: 8,
-                            marginTop: 4,
-                            paddingLeft: 8,
-                            color: isBot ? colors.botText : '#333333',
-                            fontSize: 16,
-                            lineHeight: 24,
                           },
-                          bullet_list: {
-                            color: isBot ? colors.botText : '#333333',
-                            marginTop: 12,
-                            marginBottom: 12,
-                            paddingLeft: 8,
+                          ul: {
+                            color: isBot ? colors.botText : '#FFFFFF',
+                            paddingLeft: 20,
                           },
-                          ordered_list: {
-                            marginLeft: 8,
-                            marginTop: 12,
-                            marginBottom: 12,
-                            paddingLeft: 8,
-                          },
-                          ordered_list_item: {
-                            flexDirection: 'row',
-                            alignItems: 'flex-start',
-                            marginBottom: 4,
-                          },
-                          ordered_list_icon: {
-                            marginRight: 5,
-                            fontWeight: 'bold',
-                            color: colors.botText,
-                          },
-                          list_item_number: {
-                            marginRight: 8,
-                            fontWeight: '600',
-                            fontSize: 16,
-                            color: colors.primary,
-                            width: 24,
-                            textAlign: 'right',
-                            marginTop: 2,
-                            lineHeight: 22,
-                          },
-                          list_item_content: {
-                            flex: 1,
-                            fontSize: 16,
-                            color: colors.botText,
-                            lineHeight: 26,
-                            marginBottom: 4,
-                          },
-                          list_item_bullet: {
-                            marginRight: 12,
-                            fontSize: 20,
-                            color: colors.primary,
-                            marginTop: 2,
-                            lineHeight: 24,
-                            marginBottom: 0,
-                            paddingTop: 0,
-                            fontWeight: '700',
-                            width: 20,
-                            textAlign: 'center',
+                          ol: {
+                            color: isBot ? colors.botText : '#FFFFFF',
+                            paddingLeft: 20,
                           },
                           blockquote: {
                             backgroundColor: 'rgba(128, 128, 128, 0.08)',
@@ -1712,23 +2608,23 @@ const renderTextWithMath = (text, textStyle) => {
                             paddingLeft: 12,
                             paddingVertical: 12,
                             paddingRight: 12,
-                            color: colors.botText,
+                            color: isBot ? colors.botText : '#FFFFFF',
                             marginVertical: 8,
                             borderRadius: 4,
                             fontStyle: 'italic',
                           },
-                          code_block: {
+                          pre: {
                             backgroundColor: 'rgba(128, 128, 128, 0.08)',
                             padding: 12,
                             borderRadius: 6,
-                            color: colors.botText,
+                            color: isBot ? colors.botText : '#FFFFFF',
                             fontFamily: 'Courier',
                             fontSize: 14,
                             marginVertical: 8,
                             borderWidth: 1,
                             borderColor: 'rgba(128, 128, 128, 0.2)',
                           },
-                          code_inline: {
+                          code: {
                             backgroundColor: 'rgba(128, 128, 128, 0.08)',
                             paddingHorizontal: 4,
                             paddingVertical: 2,
@@ -1738,85 +2634,46 @@ const renderTextWithMath = (text, textStyle) => {
                             fontSize: 14,
                             fontWeight: '500',
                           },
-                          link: {
+                          a: {
                             color: colors.primary,
                             textDecorationLine: 'underline',
                           },
-                          table: {
-                            borderWidth: 1,
-                            borderColor: '#E0E0E0',
-                            marginVertical: 10,
-                          },
-                          tr: {
-                            borderBottomWidth: 1,
-                            borderBottomColor: '#E0E0E0',
-                            flexDirection: 'row',
-                          },
-                          th: {
-                            padding: 8,
+                          strong: {
                             fontWeight: 'bold',
-                            borderRightWidth: 1,
-                            borderRightColor: '#E0E0E0',
-                            backgroundColor: '#F5F5F5',
-                            color: '#333333',
+                            color: isBot ? colors.botText : '#FFFFFF',
                           },
-                          td: {
-                            padding: 8,
-                            borderRightWidth: 1,
-                            borderRightColor: '#E0E0E0',
-                            color: '#333333',
+                          em: {
+                            fontStyle: 'italic',
+                            color: isBot ? colors.botText : '#FFFFFF',
                           },
-                          text: {
-                            color: colors.botText,
-                            fontSize: 16,
-                            lineHeight: 26,
-                            marginBottom: 4,
-                          }
                         }}
-                        rules={{
-                          list: (node, children, parent, styles) => {
-                            if (node.ordered) {
-                              return (
-                                <View key={node.key} style={styles.ordered_list}>
-                                  {children}
-                                </View>
-                              );
-                            }
-                            return (
-                              <View key={node.key} style={styles.bullet_list}>
-                                {children}
-                              </View>
-                            );
-                          },
-                          list_item: (node, children, parent, styles) => {
-                            if (parent.ordered) {
-                              return (
-                                <View key={node.key} style={styles.ordered_list_item}>
-                                  <Text style={styles.list_item_number}>{node.index + 1}.</Text>
-                                  <View style={styles.list_item_content}>
-                                    {children}
-                                  </View>
-                                </View>
-                              );
-                            }
-                            return (
-                              <View key={node.key} style={styles.list_item}>
-                                <Text style={styles.list_item_bullet}>•</Text>
-                                <View style={styles.list_item_content}>
-                                  {children}
-                                </View>
-                              </View>
-                            );
-                          },
-                          text: (node, children, parent, styles) => {
-  const textStyle = [styles.text, {color: isBot ? colors.botText : '#fff'}];
-  // Simple text rendering without complex containers
-  return renderTextWithMath(node.content, textStyle);
-}
-                        }}
-                      >
-                        {displayText}
-                      </Markdown>
+                        />
+                      )}
+                    </View>
+                  )}
+                  
+                  {/* Render images from enhanced streaming */}
+                  {item.images && item.images.length > 0 && (
+                    <View style={styles.streamingImagesContainer}>
+                      {item.images.map((imageData, index) => (
+                        <View key={`streaming-image-${imageData.id || index}`} style={styles.streamingImageWrapper}>
+                          <TouchableOpacity 
+                            onPress={() => handleImageTap(imageData.url)}
+                            activeOpacity={0.8}
+                          >
+                            <Image
+                              source={{ uri: imageData.url }}
+                              style={styles.streamingImage}
+                              resizeMode="contain"
+                            />
+                          </TouchableOpacity>
+                          {imageData.description && (
+                            <Text style={[styles.imageDescription, { color: colors.botText }]}>
+                              {imageData.description}
+                            </Text>
+                          )}
+                        </View>
+                      ))}
                     </View>
                   )}
                   
@@ -2048,64 +2905,71 @@ const renderTextWithMath = (text, textStyle) => {
         
         // userId is already defined above, no need to redeclare
         console.log('=== PROCEEDING TO FETCH FROM SUPABASE ===');
-        console.log('About to query user_chats table with userId:', userId);
+        console.log('About to query chats table with userId:', userId);
         
-        // Fetch all chats for the current user, ordered by most recent
-        // Commented out database fetch to prevent errors with non-existent table
-        // Create a new chat directly instead of trying to fetch from database
-        const newChatId = Date.now().toString();
-        console.log('Creating new chat with ID:', newChatId);
-        startNewChat(newChatId);
-        setDataLoaded(true);
-        setIsChatsLoading(false);
-        return;
+        // Fetch all chats for the current user using new database schema
+        console.log('About to query chats table with userId:', userId);
         
-        /* Commented out to prevent errors with non-existent table
-        const { data: userChats, error: chatError } = await supabase
-          .from('user_chats')
-          .select('*')
-          .eq('user_id', userId)
-          .order('updated_at', { ascending: false });
-        
-        console.log('=== SUPABASE QUERY RESULT ===');
-        console.log('chatError:', chatError);
-        console.log('userChats:', userChats);
-        console.log('userChats length:', userChats?.length);
-        
-        if (chatError) {
+        let userChats;
+        try {
+          userChats = await getNewUserChats(userId);
+          
+          console.log('=== SUPABASE QUERY RESULT ===');
+          console.log('userChats:', userChats);
+          console.log('userChats length:', userChats?.length);
+          
+          if (!userChats || userChats.length === 0) {
+            console.log('No chats found, creating new chat');
+            // Create a new chat as fallback
+            const newChatId = generateUUID();
+            console.log('Creating fallback chat with ID:', newChatId);
+            startNewChat(newChatId);
+            setDataLoaded(true);
+            setIsChatsLoading(false);
+            return;
+          }
+        } catch (chatError) {
           console.error('Error fetching user chats:', chatError);
           console.error('Error details:', JSON.stringify(chatError, null, 2));
           // Create a new chat as fallback
-          const newChatId = Date.now().toString();
+          const newChatId = generateUUID();
           console.log('Creating fallback chat with ID:', newChatId);
           startNewChat(newChatId);
           setDataLoaded(true);
           setIsChatsLoading(false);
           return;
         }
-        */
         
         console.log('=== PROCESSING FETCHED CHATS ===');
-        // Process the chats to match the local state format and ensure messages is an array
-        const processedChats = userChats.map((chat, index) => {
+        // Process the chats to match the local state format
+        const processedChats = await Promise.all(userChats.map(async (chat, index) => {
           console.log(`Processing chat ${index + 1}:`, {
-            chat_id: chat.chat_id,
-            name: chat.name,
-            messages_count: chat.messages?.length || 0
+            id: chat.id,
+            title: chat.title,
+            role: chat.role
           });
           
-          // Process messages for proper display
-          const processedMessages = processMessages(chat.messages || []);
+          // Fetch messages for this chat using the new schema
+          let messages = [];
+          try {
+            const chatMessages = await getNewChatMessages(chat.id);
+            // Convert Supabase messages to frontend format
+            messages = chatMessages.map(msg => supabaseMessageToFrontend(msg));
+          } catch (error) {
+            console.error(`Error fetching messages for chat ${chat.id}:`, error);
+          }
+          
+          const processedMessages = processMessages(messages);
           
           return {
-            id: chat.chat_id,
-            name: chat.name || 'Chat',
-            description: chat.description || '',
+            id: chat.id,
+            name: chat.title || 'Chat',
+            description: chat.metadata?.description || '',
             role: chat.role || '',
-            roleDescription: chat.role_description || '',
+            roleDescription: chat.metadata?.roleDescription || '',
             messages: processedMessages,
           };
-        });
+        }));
         
         console.log('=== UPDATING STATE WITH PROCESSED CHATS ===');
         console.log('processedChats count:', processedChats.length);
@@ -2149,7 +3013,7 @@ const renderTextWithMath = (text, textStyle) => {
         } else {
           // No chats found for this user, create a new one
           console.log('No chats found, creating a new chat');
-          const newChatId = Date.now().toString();
+          const newChatId = generateUUID();
           startNewChat(newChatId);
         }
         
@@ -2164,7 +3028,7 @@ const renderTextWithMath = (text, textStyle) => {
         setIsChatsLoading(false);
         
         // Fallback to creating a new chat if there's an error
-        const newChatId = Date.now().toString();
+        const newChatId = generateUUID();
         startNewChat(newChatId);
       }
     };
@@ -2177,11 +3041,11 @@ const renderTextWithMath = (text, textStyle) => {
       }
       
       chatSubscription = supabase
-        .channel('user_chats_changes')
+        .channel('chats_changes')
         .on('postgres_changes', {
           event: '*',
           schema: 'public',
-          table: 'user_chats',
+          table: 'chats',
           filter: `user_id=eq.${userId}`
         }, (payload) => {
           console.log('Real-time update received:', payload);
@@ -2315,7 +3179,44 @@ const renderTextWithMath = (text, textStyle) => {
     };
   }, [route.params?.chatid]);
 
-  // Debounced fetch function to prevent excessive API calls
+  // Load messages for a specific chat - used for lazy loading
+  const loadChatMessages = useCallback(async (chatId) => {
+    try {
+      console.log('Loading messages for chat:', chatId);
+      
+      // Get latest messages for the chat
+      const chatMessages = await getLatestChatMessages(chatId, 20);
+      
+      // Convert Supabase messages to frontend format
+      const frontendMessages = chatMessages.map(supabaseMessageToFrontend).map(msg => ({
+        ...msg,
+        text: msg.content || '', // Map content field to text field for compatibility
+        sender: msg.role === 'user' ? 'user' : 'bot' // Map role to sender for compatibility
+      }));
+      
+      // Update messages state
+      setMessages(frontendMessages);
+      
+      // Update the chat in the chats array to cache the messages
+      setChats(prevChats => prevChats.map(chat => 
+        chat.id === chatId 
+          ? { ...chat, messages: frontendMessages }
+          : chat
+      ));
+      
+      // Scroll to bottom after loading messages
+      requestAnimationFrame(() => {
+        if (flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: false });
+        }
+      });
+      
+    } catch (error) {
+      console.error('Error loading chat messages:', error);
+    }
+  }, []);
+
+  // Debounced fetch function to prevent excessive API calls - OPTIMIZED to only load chat names
   const debouncedFetchChats = useCallback(async (userId, force = false) => {
     const now = Date.now();
     
@@ -2335,9 +3236,9 @@ const renderTextWithMath = (text, textStyle) => {
     setIsChatsLoading(true);
     
     try {
-      console.log('Debounced fetch for user:', userId);
+      console.log('Optimized fetch for user (chat names only):', userId);
       
-      // Fetch chats using new database structure
+      // Fetch ONLY chat metadata using new database structure - NO MESSAGES
       const userChats = await getNewUserChats(userId);
       
       if (!userChats || userChats.length === 0) {
@@ -2348,49 +3249,33 @@ const renderTextWithMath = (text, textStyle) => {
         return;
       }
       
-      // Process chats and load their messages
-      const processedChats = await Promise.all(
-        userChats.slice(0, 20).map(async (chat) => {
-          // Get latest messages for each chat
-          const chatMessages = await getLatestChatMessages(chat.id, 20);
-          
-          // Convert Supabase messages to frontend format
-          const frontendMessages = chatMessages.map(supabaseMessageToFrontend).map(msg => ({
-            ...msg,
-            text: msg.content || '', // Map content field to text field for compatibility
-            sender: msg.role === 'user' ? 'user' : 'bot' // Map role to sender for compatibility
-          }));
-          
-          return {
-            id: chat.id,
-            name: chat.title || 'Chat',
-            description: '',
-            role: chat.role || '',
-            roleDescription: '',
-            messages: frontendMessages,
-          };
-        })
-      );
+      // Process chats WITHOUT loading messages - much faster
+      const processedChats = userChats.slice(0, 20).map((chat) => {
+        return {
+          id: chat.id,
+          name: chat.title || 'Chat',
+          description: '', // Will be populated when messages are loaded
+          role: chat.role || '',
+          roleDescription: '',
+          messages: [], // Empty initially - loaded lazily when chat becomes active
+        };
+      });
       
       setChats(processedChats);
       
+      // Load messages only for the active chat
       if (processedChats.length > 0) {
         const targetChatId = route.params?.chatid || processedChats[0].id;
         const targetChat = processedChats.find(chat => chat.id === targetChatId) || processedChats[0];
         
         setCurrentChatId(targetChat.id);
-        setMessages(targetChat.messages);
         setCurrentRole(targetChat.role);
+        
+        // Load messages for the active chat only
+        await loadChatMessages(targetChat.id);
       }
       
       setDataLoaded(true);
-      
-      // Optimized scroll
-      requestAnimationFrame(() => {
-        if (flatListRef.current) {
-          flatListRef.current.scrollToEnd({ animated: false });
-        }
-      });
       
     } catch (error) {
       console.error('Error in debouncedFetchChats:', error);
@@ -2495,12 +3380,12 @@ const renderTextWithMath = (text, textStyle) => {
         // Detect if customChatId is an object (like a synthetic event) instead of a string/number 
         if (typeof customChatId === 'object') {
           console.warn('Received object instead of ID in startNewChat, generating new ID');
-          newChatId = Date.now().toString();
+          newChatId = generateUUID();
         } else {
           newChatId = String(customChatId);
         }
       } else {
-        newChatId = Date.now().toString();
+        newChatId = generateUUID();
       }
       
       console.log(`Starting new chat with ID: ${newChatId}`);
@@ -2544,7 +3429,7 @@ const renderTextWithMath = (text, textStyle) => {
       }, 100);
       
       // Save to AsyncStorage for anonymous users
-      if (!session?.user?.id) {
+      if (!uid) {
         console.log('No authenticated user, using local chat only');
         try {
           await AsyncStorage.setItem('lastChat', JSON.stringify(localChatObj));
@@ -2554,7 +3439,7 @@ const renderTextWithMath = (text, textStyle) => {
         return;
       }
       
-      const userId = session.user.id;
+      const userId = uid;
       
       // Create chat in new database structure
       const createdChatId = await createNewChat(
@@ -2588,12 +3473,130 @@ const renderTextWithMath = (text, textStyle) => {
   };
 
   const handleAttach = () => {
-    setShowAdditionalButtons(prev => !prev); // Toggle additional buttons visibility
-    // Change the icon from plus to cross
+    setShowAdditionalButtons(prev => !prev);
   };
 
-  const handleCamera = (navigation) => {
-    navigation.navigate('CameraScreen');
+  // File attachment handlers
+  const handleFileSelected = async (file, fileType) => {
+    // Declare fileId outside try block so it's accessible in catch
+    const fileId = Date.now().toString();
+    
+    try {
+      setIsUploadingFile(true);
+      
+      // Add file to attached files with upload progress
+      const newFile = {
+        ...file,
+        id: fileId,
+        fileType,
+        uploadProgress: 0,
+        isUploading: true,
+      };
+      
+      setAttachedFiles(prev => [...prev, newFile]);
+      
+      // Upload file to storage using simplified function
+      const uploadResult = await simpleUploadToStorage(file, uid);
+      
+      // Update file with upload result
+      setAttachedFiles(prev => prev.map(f => 
+        f.id === fileId 
+          ? { 
+              ...f, 
+              ...uploadResult,
+              uploadProgress: 100,
+              isUploading: false,
+              publicUrl: uploadResult.publicUrl
+            }
+          : f
+      ));
+      
+      // Process file based on type using webhook service
+      const actualFileType = getFileTypeCategory(file.type || uploadResult.mimeType, uploadResult.fileName);
+      
+      if (actualFileType === 'image') {
+        try {
+          const processedContent = await processImageUnderstanding(uploadResult.publicUrl);
+          
+          // Update file with processed content
+          setAttachedFiles(prev => prev.map(f => 
+            f.id === fileId 
+              ? { ...f, processedContent, actualFileType }
+              : f
+          ));
+          
+          // Add AI response as a new message
+          const aiMessage = {
+            id: Date.now().toString(),
+            text: processedContent,
+            sender: 'bot',
+            timestamp: new Date().toISOString(),
+          };
+          setMessages(prev => [...prev, aiMessage]);
+          
+        } catch (processError) {
+          console.error('Image processing error:', processError);
+          setAttachedFiles(prev => prev.map(f => 
+            f.id === fileId 
+              ? { ...f, error: 'Failed to process image' }
+              : f
+          ));
+        }
+      } else if (actualFileType === 'document') {
+        try {
+          const processedContent = await processDocument(uploadResult.publicUrl);
+          
+          // Update file with processed content
+          setAttachedFiles(prev => prev.map(f => 
+            f.id === fileId 
+              ? { ...f, processedContent, actualFileType }
+              : f
+          ));
+          
+          // Add AI response as a new message
+          const aiMessage = {
+            id: Date.now().toString(),
+            text: processedContent,
+            sender: 'bot',
+            timestamp: new Date().toISOString(),
+          };
+          setMessages(prev => [...prev, aiMessage]);
+          
+        } catch (processError) {
+          console.error('Document processing error:', processError);
+          setAttachedFiles(prev => prev.map(f => 
+            f.id === fileId 
+              ? { ...f, error: 'Failed to process document' }
+              : f
+          ));
+        }
+      }
+      
+    } catch (error) {
+      console.error('File upload error:', error);
+      Alert.alert('Upload Error', 'Failed to upload file. Please try again.');
+      
+      // Remove failed file from list
+      setAttachedFiles(prev => prev.filter(f => f.id !== fileId));
+    } finally {
+      setIsUploadingFile(false);
+    }
+  };
+
+  const handleRemoveFile = (index) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleFilePress = (file, index) => {
+    // Handle file preview/open
+    if (file.fileType === 'image' && file.uri) {
+      setFullScreenImage(file.uri);
+      setIsFullScreen(true);
+    }
+  };
+
+  const handleCamera = async () => {
+    await handleImageSelection('camera');
   };
 
   const handleDocumentSelection = async () => {
@@ -2604,45 +3607,31 @@ const renderTextWithMath = (text, textStyle) => {
       // Pick a document (PDF, DOC, DOCX)
       const result = await DocumentPicker.pick({
         type: [DocumentPicker.types.pdf, DocumentPicker.types.doc, DocumentPicker.types.docx],
-        copyTo: 'cachesDirectory', // Copy file to app's cache directory for reliable access
+        copyTo: 'cachesDirectory',
       });
       
-      // Show loading indicator
-      setIsLoading(true);
-      
-      // Get the selected file
       const selectedFile = result[0];
-      const { uri, type, name, fileCopyUri } = selectedFile;
+      const { uri, type, name, size, fileCopyUri } = selectedFile;
       
-      console.log('Selected document URI:', uri);
-      console.log('Selected document type:', type);
-      console.log('Selected document name:', name);
-      console.log('File copy URI (if available):', fileCopyUri);
+      // Use the new file upload logic
+      const fileToUpload = {
+        uri: fileCopyUri || uri,
+        type,
+        name,
+        size,
+      };
       
-      // Use fileCopyUri if available (from copyTo option), otherwise fall back to uri
-      let processableUri = fileCopyUri || uri;
-      
-      // For iOS, we need to handle file:// URLs properly
-      if (Platform.OS === 'ios' && processableUri.startsWith('file://')) {
-        // On iOS, we need to decode the URI to handle special characters in filenames
-        processableUri = decodeURIComponent(processableUri);
-        console.log('Decoded URI for iOS:', processableUri);
-      }
-      
-      // Check if it's a PDF file
+      // Determine file type for the new upload system
+      let fileType = 'document';
       if (type === 'application/pdf') {
-        await processPdfDocument(processableUri, name);
-      } else {
-        // For DOC/DOCX files, alert the user to convert to PDF first
-        Alert.alert(
-          'Document Format',
-          'DOC/DOCX files need to be converted to PDF first. Please convert and try again.',
-          [{ text: 'OK' }]
-        );
+        fileType = 'pdf';
       }
+      
+      // Use the new file upload handler
+      await handleFileSelected(fileToUpload, fileType);
+      
     } catch (error) {
       if (DocumentPicker.isCancel(error)) {
-        // User cancelled the picker
         console.log('Document picking cancelled');
       } else {
         console.error('Error picking document:', error);
@@ -2831,7 +3820,7 @@ const renderTextWithMath = (text, textStyle) => {
       }
       
       // Save the chat history
-      await saveChatHistory(`Document: ${fileName}`, 'user');
+      await saveChatHistoryEnhanced(`Document: ${fileName}`, 'user');
       
     } catch (error) {
       console.error('Error sending document to AI:', error);
@@ -2879,77 +3868,27 @@ const renderTextWithMath = (text, textStyle) => {
           setCurrentRole('');
         }
         
-        // Get current user session
-        const { data: { session } } = await supabase.auth.getSession();
-        const userId = session?.user?.id;
-        
-        // Load messages from database if authenticated, otherwise use local messages
-        if (userId && userId !== 'anonymous') {
-          try {
-            const dbMessages = await getLatestChatMessages(chatId, 50);
-            const frontendMessages = dbMessages.map(supabaseMessageToFrontend).map(msg => ({
-              ...msg,
-              text: msg.content || '', // Map content field to text field for compatibility
-              sender: msg.role === 'user' ? 'user' : 'bot' // Map role to sender for compatibility
-            }));
-            setMessages(frontendMessages);
-            
-            // Update the chat in state with loaded messages
-            setChats(prevChats => prevChats.map(chat => 
-              chat.id === chatId 
-                ? { ...chat, messages: frontendMessages }
-                : chat
-            ));
-            
-            console.log('Loaded messages from database:', frontendMessages.length);
-            
-            // Log the actual loaded message count
-            console.log('Chat selected successfully:', {
-              chatId,
-              role: selectedChat.role,
-              messageCount: frontendMessages.length,
-              source: 'database'
-            });
-          } catch (error) {
-            console.error('Error loading messages from database:', error);
-            // Fallback to local messages
-            if (selectedChat.messages && selectedChat.messages.length > 0) {
-              setMessages(selectedChat.messages);
-              console.log('Chat selected successfully:', {
-                chatId,
-                role: selectedChat.role,
-                messageCount: selectedChat.messages.length,
-                source: 'local_fallback'
-              });
-            } else {
-              setMessages([]);
-              console.log('Chat selected successfully:', {
-                chatId,
-                role: selectedChat.role,
-                messageCount: 0,
-                source: 'empty_fallback'
-              });
+        // Check if messages are already cached for this chat
+        if (selectedChat.messages && selectedChat.messages.length > 0) {
+          // Use cached messages - much faster
+          setMessages(selectedChat.messages);
+          console.log('Chat selected successfully (cached):', {
+            chatId,
+            role: selectedChat.role,
+            messageCount: selectedChat.messages.length,
+            source: 'cached'
+          });
+          
+          // Scroll to bottom immediately for cached messages
+          requestAnimationFrame(() => {
+            if (flatListRef.current) {
+              flatListRef.current.scrollToEnd({ animated: false });
             }
-          }
+          });
         } else {
-          // Use local messages for anonymous users
-          if (selectedChat.messages && selectedChat.messages.length > 0) {
-            setMessages(selectedChat.messages);
-            console.log('Chat selected successfully:', {
-              chatId,
-              role: selectedChat.role,
-              messageCount: selectedChat.messages.length,
-              source: 'local_anonymous'
-            });
-          } else {
-            setMessages([]);
-            console.log('Chat selected successfully:', {
-              chatId,
-              role: selectedChat.role,
-              messageCount: 0,
-              source: 'empty_anonymous'
-            });
-          }
+          // Messages not cached - load them lazily
+          console.log('Loading messages for chat (not cached):', chatId);
+          await loadChatMessages(chatId);
         }
       } else {
         console.log('Chat not found in local state, clearing messages');
@@ -2970,6 +3909,9 @@ const renderTextWithMath = (text, textStyle) => {
   };
 
   const handleImageSelection = async (source = 'gallery') => {
+    // Hide additional buttons after selection
+    setShowAdditionalButtons(false);
+    
     const options = {
       mediaType: 'photo',
       quality: 0.7,
@@ -2988,7 +3930,8 @@ const renderTextWithMath = (text, textStyle) => {
       }
 
       if (response.assets && response.assets.length > 0) {
-        const { uri, type, fileName } = response.assets[0];
+        console.log('Image picker response:', response.assets[0]);
+        const { uri, type, fileName, fileSize } = response.assets[0];
         
         // Determine proper MIME type based on file extension
         let mimeType = type;
@@ -3009,16 +3952,23 @@ const renderTextWithMath = (text, textStyle) => {
           }
         }
         
-        console.log('Selected image details:', {
-          uri: uri,
+        // Use the new file upload logic
+        const fileToUpload = {
+          uri,
           type: mimeType,
-          fileName: fileName || `image_${Date.now()}.jpg`
+          name: fileName || `image_${Date.now()}.jpg`,
+          size: fileSize || 0, // Provide default size if not available
+        };
+        
+        console.log('File to upload:', {
+          uri: fileToUpload.uri,
+          type: fileToUpload.type,
+          name: fileToUpload.name,
+          size: fileToUpload.size
         });
         
-        // Set the selected image
-        setSelectedImage(uri);
-        setImageType(mimeType);
-        setImageFileName(fileName || `image_${Date.now()}.jpg`);
+        // Use the new file upload handler
+        await handleFileSelected(fileToUpload, 'image');
       }
     } catch (error) {
       console.error('Error selecting image:', error);
@@ -3082,15 +4032,13 @@ const renderTextWithMath = (text, textStyle) => {
     setMessages(prev => [...prev, newMessage]);
     
     try {
-      // Check if user is authenticated with Supabase before attempting database operations
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !sessionData?.session?.user?.id) {
-        console.log('No authenticated Supabase user, skipping database operations for role setting');
+      // Check if user is authenticated before attempting database operations
+      if (!uid) {
+        console.log('No authenticated user, skipping database operations for role setting');
         return;
       }
       
-      const supabaseUserId = sessionData.session.user.id;
+      const supabaseUserId = uid;
       console.log('Authenticated Supabase user found, proceeding with role database operations:', supabaseUserId);
       
       // Check if the chat exists in the database
@@ -3148,14 +4096,199 @@ const renderTextWithMath = (text, textStyle) => {
     }
   };
 
+  // AI Generation handlers
 
+  // Radio button handlers for generate options
+  const handleSelectGenerateXLSX = () => {
+    setSelectedGenerateOption(selectedGenerateOption === 'xlsx' ? null : 'xlsx');
+  };
 
-  
+  const handleSelectGenerateDOC = () => {
+    setSelectedGenerateOption(selectedGenerateOption === 'doc' ? null : 'doc');
+  };
 
-  
+  // Actual generation functions called when send button is pressed
+  const executeGenerateXLSX = async (text) => {
+    try {
+      setIsSendDisabled(true);
+      
+      // Save user message to database if authenticated
+      let userMessageId = null;
+      if (uid !== 'anonymous') {
+        const savedUserMessage = await addUserMessage(
+          currentChatId,
+          uid,
+          text,
+          {},
+          Date.now().toString()
+        );
+        userMessageId = savedUserMessage?.id;
+      }
+      
+      // Add user message (as normal chat message)
+      const userMessage = {
+        id: userMessageId || Date.now().toString(),
+        text: text,
+        sender: 'user',
+        timestamp: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, userMessage]);
+      
+      // Track this message for coin deduction display
+      setRecentCoinDeductions(prev => new Set([...prev, userMessage.id]));
+      
+      // Update the current chat's messages in local state
+      setChats(prevChats => prevChats.map(chat => 
+        chat.id === currentChatId ? { ...chat, messages: [...(chat.messages || []), userMessage] } : chat
+      ));
+      
+      // Create a streaming bot message that will be updated in real-time
+      const streamingMessageId = 'streaming-' + Date.now().toString();
+      let streamingContent = '';
+      
+      // Add initial empty streaming message
+      setMessages(prev => [...prev, {
+        id: streamingMessageId,
+        text: '',
+        sender: 'bot',
+        isStreaming: true
+      }]);
 
-  
- 
+      // Call webhook for XLSX generation
+      const result = await generateXLSX(text, uid);
+      
+      // Simulate streaming by gradually displaying the result
+      const words = result.split(' ');
+      for (let i = 0; i < words.length; i++) {
+        streamingContent += (i > 0 ? ' ' : '') + words[i];
+        
+        // Update the streaming message in real-time
+        setMessages(prev => prev.map(msg => 
+          msg.id === streamingMessageId 
+            ? { ...msg, text: streamingContent }
+            : msg
+        ));
+        
+        // Small delay to simulate streaming
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      
+      // Finalize the streaming message
+      setMessages(prev => prev.map(msg => 
+        msg.id === streamingMessageId 
+          ? { ...msg, text: result, isStreaming: false, timestamp: new Date().toISOString() }
+          : msg
+      ));
+      
+      // Save AI response to database if authenticated
+      if (uid !== 'anonymous') {
+        const assistantMessage = await startAssistantMessage(currentChatId, uid, {}, streamingMessageId);
+        if (assistantMessage) {
+          await appendMessageChunk(assistantMessage.id, result);
+          await finalizeMessage(assistantMessage.id);
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error generating XLSX:', error);
+      Alert.alert('Error', 'Failed to generate spreadsheet. Please try again.');
+      // Remove loading message on error
+      setMessages(prev => prev.filter(msg => !msg.isLoading));
+    } finally {
+      setIsSendDisabled(false);
+    }
+  };
+
+  const executeGenerateDOC = async (text) => {
+    try {
+      setIsSendDisabled(true);
+      
+      // Save user message to database if authenticated
+      let userMessageId = null;
+      if (uid !== 'anonymous') {
+        const savedUserMessage = await addUserMessage(
+          currentChatId,
+          uid,
+          text,
+          {},
+          Date.now().toString()
+        );
+        userMessageId = savedUserMessage?.id;
+      }
+      
+      // Add user message (as normal chat message)
+      const userMessage = {
+        id: userMessageId || Date.now().toString(),
+        text: text,
+        sender: 'user',
+        timestamp: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, userMessage]);
+      
+      // Track this message for coin deduction display
+      setRecentCoinDeductions(prev => new Set([...prev, userMessage.id]));
+      
+      // Update the current chat's messages in local state
+      setChats(prevChats => prevChats.map(chat => 
+        chat.id === currentChatId ? { ...chat, messages: [...(chat.messages || []), userMessage] } : chat
+      ));
+      
+      // Create a streaming bot message that will be updated in real-time
+      const streamingMessageId = 'streaming-' + Date.now().toString();
+      let streamingContent = '';
+      
+      // Add initial empty streaming message
+      setMessages(prev => [...prev, {
+        id: streamingMessageId,
+        text: '',
+        sender: 'bot',
+        isStreaming: true
+      }]);
+
+      // Call webhook for DOC generation
+      const result = await generateDOC(text, uid);
+      
+      // Simulate streaming by gradually displaying the result
+      const words = result.split(' ');
+      for (let i = 0; i < words.length; i++) {
+        streamingContent += (i > 0 ? ' ' : '') + words[i];
+        
+        // Update the streaming message in real-time
+        setMessages(prev => prev.map(msg => 
+          msg.id === streamingMessageId 
+            ? { ...msg, text: streamingContent }
+            : msg
+        ));
+        
+        // Small delay to simulate streaming
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      
+      // Finalize the streaming message
+      setMessages(prev => prev.map(msg => 
+        msg.id === streamingMessageId 
+          ? { ...msg, text: result, isStreaming: false, timestamp: new Date().toISOString() }
+          : msg
+      ));
+      
+      // Save AI response to database if authenticated
+      if (uid !== 'anonymous') {
+        const assistantMessage = await startAssistantMessage(currentChatId, uid, {}, streamingMessageId);
+        if (assistantMessage) {
+          await appendMessageChunk(assistantMessage.id, result);
+          await finalizeMessage(assistantMessage.id);
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error generating DOC:', error);
+      Alert.alert('Error', 'Failed to generate document. Please try again.');
+      // Remove loading message on error
+      setMessages(prev => prev.filter(msg => !msg.isLoading));
+    } finally {
+      setIsSendDisabled(false);
+    }
+  };
 
   // Function to handle image tap and show fullscreen view
   const handleImageTap = (imageUri) => {
@@ -3382,7 +4515,8 @@ const renderTextWithMath = (text, textStyle) => {
     setLastScrollTime(Date.now());
     
     // Show the scroll button if not near the bottom
-    const isNearBottom = offsetY >= contentSizeHeight - layoutHeight - 50;
+    // For non-inverted FlatList, bottom is when offsetY + layoutHeight >= contentSizeHeight
+    const isNearBottom = offsetY + layoutHeight >= contentSizeHeight - 50;
     setShowScrollToBottom(!isNearBottom);
     
     // Reset user scrolling flag after a longer delay to prevent auto-scroll interference
@@ -3426,36 +4560,39 @@ const renderTextWithMath = (text, textStyle) => {
   return (
     <SafeAreaView style={[styles.container, {backgroundColor: colors.background}]}>
       
-      {/* Back Button */}
-      <TouchableOpacity 
-        style={[styles.backButton , {zIndex: 1, marginLeft: isSidebarOpen ? 300 : 0 }]}
-        onPress={() => {
-          if (isSidebarOpen) {
-            setIsSidebarOpen(false);
-          } else {
-            setIsSidebarOpen(true);
-          }
-        }}
-      >
-        {isSidebarOpen ? (
-          <MaterialIcons name="arrow-back-ios" size={24} color="#000" style={styles.headerIcon2} />
-        ) : (
-          <MaterialIcons name="arrow-forward-ios" size={24} color="#000" style={styles.headerIcon} />
-        )}
-      </TouchableOpacity>
+
       
       {/* Header */}
       <View style={[styles.header, {backgroundColor: colors.background2 , borderColor: colors.border ,borderBottomWidth: 1}]}>
-      <TouchableOpacity style={styles.backButton2} onPress={() => navigation.goBack()}>
-            <MaterialIcons name="arrow-back-ios-new" size={24} color="white" />
-                               </TouchableOpacity>
+        <TouchableOpacity style={styles.backButton2} onPress={() => navigation.goBack()}>
+          <MaterialIcons name="arrow-back-ios-new" size={24} color="white" />
+        </TouchableOpacity>
+        
+        <View style={styles.headerCenterContent}>
           <Image source={require('../assets/Avatar/Cat.png')} style={styles.botIcon} />
-        <View style={styles.headerTextContainer}>
-        
-          <Text style={styles.botRole}>{t('matrixAIBot')}</Text>
-        
+          <View style={styles.headerTextContainer}>
+            <Text style={styles.botRole}>{t('matrixAIBot')}</Text>
+          </View>
         </View>
-       
+        
+        {/* Header Right Actions */}
+        <View style={styles.headerRightActions}>
+          {/* New Chat Button */}
+          <TouchableOpacity 
+            style={styles.headerNewChatButton} 
+            onPress={startNewChat}
+          >
+            <MaterialCommunityIcons name="chat-plus-outline" size={22} color="white" />
+          </TouchableOpacity>
+          
+          {/* Navbar Toggle Button */}
+          <TouchableOpacity 
+            style={styles.navbarToggleButton} 
+            onPress={() => setIsSidebarOpen(!isSidebarOpen)}
+          >
+            <MaterialIcons name="menu" size={24} color="white" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Main content area - using KeyboardAvoidingView for the entire chat area */}
@@ -3501,15 +4638,14 @@ const renderTextWithMath = (text, textStyle) => {
                 maxToRenderPerBatch={5} // Render 5 messages per batch
                 windowSize={10} // Keep 10 screens worth of messages in memory
                 removeClippedSubviews={true} // Remove off-screen views to save memory
-                getItemLayout={(data, index) => ({
-                  length: 80, // Estimated message height
-                  offset: 80 * index,
-                  index,
-                })}
                 // Pagination for loading older messages
                 onEndReached={handleScrollToTop}
                 onEndReachedThreshold={0.1}
                 inverted={false} // Display messages in chronological order
+                maintainVisibleContentPosition={{
+                  minIndexForVisible: 0,
+                  autoscrollToTopThreshold: 10,
+                }}
                 ListHeaderComponent={isLoadingOlderMessages ? (
                   <View style={styles.loadingOlderContainer}>
                     <ActivityIndicator size="small" color="#4C8EF7" />
@@ -3625,17 +4761,17 @@ const renderTextWithMath = (text, textStyle) => {
           </Animatable.View>
         </View>
 
-        {/* Input area with New Chat button above it */}
+        {/* Input area */}
         <View style={styles.inputContainer}>
-          {/* New Chat Button - Positioned just above the input with transparency */}
-          <View style={styles.newChatButtonContainer} pointerEvents="box-none">
-            <TouchableOpacity onPress={startNewChat} style={styles.NewChatButton}>
-              <MaterialCommunityIcons name="chat-plus-outline" size={24} color="#fff" />
-              <Text style={styles.NewChatText}>{t('newChat')}</Text>
-            </TouchableOpacity>
-          </View>
-
           <View style={styles.inputContentContainer}>
+            {/* File Preview Component */}
+            <FilePreviewComponent
+              attachedFiles={attachedFiles}
+              onRemoveFile={handleRemoveFile}
+              onFilePress={handleFilePress}
+              colors={colors}
+            />
+            
             {selectedImage && (
               <View style={[styles.imagePreviewContainer]}>
                 <View style={styles.imageIconContainer}>
@@ -3683,7 +4819,7 @@ const renderTextWithMath = (text, textStyle) => {
                     {showAdditionalButtons ? (
                       <Ionicons name="close" size={28} color="#4C8EF7" />
                     ) : (
-                      <MaterialCommunityIcons name="plus" size={28} color="#4C8EF7" />
+                      <Ionicons name="add" size={28} color="#4C8EF7" />
                     )}
                   </TouchableOpacity>
                   <View style={styles.sendButtonContainer}>
@@ -3699,19 +4835,69 @@ const renderTextWithMath = (text, textStyle) => {
                       )}
                     </TouchableOpacity>
                     {/* Coin cost label on send button */}
-                    {(inputText.trim() || selectedImage) && (
+                    {(inputText.trim() || selectedImage || selectedGenerateOption) && (
                       <View style={styles.sendButtonCoinLabel}>
                         <Image 
                           source={require('../assets/coin.png')} 
                           style={styles.sendButtonCoinIcon} 
                         />
-                        <Text style={styles.sendButtonCoinText}>-{selectedImage ? '2' : '1'}</Text>
+                        <Text style={styles.sendButtonCoinText}>
+                          -{selectedGenerateOption ? '5' : (selectedImage ? '2' : '1')}
+                        </Text>
                       </View>
                     )}
                   </View>
                 </View>
               </LinearGradient>
             </View>
+            
+            {/* Radio buttons for generate options - below text input */}
+            <View style={styles.radioButtonsContainer}>
+              <TouchableOpacity 
+                onPress={handleSelectGenerateDOC} 
+                style={[
+                  styles.radioButton, 
+                  selectedGenerateOption === 'doc' && styles.radioButtonSelected
+                ]}
+              >
+                <View style={styles.radioButtonContent}>
+                  <MaterialCommunityIcons 
+                    name="file-word" 
+                    size={18} 
+                    color={selectedGenerateOption === 'doc' ? '#fff' : '#4C8EF7'} 
+                  />
+                  <Text style={[
+                    styles.radioButtonText,
+                    selectedGenerateOption === 'doc' && styles.radioButtonTextSelected
+                  ]}>
+                    Generate Doc
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                onPress={handleSelectGenerateXLSX} 
+                style={[
+                  styles.radioButton, 
+                  selectedGenerateOption === 'xlsx' && styles.radioButtonSelected
+                ]}
+              >
+                <View style={styles.radioButtonContent}>
+                  <MaterialCommunityIcons 
+                    name="file-excel" 
+                    size={18} 
+                    color={selectedGenerateOption === 'xlsx' ? '#fff' : '#4C8EF7'} 
+                  />
+                  <Text style={[
+                    styles.radioButtonText,
+                    selectedGenerateOption === 'xlsx' && styles.radioButtonTextSelected
+                  ]}>
+                    Generate XLSX
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+            
             {showAdditionalButtons && (
               <View style={[styles.additionalButtonsContainer, {backgroundColor: colors.background2} , {zIndex: 10}]}>
                 <View style={styles.buttonRow}>
@@ -3736,6 +4922,8 @@ const renderTextWithMath = (text, textStyle) => {
                     <Text style={{color: colors.text}}>Document</Text>
                   </TouchableOpacity>
                 </View>
+                
+
               </View>
             )}
           </View>
@@ -3750,6 +4938,7 @@ const renderTextWithMath = (text, textStyle) => {
             onNewChat={startNewChat}
             onClose={() => setIsSidebarOpen(false)}
             onDeleteChat={onDeleteChat}
+            currentChatId={currentChatId}
           />
         </TouchableWithoutFeedback>
       )}
@@ -3849,6 +5038,8 @@ const renderTextWithMath = (text, textStyle) => {
           </View>
         </View>
       </Modal>
+
+
     </SafeAreaView>
   );
 };
@@ -3909,9 +5100,32 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     padding: 10,
     backgroundColor: '#FFFFFF',
     zIndex: 10,
+  },
+  headerCenterContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    marginHorizontal: 10,
+  },
+  headerRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerNewChatButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(76, 142, 247, 0.2)',
+  },
+  navbarToggleButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(76, 142, 247, 0.1)',
   },
   headerIcon: {
     width: 30,
@@ -4056,7 +5270,7 @@ const styles = StyleSheet.create({
   messageContainer: {
     maxWidth: '85%',
     marginVertical: 4,
-    padding: 12,
+    padding: 8,
     borderRadius: 5,
     backgroundColor: '#fff',
     shadowColor: '#000',
@@ -4089,7 +5303,17 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
     backgroundColor: '#4C8EF7',
     marginRight: 15,
-    maxWidth: '85%',
+    maxWidth: '90%',
+    padding: 6,
+    paddingVertical: 4,
+    borderRadius: 18,
+    borderBottomRightRadius: 4,
+    shadowColor: '#4C8EF7',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+    marginVertical: 1,
   },
   botTail: {
     display: 'none', // Hide the tail for bot messages
@@ -4113,6 +5337,31 @@ const styles = StyleSheet.create({
   attachmentsContainer: {
     marginTop: 10,
     paddingHorizontal: 5,
+  },
+
+  streamingImagesContainer: {
+    marginTop: 10,
+    paddingHorizontal: 5,
+  },
+
+  streamingImageWrapper: {
+    marginBottom: 10,
+    alignItems: 'center',
+  },
+
+  streamingImage: {
+    width: 200,
+    height: 200,
+    borderRadius: 10,
+    maxWidth: '100%',
+  },
+
+  imageDescription: {
+    marginTop: 5,
+    fontSize: 14,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingHorizontal: 10,
   },
 
   loadingContainer: {
@@ -4438,6 +5687,41 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  radioButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    marginTop: 5,
+  },
+  radioButton: {
+    flex: 1,
+    marginHorizontal: 5,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#4C8EF7',
+    backgroundColor: 'transparent',
+  },
+  radioButtonSelected: {
+    backgroundColor: '#4C8EF7',
+    borderColor: '#4C8EF7',
+  },
+  radioButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioButtonText: {
+    color: '#4C8EF7',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  radioButtonTextSelected: {
+    color: '#fff',
+  },
   botTextContainer: {
     flexDirection: 'column',
     width: '100%',
@@ -4449,8 +5733,8 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     width: '100%',
     overflow: 'visible',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
   },
   textLine: {
     flexDirection: 'row',
@@ -4725,7 +6009,8 @@ const styles = StyleSheet.create({
   },
   userMessageWrapper: {
     alignSelf: 'flex-end',
-    maxWidth: '85%',
+    maxWidth: '90%',
+    marginBottom: 4,
   },
   tableContainer: {
     borderWidth: 1,
@@ -4998,7 +6283,7 @@ const styles = StyleSheet.create({
   scrollToBottomButton: {
     position: 'absolute',
     right: 15,
-    bottom: 100, // Adjust based on your input bar height
+    bottom: 160, // Moved higher from 140 to 160
     backgroundColor: '#4C8EF7',
     width: 40,
     height: 40,
@@ -5047,17 +6332,14 @@ const styles = StyleSheet.create({
   messagesList: {
     flex: 1,
   },
-  newChatButtonContainer: {
-    position: 'absolute',
-    alignSelf: 'center',
-    zIndex: 5,
-    top: -40, // Position above the input box
-    backgroundColor: 'transparent',
-    width: '100%',
-    alignItems: 'center',
+  generateButtonsContainer: {
+    flexDirection: 'row',
     justifyContent: 'center',
-    pointerEvents: 'box-none', // This allows touches to pass through to components behind it
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    marginBottom: 10,
   },
+
   NewChatButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -5300,6 +6582,21 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     color: '#666',
     fontSize: 14,
+  },
+
+  floatingGenerateButton: {
+    backgroundColor: '#4C8EF7',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.5,
+    elevation: 2,
   },
 
 
