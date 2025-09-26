@@ -1,5 +1,7 @@
 // Import webhook service for file type detection
 import { getFileTypeCategory } from '../services/webhookService';
+// Import chart service for chart processing
+import chartService from '../services/chartService';
 
 // Utility function to parse bot messages and extract file attachments
 export const parseMessageForAttachments = (messageText) => {
@@ -266,6 +268,56 @@ export const formatMessageText = (text) => {
   // This is HTML content, use the existing HTML parsing logic
   console.log('Processing as HTML content');
   let formatted = text;
+
+  // Process charts first before HTML processing
+  console.log('🔍 [DEBUG] Checking for chartjs code blocks in HTML content');
+  const chartRegex = /```chartjs\s*([\s\S]*?)```/g;
+  const chartMatches = formatted.match(chartRegex);
+  
+  if (chartMatches) {
+    console.log('🔍 [DEBUG] Found', chartMatches.length, 'chartjs code blocks');
+    
+    // Process each chart
+    chartMatches.forEach((match, index) => {
+      try {
+        // Extract the JSON content
+        const jsonContent = match.replace(/```chartjs\s*/, '').replace(/```$/, '').trim();
+        console.log('🔍 [DEBUG] Chart', index + 1, 'JSON content:', jsonContent.substring(0, 100));
+        
+        // Check if jsonContent is empty or undefined
+        if (!jsonContent || jsonContent === 'undefined' || jsonContent === '') {
+          console.error('🔍 [DEBUG] Empty or undefined JSON content, skipping chart');
+          return;
+        }
+        
+        // Parse the JSON
+        const chartConfig = JSON.parse(jsonContent);
+        console.log('🔍 [DEBUG] Parsed chart config:', chartConfig);
+        
+        // Apply theme (assuming dark mode for now, this could be passed as parameter)
+        const themedConfig = chartService.applyTheme(chartConfig, false);
+        
+        // Generate unique ID
+        const chartId = `chart_${Date.now()}_${index}`;
+        console.log('🔍 [DEBUG] Generated chart ID:', chartId);
+        
+        // Store the chart configuration using chartService
+        chartService.storeChart(chartId, themedConfig);
+        console.log('🔍 [DEBUG] Stored chart in chartService:', chartId);
+        
+        // Replace the chartjs code block with a placeholder
+        const placeholder = `[CHART:${chartId}]`;
+        formatted = formatted.replace(match, placeholder);
+        console.log('🔍 [DEBUG] Replaced chart with placeholder:', placeholder);
+        
+      } catch (error) {
+        console.error('🔍 [DEBUG] Error processing chart:', error);
+        // Keep the original code block if parsing fails
+      }
+    });
+  } else {
+    console.log('🔍 [DEBUG] No chartjs code blocks found');
+  }
 
   // Handle common HTML entities first
   const htmlEntities = {

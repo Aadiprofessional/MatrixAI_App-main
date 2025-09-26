@@ -28,7 +28,9 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-// Removed KaTeX import - using simple HTML rendering instead
+import katex from 'katex';
+import chartService from '../services/chartService';
+import WebViewChart from '../components/WebViewChart';
 import LinearGradient from 'react-native-linear-gradient';
 import axios from 'axios';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
@@ -403,101 +405,370 @@ const persistEvent = (event) => {
     }
   };
 
+  // Function to process mathematical expressions using KaTeX
+  const processMathExpressions = (text) => {
+    if (!text) return text;
+    
+    try {
+      let processedText = text;
+      
+      // Handle display math: \[...\] and $$...$$
+      processedText = processedText.replace(/\\\[([\s\S]*?)\\\]/g, (match, math) => {
+        try {
+          const rendered = katex.renderToString(math, {
+            displayMode: true,
+            throwOnError: false,
+            errorColor: '#cc0000',
+            strict: false
+          });
+          return `<div class="math-display">${rendered}</div>`;
+        } catch (error) {
+          console.warn('KaTeX display math error:', error);
+          return `<div class="math-error">Math Error: ${math}</div>`;
+        }
+      });
+      
+      processedText = processedText.replace(/\$\$([\s\S]*?)\$\$/g, (match, math) => {
+        try {
+          const rendered = katex.renderToString(math, {
+            displayMode: true,
+            throwOnError: false,
+            errorColor: '#cc0000',
+            strict: false
+          });
+          return `<div class="math-display">${rendered}</div>`;
+        } catch (error) {
+          console.warn('KaTeX display math error:', error);
+          return `<div class="math-error">Math Error: ${math}</div>`;
+        }
+      });
+      
+      // Handle inline math: \(...\) and $...$
+      processedText = processedText.replace(/\\\(([\s\S]*?)\\\)/g, (match, math) => {
+        try {
+          const rendered = katex.renderToString(math, {
+            displayMode: false,
+            throwOnError: false,
+            errorColor: '#cc0000',
+            strict: false
+          });
+          return `<span class="math-inline">${rendered}</span>`;
+        } catch (error) {
+          console.warn('KaTeX inline math error:', error);
+          return `<span class="math-error">Math Error: ${math}</span>`;
+        }
+      });
+      
+      processedText = processedText.replace(/\$([^$\n]+?)\$/g, (match, math) => {
+        try {
+          const rendered = katex.renderToString(math, {
+            displayMode: false,
+            throwOnError: false,
+            errorColor: '#cc0000',
+            strict: false
+          });
+          return `<span class="math-inline">${rendered}</span>`;
+        } catch (error) {
+          console.warn('KaTeX inline math error:', error);
+          return `<span class="math-error">Math Error: ${math}</span>`;
+        }
+      });
+      
+      return processedText;
+    } catch (error) {
+      console.error('Error processing math expressions:', error);
+      return text;
+    }
+  };
+
+  // Function to process text with charts
+  const processTextWithCharts = (text, isDarkMode = false) => {
+    if (!text) return { text, charts: [] };
+    
+    try {
+      const result = chartService.processTextWithCharts(text, isDarkMode);
+      return result;
+    } catch (error) {
+      console.error('Error processing charts:', error);
+      return { text, charts: [] };
+    }
+  };
+
+  // Function to render charts using react-native-chart-kit
+  const renderChart = (chartIdOrData, isDarkMode = false, width = 300) => {
+    console.log('📊 [DEBUG] renderChart called with:', {
+      chartIdOrData: chartIdOrData,
+      isDarkMode: isDarkMode,
+      width: width,
+      isString: typeof chartIdOrData === 'string'
+    });
+    
+    let chartData;
+    
+    // If it's a string, treat it as a chart ID and retrieve from service
+    if (typeof chartIdOrData === 'string') {
+      chartData = chartService.getChart(chartIdOrData);
+      console.log('📊 [DEBUG] Retrieved chart data from service:', chartData);
+    } else {
+      // Otherwise, use it directly as chart data
+      chartData = chartIdOrData;
+    }
+    
+    if (!chartData || !chartData.type || !chartData.data) {
+      console.log('❌ [DEBUG] renderChart: Missing required data, returning null');
+      return null;
+    }
+
+    try {
+      return (
+        <WebViewChart
+          chartData={chartData}
+          width={width}
+          height={220}
+          isDarkMode={isDarkMode}
+        />
+      );
+    } catch (error) {
+      console.error('Error rendering chart:', error);
+      return (
+        <View style={{
+          padding: 16,
+          backgroundColor: isDarkMode ? 'rgba(255, 0, 0, 0.1)' : 'rgba(255, 0, 0, 0.05)',
+          borderRadius: 8,
+          marginVertical: 8
+        }}>
+          <Text style={{
+            color: isDarkMode ? '#FF453A' : '#FF3B30',
+            textAlign: 'center',
+            fontSize: 14
+          }}>
+            Error rendering chart
+          </Text>
+        </View>
+      );
+    }
+  };
+
 const renderTextWithMath = (text, textStyle) => {
   if (!text) return null;
   
-  // Simple HTML rendering without KaTeX
+  console.log('📱 [DEBUG] renderTextWithMath called with text length:', text?.length);
+  console.log('📱 [DEBUG] Input text preview:', text?.substring(0, 200) + '...');
+  
   const { width } = Dimensions.get('window');
+  const isDarkMode = colors.background === '#1C1C1E' || colors.background === '#000000';
+  
+  console.log('📱 [DEBUG] isDarkMode:', isDarkMode);
+  console.log('📱 [DEBUG] Screen width:', width);
+  
+  // Process mathematical expressions with KaTeX
+  let processedText = processMathExpressions(text);
+  console.log('📱 [DEBUG] After math processing, text length:', processedText?.length);
+  
+  // Process charts
+  const { text: textWithCharts, charts } = processTextWithCharts(processedText, isDarkMode);
+  console.log('📱 [DEBUG] After chart processing - charts found:', charts?.length);
+  console.log('📱 [DEBUG] Charts array:', charts);
+  
+  // Split text by chart placeholders and render content with charts inline
+  const renderContentWithCharts = () => {
+    if (!charts || charts.length === 0) {
+      return (
+        <RenderHtml
+          contentWidth={width - 40}
+          source={{ html: textWithCharts }}
+          tagsStyles={getHtmlTagStyles(isDarkMode, textStyle, colors)}
+        />
+      );
+    }
+
+    const parts = [];
+    let remainingText = textWithCharts;
+    
+    charts.forEach((chart, index) => {
+      const placeholder = `[CHART:${chart.id}]`;
+      const placeholderIndex = remainingText.indexOf(placeholder);
+      
+      if (placeholderIndex !== -1) {
+        // Add text before chart
+        const textBefore = remainingText.substring(0, placeholderIndex);
+        if (textBefore.trim()) {
+          parts.push({
+            type: 'html',
+            content: textBefore,
+            key: `text-${index}`
+          });
+        }
+        
+        // Add chart
+        parts.push({
+          type: 'chart',
+          chart: chart,
+          key: `chart-${index}`
+        });
+        
+        // Update remaining text
+        remainingText = remainingText.substring(placeholderIndex + placeholder.length);
+      }
+    });
+    
+    // Add remaining text
+    if (remainingText.trim()) {
+      parts.push({
+        type: 'html',
+        content: remainingText,
+        key: 'text-final'
+      });
+    }
+    
+    return parts.map((part) => {
+      if (part.type === 'html') {
+        return (
+          <RenderHtml
+            key={part.key}
+            contentWidth={width - 40}
+            source={{ html: part.content }}
+            tagsStyles={getHtmlTagStyles(isDarkMode, textStyle, colors)}
+          />
+        );
+      } else if (part.type === 'chart') {
+        return (
+          <View key={part.key} style={{
+            marginVertical: 12,
+            padding: 12,
+            backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: colors.border || '#E0E0E0',
+          }}>
+            {part.chart.config?.options?.title?.text && (
+              <Text style={{
+                color: textStyle?.color || colors.text,
+                fontSize: 16,
+                textAlign: 'center',
+                marginBottom: 12,
+                fontWeight: '600'
+              }}>
+                {part.chart.config.options.title.text}
+              </Text>
+            )}
+            {renderChart(part.chart.config, isDarkMode, width - 80)}
+          </View>
+        );
+      }
+      return null;
+    });
+  };
   
   return (
-    <RenderHtml
-      contentWidth={width - 40}
-      source={{ html: text }}
-      tagsStyles={{
-        body: {
-          color: textStyle?.color || colors.text,
-          fontSize: textStyle?.fontSize || 16,
-          fontFamily: textStyle?.fontFamily || 'System',
-          lineHeight: 1.5,
-        },
-        p: {
-          marginVertical: 4,
-        },
-        h1: {
-          fontSize: 24,
-          fontWeight: 'bold',
-          marginVertical: 8,
-          color: textStyle?.color || colors.text,
-        },
-        h2: {
-          fontSize: 20,
-          fontWeight: 'bold',
-          marginVertical: 6,
-          color: textStyle?.color || colors.text,
-        },
-        h3: {
-          fontSize: 18,
-          fontWeight: 'bold',
-          marginVertical: 4,
-          color: textStyle?.color || colors.text,
-        },
-        strong: {
-          fontWeight: 'bold',
-        },
-        em: {
-          fontStyle: 'italic',
-        },
-        code: {
-          backgroundColor: 'rgba(40, 40, 40, 0.8)',
-          padding: 2,
-          borderRadius: 4,
-          fontFamily: 'monospace',
-        },
-        pre: {
-          backgroundColor: 'rgba(40, 40, 40, 0.8)',
-          padding: 8,
-          borderRadius: 8,
-          fontFamily: 'monospace',
-        },
-        blockquote: {
-          borderLeftWidth: 4,
-          borderLeftColor: colors.primary || '#007AFF',
-          paddingLeft: 12,
-          marginVertical: 8,
-          fontStyle: 'italic',
-        },
-        table: {
-          borderWidth: 1,
-          borderColor: colors.border || '#E0E0E0',
-          marginVertical: 8,
-        },
-        td: {
-          borderWidth: 1,
-          borderColor: colors.border || '#E0E0E0',
-          padding: 8,
-        },
-        th: {
-          borderWidth: 1,
-          borderColor: colors.border || '#E0E0E0',
-          padding: 8,
-          fontWeight: 'bold',
-          backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        },
-      }}
-    />
+    <View>
+      {renderContentWithCharts()}
+    </View>
   );
 };
+
+// Helper function to get HTML tag styles
+const getHtmlTagStyles = (isDarkMode, textStyle, colors) => ({
+  body: {
+    color: textStyle?.color || colors.text,
+    fontSize: textStyle?.fontSize || 16,
+    fontFamily: textStyle?.fontFamily || 'System',
+    lineHeight: 1.5,
+  },
+  p: {
+    marginVertical: 4,
+  },
+  h1: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginVertical: 8,
+    color: textStyle?.color || colors.text,
+  },
+  h2: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginVertical: 6,
+    color: textStyle?.color || colors.text,
+  },
+  h3: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginVertical: 4,
+    color: textStyle?.color || colors.text,
+  },
+  strong: {
+    fontWeight: 'bold',
+  },
+  em: {
+    fontStyle: 'italic',
+  },
+  code: {
+    backgroundColor: isDarkMode ? 'rgba(40, 40, 40, 0.8)' : 'rgba(240, 240, 240, 0.8)',
+    padding: 2,
+    borderRadius: 4,
+    fontFamily: 'monospace',
+    color: textStyle?.color || colors.text,
+  },
+  pre: {
+    backgroundColor: isDarkMode ? 'rgba(40, 40, 40, 0.8)' : 'rgba(240, 240, 240, 0.8)',
+    padding: 8,
+    borderRadius: 8,
+    fontFamily: 'monospace',
+    color: textStyle?.color || colors.text,
+  },
+  blockquote: {
+    borderLeftWidth: 4,
+    borderLeftColor: colors.primary || '#007AFF',
+    paddingLeft: 12,
+    marginVertical: 8,
+    fontStyle: 'italic',
+  },
+  table: {
+    borderWidth: 1,
+    borderColor: colors.border || '#E0E0E0',
+    marginVertical: 8,
+  },
+  td: {
+    borderWidth: 1,
+    borderColor: colors.border || '#E0E0E0',
+    padding: 8,
+  },
+  th: {
+    borderWidth: 1,
+    borderColor: colors.border || '#E0E0E0',
+    padding: 8,
+    fontWeight: 'bold',
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+  },
+  // KaTeX math styles
+  '.math-display': {
+    textAlign: 'center',
+    marginVertical: 12,
+    padding: 8,
+  },
+  '.math-inline': {
+    display: 'inline',
+  },
+  '.math-error': {
+    color: '#cc0000',
+    backgroundColor: isDarkMode ? 'rgba(204, 0, 0, 0.1)' : 'rgba(204, 0, 0, 0.05)',
+    padding: 4,
+    borderRadius: 4,
+    fontFamily: 'monospace',
+  },
+});
   // Helper function to check if text contains math expressions
 
-  // Function to parse intelligent messages with image skeletons and images
+  // Function to parse intelligent messages with image skeletons, images, and charts
   const parseIntelligentMessage = (messageText) => {
     const parts = [];
     let currentIndex = 0;
     
-    // Regex patterns for image skeleton and image tags
+    // Regex patterns for image skeleton, image tags, and chart tags
     const imageSkeletonRegex = /\[IMAGE_SKELETON:([^:]+):([^\]]+)\]/g;
     const imageRegex = /\[IMAGE:([^:]+):([^\]]+)\]/g;
     const imageErrorRegex = /\[IMAGE_ERROR:([^\]]+)\]/g;
+    const chartRegex = /\[CHART:([^\]]+)\]/g;
     
     // Find all matches
     const allMatches = [];
@@ -533,6 +804,17 @@ const renderTextWithMath = (text, textStyle) => {
         index: match.index,
         length: match[0].length,
         message: match[1],
+        fullMatch: match[0]
+      });
+    }
+    
+    imageErrorRegex.lastIndex = 0;
+    while ((match = chartRegex.exec(messageText)) !== null) {
+      allMatches.push({
+        type: 'chart',
+        index: match.index,
+        length: match[0].length,
+        chartId: match[1],
         fullMatch: match[0]
       });
     }
@@ -653,7 +935,47 @@ const renderTextWithMath = (text, textStyle) => {
             content: [ 
               { 
                 type: "text", 
-                text: "You are an AI tutor assistant helping students with their homework and studies. IMPORTANT: You must respond ONLY in valid HTML format using proper HTML tags for structure and formatting. Use HTML tags like <h1>, <h2>, <h3> for headings, <p> for paragraphs, <strong> for bold text, <em> for emphasis, <ul> and <li> for lists, <table>, <tr>, <td> for tables, <code> for inline code, <pre> for code blocks, <blockquote> for quotes, and any other appropriate HTML tags. For mathematical expressions, use LaTeX syntax wrapped in appropriate delimiters: \\( ... \\) for inline math, \\[ ... \\] for display math, or $$ ... $$ for display math. You can also use <math>...</math> for inline math and <math2>...</math2> for display math. Examples: \\(x^2 + y^2 = z^2\\) for inline, \\[\\int_0^1 x^2 dx = \\frac{1}{3}\\] for display math. Do not use markdown or any other formatting - only pure HTML with proper structure and semantic tags plus LaTeX math." 
+                text: `You are an advanced AI assistant with expertise in multiple domains. You must format your responses using specific HTML tags and follow these strict guidelines:
+
+FORMATTING REQUIREMENTS:
+- Use <h1>, <h2>, <h3> for headers
+- Use <p> for paragraphs
+- Use <strong> for bold text
+- Use <em> for italic text
+- Use <ul>, <ol>, <li> for lists
+- Use <blockquote> for quotes
+- Use <code> for inline code
+- Use <pre><code> for code blocks
+
+CHART GENERATION:
+When users request charts, graphs, or data visualizations, create them using Chart.js code blocks:
+\`\`\`chartjs
+{
+  "type": "line|bar|pie|doughnut|scatter|bubble|polarArea|radar",
+  "data": {
+    "labels": ["Label1", "Label2", ...],
+    "datasets": [{
+      "label": "Dataset Name",
+      "data": [value1, value2, ...]
+    }]
+  },
+  "options": {
+    "responsive": true,
+    "plugins": {
+      "title": {
+        "display": true,
+        "text": "Chart Title"
+      }
+    }
+  }
+}
+\`\`\`
+
+MATHEMATICAL EXPRESSIONS:
+- Use LaTeX syntax for math: $inline$ or $$display$$
+- Support both inline \\(...\\) and display \\[...\\] formats
+
+Always provide helpful, accurate, and well-formatted responses.`
               } 
             ] 
           }
@@ -808,6 +1130,12 @@ const renderTextWithMath = (text, textStyle) => {
                     continue;
                   }
                   
+                  // Check if data is empty or undefined
+                  if (!data || data === 'undefined' || data === '') {
+                    console.log('⚠️ Empty or undefined data, skipping');
+                    continue;
+                  }
+                  
                   try {
                     const parsed = JSON.parse(data);
                     let content_chunk = null;
@@ -843,8 +1171,16 @@ const renderTextWithMath = (text, textStyle) => {
                 }
                 // Handle n8n format without "data: " prefix
                 else if (line.trim().startsWith('{')) {
+                  const trimmedLine = line.trim();
+                  
+                  // Check if trimmedLine is empty or undefined
+                  if (!trimmedLine || trimmedLine === 'undefined' || trimmedLine === '') {
+                    console.log('⚠️ Empty or undefined line, skipping');
+                    continue;
+                  }
+                  
                   try {
-                    const parsed = JSON.parse(line.trim());
+                    const parsed = JSON.parse(trimmedLine);
                     // Only process n8n "item" type messages with content
                     if (parsed.type === 'item' && parsed.content) {
                       const content_chunk = parsed.content;
@@ -2407,6 +2743,7 @@ const renderTextWithMath = (text, textStyle) => {
                       {isBot ? (
                         // Intelligent message rendering for bot messages
                         (() => {
+                          const isDarkMode = colors.background === '#1C1C1E' || colors.background === '#000000';
                           const messageParts = parseIntelligentMessage(displayText);
                           return messageParts.map((part, index) => {
                             switch (part.type) {
@@ -2509,6 +2846,8 @@ const renderTextWithMath = (text, textStyle) => {
                                     </Text>
                                   </View>
                                 );
+                              case 'chart':
+                                return renderChart(part.chartId, index, colors, isDarkMode);
                               default:
                                 return null;
                             }
@@ -2840,25 +3179,43 @@ const renderTextWithMath = (text, textStyle) => {
             const lastChatData = await AsyncStorage.getItem('lastChat');
             
             if (lastChatData) {
-              const lastChat = JSON.parse(lastChatData);
-              console.log('Found last chat in storage:', lastChat.id);
+              try {
+                const lastChat = JSON.parse(lastChatData);
+                console.log('Found last chat in storage:', lastChat.id);
               
-              // Process messages to ensure proper image display
-              const processedMessages = processMessages(lastChat.messages || []);
-              
-              // Update state with processed messages
-              setCurrentChatId(lastChat.id);
-              setMessages(processedMessages);
-              setChats([{...lastChat, messages: processedMessages}]);
-              setDataLoaded(true);
-              setIsChatsLoading(false);
-              
-              // Scroll to bottom after loading messages (initial load only)
-              setTimeout(() => {
-                if (flatListRef.current) {
-                  flatListRef.current.scrollToEnd({ animated: false });
-                }
-              }, 100);
+                // Process messages to ensure proper image display
+                const processedMessages = processMessages(lastChat.messages || []);
+                
+                // Update state with processed messages
+                setCurrentChatId(lastChat.id);
+                setMessages(processedMessages);
+                setChats([{...lastChat, messages: processedMessages}]);
+                setDataLoaded(true);
+                setIsChatsLoading(false);
+                
+                // Scroll to bottom after loading messages (initial load only)
+                setTimeout(() => {
+                  if (flatListRef.current) {
+                    flatListRef.current.scrollToEnd({ animated: false });
+                  }
+                }, 100);
+              } catch (error) {
+                console.error('Error parsing last chat data:', error);
+                // Create a new chat if parsing fails
+                const newChatId = Date.now().toString();
+                const localChatObj = {
+                  id: newChatId,
+                  title: 'New Chat',
+                  messages: [],
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                };
+                setCurrentChatId(newChatId);
+                setMessages([]);
+                setChats([localChatObj]);
+                setDataLoaded(true);
+                setIsChatsLoading(false);
+              }
             } else {
               // No previous chat found, create a new one
               const newChatId = Date.now().toString();
