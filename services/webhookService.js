@@ -2,7 +2,7 @@
  * Webhook Service for handling file processing and AI generation
  */
 
-const WEBHOOK_BASE_URL = 'https://matrixai21.app.n8n.cloud/webhook/910d8b7e-6462-463b-90ef-42056a296c73';
+const WEBHOOK_BASE_URL = 'https://matrixai212.app.n8n.cloud/webhook/aea0cafd-493a-4217-a29c-501a11cccbb8';
 
 /**
  * Generate a unique UID for requests

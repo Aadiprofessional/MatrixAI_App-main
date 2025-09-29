@@ -28,7 +28,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import katex from 'katex';
+// Removed katex import - now using react-native-mathjax-svg via MathRenderer
 import chartService from '../services/chartService';
 import WebViewChart from '../components/WebViewChart';
 import LinearGradient from 'react-native-linear-gradient';
@@ -87,7 +87,7 @@ import {
   getNewChat
 } from '../services/chatService';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { DASHSCOPE_API_KEY } from '@env';
+import { REACT_APP_ALIYUN_API_KEY } from '@env';
 import paymentService from '../services/paymentService';
 import { useTranslation } from 'react-i18next';
 import AttachmentComponent from '../components/AttachmentComponent';
@@ -99,6 +99,8 @@ import { analyzeMessageForImageNeeds, generateMultipleImages, createResponsePlan
 import StreamingService from '../services/streamingService';
 import ImageSkeletonLoader from '../components/ImageSkeletonLoader';
 import IntelligentImageContainer from '../components/IntelligentImageContainer';
+import MathRenderer from '../components/MathRenderer';
+import { containsMathContent, extractMathContent, formatMathContent, parseMixedContent } from '../utils/mathParser';
 
 // Function to decode base64 to ArrayBuffer
 const decode = (base64) => {
@@ -405,7 +407,7 @@ const persistEvent = (event) => {
     }
   };
 
-  // Function to process mathematical expressions using KaTeX
+  // Function to process mathematical expressions for MathRenderer
   const processMathExpressions = (text) => {
     if (!text) return text;
     
@@ -414,64 +416,20 @@ const persistEvent = (event) => {
       
       // Handle display math: \[...\] and $$...$$
       processedText = processedText.replace(/\\\[([\s\S]*?)\\\]/g, (match, math) => {
-        try {
-          const rendered = katex.renderToString(math, {
-            displayMode: true,
-            throwOnError: false,
-            errorColor: '#cc0000',
-            strict: false
-          });
-          return `<div class="math-display">${rendered}</div>`;
-        } catch (error) {
-          console.warn('KaTeX display math error:', error);
-          return `<div class="math-error">Math Error: ${math}</div>`;
-        }
+        return `<div class="math-display" data-math="${math.trim()}" data-display="true"></div>`;
       });
       
       processedText = processedText.replace(/\$\$([\s\S]*?)\$\$/g, (match, math) => {
-        try {
-          const rendered = katex.renderToString(math, {
-            displayMode: true,
-            throwOnError: false,
-            errorColor: '#cc0000',
-            strict: false
-          });
-          return `<div class="math-display">${rendered}</div>`;
-        } catch (error) {
-          console.warn('KaTeX display math error:', error);
-          return `<div class="math-error">Math Error: ${math}</div>`;
-        }
+        return `<div class="math-display" data-math="${math.trim()}" data-display="true"></div>`;
       });
       
       // Handle inline math: \(...\) and $...$
       processedText = processedText.replace(/\\\(([\s\S]*?)\\\)/g, (match, math) => {
-        try {
-          const rendered = katex.renderToString(math, {
-            displayMode: false,
-            throwOnError: false,
-            errorColor: '#cc0000',
-            strict: false
-          });
-          return `<span class="math-inline">${rendered}</span>`;
-        } catch (error) {
-          console.warn('KaTeX inline math error:', error);
-          return `<span class="math-error">Math Error: ${math}</span>`;
-        }
+        return `<span class="math-inline" data-math="${math.trim()}" data-display="false"></span>`;
       });
       
       processedText = processedText.replace(/\$([^$\n]+?)\$/g, (match, math) => {
-        try {
-          const rendered = katex.renderToString(math, {
-            displayMode: false,
-            throwOnError: false,
-            errorColor: '#cc0000',
-            strict: false
-          });
-          return `<span class="math-inline">${rendered}</span>`;
-        } catch (error) {
-          console.warn('KaTeX inline math error:', error);
-          return `<span class="math-error">Math Error: ${math}</span>`;
-        }
+        return `<span class="math-inline" data-math="${math.trim()}" data-display="false"></span>`;
       });
       
       return processedText;
@@ -759,11 +717,12 @@ const getHtmlTagStyles = (isDarkMode, textStyle, colors) => ({
 });
   // Helper function to check if text contains math expressions
 
-  // Function to parse intelligent messages with image skeletons, images, and charts
+  // Function to parse intelligent messages with image skeletons, images, charts, and math content
   const parseIntelligentMessage = (messageText) => {
     const parts = [];
     let currentIndex = 0;
     
+    // First, check for special tags (images, charts, etc.)
     // Regex patterns for image skeleton, image tags, and chart tags
     const imageSkeletonRegex = /\[IMAGE_SKELETON:([^:]+):([^\]]+)\]/g;
     const imageRegex = /\[IMAGE:([^:]+):([^\]]+)\]/g;
@@ -824,14 +783,13 @@ const getHtmlTagStyles = (isDarkMode, textStyle, colors) => ({
     
     // Build parts array
     allMatches.forEach((match, i) => {
-      // Add text before this match
+      // Add text before this match (parse for mixed content)
       if (match.index > currentIndex) {
         const textPart = messageText.substring(currentIndex, match.index);
         if (textPart.trim()) {
-          parts.push({
-            type: 'text',
-            content: textPart
-          });
+          // Parse this text part for mixed content (text + math)
+          const mixedParts = parseMixedContent(textPart);
+          parts.push(...mixedParts);
         }
       }
       
@@ -841,23 +799,20 @@ const getHtmlTagStyles = (isDarkMode, textStyle, colors) => ({
       currentIndex = match.index + match.length;
     });
     
-    // Add remaining text
+    // Add remaining text (parse for mixed content)
     if (currentIndex < messageText.length) {
       const remainingText = messageText.substring(currentIndex);
       if (remainingText.trim()) {
-        parts.push({
-          type: 'text',
-          content: remainingText
-        });
+        // Parse this remaining text for mixed content (text + math)
+        const mixedParts = parseMixedContent(remainingText);
+        parts.push(...mixedParts);
       }
     }
     
-    // If no special tags found, return the original text as a single part
+    // If no special tags found, parse the entire message for mixed content
     if (parts.length === 0) {
-      parts.push({
-        type: 'text',
-        content: messageText
-      });
+      const mixedParts = parseMixedContent(messageText);
+      parts.push(...mixedParts);
     }
     
     return parts;
@@ -1056,7 +1011,7 @@ Always provide helpful, accurate, and well-formatted responses.`
 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', true);
-        xhr.setRequestHeader('Authorization', `Bearer ${DASHSCOPE_API_KEY}`);
+        xhr.setRequestHeader('Authorization', `Bearer ${REACT_APP_ALIYUN_API_KEY}`);
         xhr.setRequestHeader('Content-Type', 'application/json');
 
         let fullContent = '';
@@ -1242,7 +1197,7 @@ Always provide helpful, accurate, and well-formatted responses.`
         xhr.timeout = 60000; // 60 second timeout
 
         const requestBody = JSON.stringify({
-          model: "qwen-plus",
+          model: "qwen-max",
           messages: apiMessages,
           stream: true
         });
@@ -2848,6 +2803,16 @@ Always provide helpful, accurate, and well-formatted responses.`
                                 );
                               case 'chart':
                                 return renderChart(part.chartId, index, colors, isDarkMode);
+                              case 'math':
+                                console.log('🧮 Rendering math content:', part.content);
+                                return (
+                                  <MathRenderer
+                                    key={`math-${index}`}
+                                    mathContent={part.content}
+                                    isDarkMode={isDarkMode}
+                                    width={Dimensions.get('window').width - 80}
+                                  />
+                                );
                               default:
                                 return null;
                             }

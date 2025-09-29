@@ -224,7 +224,7 @@ const CreateVideoScreen = ({ route, navigation }) => {
           throw new Error('Invalid image URL provided');
         }
         
-        // Prepare parameters for video creation
+        // Prepare parameters for video creation with image URL
         const videoParams = {
           uid: uid,
           promptText: message,
@@ -237,10 +237,15 @@ const CreateVideoScreen = ({ route, navigation }) => {
           videoParams.template = template;
         }
         
-        console.log('Calling videoService.createVideoWithImage with imageUrl');
+        console.log('Calling videoService.createVideoWithUrl with imageUrl params:', {
+          uid: videoParams.uid,
+          promptText: videoParams.promptText,
+          imageUrl: videoParams.imageUrl,
+          template: videoParams.template
+        });
         
-        // Make API request to create new video with image using videoService
-        result = await videoService.createVideoWithImage(videoParams);
+        // Make API request to create new video with image URL using the correct method
+        result = await videoService.createVideoWithUrl(videoParams);
       } else {
         console.log('Creating video without image');
         // Make API request to create new video using videoService

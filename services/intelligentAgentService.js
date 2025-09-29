@@ -1,4 +1,4 @@
-import { DASHSCOPE_API_KEY } from '@env';
+import { REACT_APP_ALIYUN_API_KEY } from '@env';
 
 /**
  * Intelligent AI Agent Service
@@ -63,11 +63,11 @@ Examples of when images are NOT needed:
     const response = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
+        'Authorization': `Bearer ${REACT_APP_ALIYUN_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'qwen-plus',
+        model: 'qwen-max',
         messages: [
           {
             role: 'system',

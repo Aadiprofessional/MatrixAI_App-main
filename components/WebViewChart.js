@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
-import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Modal, Alert, Platform } from 'react-native';
+import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Modal, Alert, Platform, PermissionsAndroid, ToastAndroid } from 'react-native';
 import { WebView } from 'react-native-webview';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
+import RNFS from 'react-native-fs';
+import { PERMISSIONS, request, RESULTS } from 'react-native-permissions';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -46,17 +48,81 @@ const WebViewChart = ({
       try {
         const parsedMessage = JSON.parse(message);
         if (parsedMessage.type === 'download' && parsedMessage.data) {
-          // Save image to iOS Photos
+          // Handle image download with proper permissions and file handling
           try {
-            if (Platform.OS === 'ios') {
-              await CameraRoll.save(parsedMessage.data, { type: 'photo' });
-              Alert.alert('Success', 'Chart saved to Photos successfully!');
-            } else {
-              Alert.alert('Download', 'Chart image data received. Android implementation needed.');
+            // Request storage permission (for Android)
+            if (Platform.OS === 'android') {
+              const permission = await PermissionsAndroid.request(
+                PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+                {
+                  title: 'Storage Permission',
+                  message: 'Matrix AI needs access to your storage to save charts.',
+                  buttonNeutral: 'Ask Me Later',
+                  buttonNegative: 'Cancel',
+                  buttonPositive: 'OK',
+                },
+              );
+              
+              if (permission !== PermissionsAndroid.RESULTS.GRANTED) {
+                Alert.alert('Permission Denied', 'Cannot save chart without storage permission');
+                return;
+              }
+            } else if (Platform.OS === 'ios') {
+              // For iOS, request photo library permission
+              const permission = await request(PERMISSIONS.IOS.PHOTO_LIBRARY);
+              if (permission !== RESULTS.GRANTED) {
+                Alert.alert('Permission Denied', 'Cannot save chart without photo library permission');
+                return;
+              }
+            }
+
+            // Check if the data URL is valid
+            if (!parsedMessage.data.startsWith('data:image/')) {
+              throw new Error('Invalid image data');
+            }
+
+            // Create appropriate filename
+            const newFilename = `matrix_ai_chart_${Date.now()}.png`;
+            
+            // Determine where to save the file based on platform
+            const targetPath = Platform.OS === 'ios' 
+              ? `${RNFS.DocumentDirectoryPath}/${newFilename}`
+              : `${RNFS.PicturesDirectoryPath}/${newFilename}`;
+
+            // Convert data URL to file
+            const base64Data = parsedMessage.data.replace(/^data:image\/[a-z]+;base64,/, '');
+            await RNFS.writeFile(targetPath, base64Data, 'base64');
+
+            if (Platform.OS === 'android') {
+              // Use ToastAndroid for native toast on Android
+              ToastAndroid.show('Chart saved to gallery', ToastAndroid.SHORT);
+              
+              // Use the MediaScanner to refresh the gallery
+              await RNFS.scanFile(targetPath);
+            } else if (Platform.OS === 'ios') {
+              // For iOS: Save to Camera Roll
+              await CameraRoll.save(`file://${targetPath}`, {
+                type: 'photo',
+                album: 'MatrixAI Charts'
+              });
+              
+              Alert.alert(
+                'Success', 
+                'Chart saved to Photos successfully!',
+                [{ text: 'OK', style: 'default' }]
+              );
             }
           } catch (saveError) {
             console.error('Save error:', saveError);
-            Alert.alert('Error', 'Failed to save chart to Photos. Please check permissions.');
+            let errorMessage = 'Failed to save chart to Photos.';
+            
+            if (saveError.message.includes('permission')) {
+              errorMessage += ' Please check photo library permissions in Settings.';
+            } else if (saveError.message.includes('Invalid image data')) {
+              errorMessage = 'Invalid chart data. Please try again.';
+            }
+            
+            Alert.alert('Error', errorMessage);
           }
         } else if (parsedMessage.type === 'error') {
           Alert.alert('Error', parsedMessage.message);
@@ -253,41 +319,50 @@ const WebViewChart = ({
       {/* Fullscreen Modal */}
       <Modal
         visible={isFullscreen}
-        animationType="slide"
+        animationType="fade"
         presentationStyle="fullScreen"
-        onRequestClose={() => setIsFullscreen(false)}
+        statusBarTranslucent={true}
       >
         <View style={[styles.fullscreenContainer, { backgroundColor: isDarkMode ? '#000000' : '#FFFFFF' }]}>
-          <View style={styles.fullscreenHeader}>
-            <TouchableOpacity 
-              style={[styles.closeButton, isDarkMode ? styles.darkButton : styles.lightButton]}
-              onPress={() => setIsFullscreen(false)}
-            >
-              <Icon name="close" size={24} color={isDarkMode ? '#FFFFFF' : '#000000'} />
-            </TouchableOpacity>
+          {/* Header with Close Button */}
+          <View style={[styles.fullscreenHeader, { backgroundColor: isDarkMode ? '#1C1C1E' : '#F2F2F7' }]}>
+            <View style={styles.headerContent}>
+              <Text style={[styles.headerTitle, { color: isDarkMode ? '#FFFFFF' : '#000000' }]}>
+                Chart View
+              </Text>
+              <TouchableOpacity 
+                style={[styles.closeButton, isDarkMode ? styles.darkCloseButton : styles.lightCloseButton]}
+                onPress={() => setIsFullscreen(false)}
+              >
+                <Icon name="close" size={20} color={isDarkMode ? '#FFFFFF' : '#000000'} />
+              </TouchableOpacity>
+            </View>
           </View>
           
-          <View style={styles.fullscreenChartContainer}>
-            <WebView
-              ref={webViewRef}
-              source={{ html: generateChartHTML() }}
-              style={styles.fullscreenWebview}
-              javaScriptEnabled={true}
-              domStorageEnabled={true}
-              startInLoadingState={true}
-              scalesPageToFit={true}
-              scrollEnabled={false}
-              onMessage={handleMessage}
-            />
+          {/* Chart Content */}
+          <View style={styles.fullscreenContent}>
+            <View style={styles.fullscreenChartContainer}>
+              <WebView
+                source={{ html: generateChartHTML() }}
+                style={styles.fullscreenWebview}
+                javaScriptEnabled={true}
+                domStorageEnabled={true}
+                startInLoadingState={true}
+                scalesPageToFit={true}
+                scrollEnabled={false}
+                onMessage={handleMessage}
+              />
+            </View>
             
-            <View style={styles.fullscreenButtonContainer}>
+            {/* Bottom Action Bar */}
+            <View style={[styles.fullscreenActionBar, { backgroundColor: isDarkMode ? '#1C1C1E' : '#F2F2F7' }]}>
               <TouchableOpacity 
-                style={[styles.downloadButton, isDarkMode ? styles.darkButton : styles.lightButton]}
+                style={[styles.fullscreenDownloadButton, isDarkMode ? styles.darkButton : styles.lightButton]}
                 onPress={handleDownload}
               >
-                <Icon name="download" size={18} color={isDarkMode ? '#FFFFFF' : '#000000'} />
+                <Icon name="download" size={20} color={isDarkMode ? '#FFFFFF' : '#000000'} />
                 <Text style={[styles.buttonText, { color: isDarkMode ? '#FFFFFF' : '#000000' }]}>
-                  Download
+                  Download Chart
                 </Text>
               </TouchableOpacity>
             </View>
@@ -355,33 +430,63 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   fullscreenHeader: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
     paddingTop: 50,
+    paddingBottom: 15,
     paddingHorizontal: 20,
-    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
   },
   closeButton: {
-    padding: 8,
-    borderRadius: 20,
-    borderWidth: 1,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lightCloseButton: {
+    backgroundColor: '#E5E5E7',
+  },
+  darkCloseButton: {
+    backgroundColor: '#2C2C2E',
+  },
+  fullscreenContent: {
+    flex: 1,
   },
   fullscreenChartContainer: {
     flex: 1,
-    margin: 10,
+    margin: 20,
     borderRadius: 12,
     overflow: 'hidden',
+    backgroundColor: 'transparent',
   },
   fullscreenWebview: {
     flex: 1,
     backgroundColor: 'transparent',
   },
-  fullscreenButtonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    paddingVertical: 15,
+  fullscreenActionBar: {
+    paddingVertical: 20,
     paddingHorizontal: 20,
-    backgroundColor: 'transparent',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+    alignItems: 'center',
+  },
+  fullscreenDownloadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: '#E5E5E7',
   },
 });
 

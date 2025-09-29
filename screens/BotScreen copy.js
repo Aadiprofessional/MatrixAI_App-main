@@ -42,7 +42,7 @@ import MathView from 'react-native-math-view';
 import { useCoinsSubscription } from '../hooks/useCoinsSubscription';
 import { useAuthUser } from '../hooks/useAuthUser';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { DASHSCOPE_API_KEY } from '@env';
+import { REACT_APP_ALIYUN_API_KEY } from '@env';
 import paymentService from '../services/paymentService';
 
 // Function to decode base64 to ArrayBuffer
@@ -607,7 +607,7 @@ const BotScreen2 = ({ navigation, route }) => {
 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', true);
-        xhr.setRequestHeader('Authorization', `Bearer ${DASHSCOPE_API_KEY}`);
+        xhr.setRequestHeader('Authorization', `Bearer ${REACT_APP_ALIYUN_API_KEY}`);
         xhr.setRequestHeader('Content-Type', 'application/json');
 
         let fullContent = '';
@@ -684,7 +684,7 @@ const BotScreen2 = ({ navigation, route }) => {
         xhr.timeout = 60000; // 60 second timeout
 
         const requestBody = JSON.stringify({
-          model: "qwen-plus",
+          model: "qwen-max",
           messages: apiMessages,
           stream: true
         });

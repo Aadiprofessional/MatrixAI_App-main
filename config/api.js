@@ -1,7 +1,7 @@
 // API configuration
 
 // Base URL for API requests
-export const API_BASE_URL = 'https://api.matrixai.com';
+export const API_BASE_URL = 'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run';
 
 /**
  * Get default headers for API requests

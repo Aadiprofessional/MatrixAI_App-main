@@ -1,4 +1,4 @@
-import { DASHSCOPE_API_KEY } from '@env';
+import { REACT_APP_ALIYUN_API_KEY } from '@env';
 import { checkImageStatus, waitForImage } from './intelligentAgentService';
 
 /**
@@ -60,73 +60,96 @@ export class StreamingService {
     try {
       const streamingPrompt = this.buildStreamingPrompt(userMessage, conversationHistory, responsePlan);
       
-      const response = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'qwen-plus',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a helpful AI assistant. Provide detailed, educational responses. When explaining concepts that benefit from visual aids, structure your response to naturally accommodate images at appropriate points.'
-            },
-            {
-              role: 'user',
-              content: streamingPrompt
-            }
-          ],
-          temperature: 0.7,
-          max_tokens: 2000,
-          stream: true
-        })
-      });
+      // Use XMLHttpRequest instead of fetch for React Native compatibility
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', true);
+      xhr.setRequestHeader('Authorization', `Bearer ${REACT_APP_ALIYUN_API_KEY}`);
+      xhr.setRequestHeader('Content-Type', 'application/json');
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      let processedLength = 0;
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+      xhr.onreadystatechange = async () => {
+        if (xhr.readyState === 3 || xhr.readyState === 4) {
+          const responseText = xhr.responseText;
+          
+          // Only process new content that we haven't seen before
+          const newContent = responseText.substring(processedLength);
+          if (newContent) {
+            processedLength = responseText.length;
+            const lines = newContent.split('\n');
+            
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6).trim();
+                if (data === '[DONE]') {
+                  this.streamingState.isStreaming = false;
+                  break;
+                }
+                
+                // Check if data is empty or undefined
+                if (!data || data === 'undefined' || data === '') {
+                  continue;
+                }
 
-      while (this.streamingState.isStreaming) {
-        const { done, value } = await reader.read();
-        
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') {
-              this.streamingState.isStreaming = false;
-              break;
-            }
-
-            try {
-              const parsed = JSON.parse(data);
-              const content = parsed.choices?.[0]?.delta?.content;
-              
-              if (content) {
-                await this.processTextChunk(content, onTextChunk, onImageReady);
+                try {
+                  const parsed = JSON.parse(data);
+                  const content = parsed.choices?.[0]?.delta?.content;
+                  
+                  if (content) {
+                    await this.processTextChunk(content, onTextChunk, onImageReady);
+                  }
+                } catch (parseError) {
+                  console.warn('Error parsing streaming data:', parseError);
+                }
               }
-            } catch (parseError) {
-              console.warn('Error parsing streaming data:', parseError);
+            }
+          }
+          
+          // If request is complete
+          if (xhr.readyState === 4) {
+            if (xhr.status === 200) {
+              // Handle any remaining pending images
+              await this.handleRemainingImages(onImageReady);
+              onComplete(null);
+            } else {
+              console.error('API request failed:', xhr.status, xhr.statusText);
+              onComplete(new Error(`API call failed: ${xhr.status} ${xhr.statusText}`));
             }
           }
         }
-      }
+      };
 
-      // Handle any remaining pending images
-      await this.handleRemainingImages(onImageReady);
-      
-      onComplete(null);
+      xhr.onerror = () => {
+        console.error('XMLHttpRequest error in streamingService');
+        onComplete(new Error('Failed to get response from AI. Please try again.'));
+      };
+
+      xhr.ontimeout = () => {
+        console.error('XMLHttpRequest timeout in streamingService');
+        onComplete(new Error('Request timed out. Please try again.'));
+      };
+
+      xhr.timeout = 60000; // 60 second timeout
+
+      const requestBody = JSON.stringify({
+        model: 'qwen-max',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a helpful AI assistant. Provide detailed, educational responses. When explaining concepts that benefit from visual aids, structure your response to naturally accommodate images at appropriate points.'
+          },
+          {
+            role: 'user',
+            content: streamingPrompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 2000,
+        stream: true
+      });
+
+      console.log('📊 Sending streaming request to API...');
+      xhr.send(requestBody);
 
     } catch (error) {
       console.error('Error in text streaming:', error);

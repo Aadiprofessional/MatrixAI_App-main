@@ -36,7 +36,7 @@ import { supabase } from '../supabaseClient';
 import MathView from 'react-native-math-view';
 import MarkdownDisplay from 'react-native-markdown-display';
 import * as Animatable from 'react-native-animatable';
-import { DASHSCOPE_API_KEY } from '@env';
+import { REACT_APP_ALIYUN_API_KEY } from '@env';
 
 const { width, height } = Dimensions.get('window');
 const scale = Math.min(width / 375, height / 812); // Base scale on iPhone X dimensions for consistency
@@ -287,7 +287,7 @@ const ContentWriterContent = () => {
         // Create XMLHttpRequest for streaming
         const xhr = new XMLHttpRequest();
         xhr.open('POST', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', true);
-        xhr.setRequestHeader('Authorization', `Bearer ${DASHSCOPE_API_KEY}`);
+        xhr.setRequestHeader('Authorization', `Bearer ${REACT_APP_ALIYUN_API_KEY}`);
         xhr.setRequestHeader('Content-Type', 'application/json');
         
         let fullContent = '';
@@ -353,7 +353,7 @@ const ContentWriterContent = () => {
             console.error('Request failed with status:', xhr.status);
             console.error('Response text:', xhr.responseText);
             console.error('Request headers:', {
-              'Authorization': `Bearer ${DASHSCOPE_API_KEY ? '[PRESENT]' : '[MISSING]'}`,
+              'Authorization': `Bearer ${REACT_APP_ALIYUN_API_KEY ? '[PRESENT]' : '[MISSING]'}`,
               'Content-Type': 'application/json'
             });
             reject(new Error(`Request failed with status ${xhr.status}: ${xhr.responseText}`));
@@ -411,7 +411,7 @@ const ContentWriterContent = () => {
         ];
         
         const requestBody = JSON.stringify({
-          model: "qwen-plus",
+          model: "qwen-max",
           messages: messages,
           stream: true
         });

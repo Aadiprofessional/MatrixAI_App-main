@@ -47,8 +47,9 @@ const ImageGenerateScreen = () => {
   const [transcription, setTranscription] = useState(
     t('startWritingToGenerateImages')
   );
-  const [selectedImage, setSelectedImage] = useState(null);
-  const [uploadedImageUrl, setUploadedImageUrl] = useState(null);
+  const [selectedImages, setSelectedImages] = useState([]);
+  const [uploadedImageUrls, setUploadedImageUrls] = useState([]);
+  const [uploadingImages, setUploadingImages] = useState([]);
   
   // Initialize animated values with useRef to prevent re-creation on re-renders
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -198,23 +199,41 @@ const ImageGenerateScreen = () => {
   const handleSend = () => {
     if (userText.trim().length > 0) {
       setIsFinished(true); // Show buttons after sending the input
-      setSelectedImage(null); // Hide the attached image when send button is pressed
-      // Keep the uploadedImageUrl for API call but hide the UI
+      setSelectedImages([]); // Hide the attached images when send button is pressed
+      // Keep the uploadedImageUrls for API call but hide the UI
     }
   };
   
   const handleAttachImage = async () => {
+    // Check if we already have 5 images
+    if (selectedImages.length >= 5) {
+      Alert.alert('Limit Reached', 'You can attach up to 5 images only.');
+      return;
+    }
+
     const options = {
       mediaType: 'photo',
       quality: 1,
       includeBase64: true,
+      selectionLimit: Math.min(5 - selectedImages.length, 5), // Allow multiple selection up to remaining slots
     };
 
     try {
       const result = await launchImageLibrary(options);
-      if (result.assets && result.assets[0]) {
-        setSelectedImage(result.assets[0].uri);
-        uploadImageToSupabase(result.assets[0]);
+      if (result.assets && result.assets.length > 0) {
+        // Add new images to the existing array
+        const newImages = result.assets.map(asset => ({
+          uri: asset.uri,
+          id: Date.now() + Math.random(), // Generate unique ID for each image
+          uploading: true
+        }));
+        
+        setSelectedImages(prev => [...prev, ...newImages]);
+        
+        // Upload each image
+        result.assets.forEach((asset, index) => {
+          uploadImageToSupabase(asset, newImages[index].id);
+        });
       }
     } catch (error) {
       console.error('Error picking image:', error.message || error);
@@ -222,9 +241,12 @@ const ImageGenerateScreen = () => {
     }
   };
   
-  const uploadImageToSupabase = async (asset) => {
+  const uploadImageToSupabase = async (asset, imageId) => {
     try {
-      setIsUploading(true);
+      // Update the specific image's uploading status
+      setSelectedImages(prev => prev.map(img => 
+        img.id === imageId ? { ...img, uploading: true } : img
+      ));
       
       // Get file extension from uri
       const fileExt = asset.uri.substring(asset.uri.lastIndexOf('.') + 1);
@@ -282,19 +304,32 @@ const ImageGenerateScreen = () => {
         .getPublicUrl(filePath);
 
       console.log('Upload successful, public URL:', publicUrl);
-      setUploadedImageUrl(publicUrl);
+      
+      // Update the specific image with the uploaded URL and remove uploading status
+      setSelectedImages(prev => prev.map(img => 
+        img.id === imageId ? { ...img, uploading: false, uploadedUrl: publicUrl } : img
+      ));
+      
+      // Add to uploaded URLs array
+      setUploadedImageUrls(prev => [...prev, publicUrl]);
     } catch (error) {
       console.error('Error uploading image:', error.message || error);
       Alert.alert('Error', 'Failed to upload image: ' + (error.message || 'Unknown error'));
-      setSelectedImage(null);
-    } finally {
-      setIsUploading(false);
+      
+      // Remove the failed image from selectedImages
+      setSelectedImages(prev => prev.filter(img => img.id !== imageId));
     }
   };
   
-  const handleRemoveAttachedImage = () => {
-    setSelectedImage(null);
-    setUploadedImageUrl(null);
+  const handleRemoveAttachedImage = (imageId) => {
+    // Remove the image from selectedImages
+    setSelectedImages(prev => prev.filter(img => img.id !== imageId));
+    
+    // Remove the corresponding uploaded URL if it exists
+    const imageToRemove = selectedImages.find(img => img.id === imageId);
+    if (imageToRemove && imageToRemove.uploadedUrl) {
+      setUploadedImageUrls(prev => prev.filter(url => url !== imageToRemove.uploadedUrl));
+    }
   };
 
   const handleTryAgain = () => {
@@ -311,7 +346,7 @@ const ImageGenerateScreen = () => {
       navigation.navigate('CreateImageScreen', { 
         message: transcription,
         uid: uid,
-        imageUrl: uploadedImageUrl
+        imageUrls: uploadedImageUrls // Pass array of image URLs
       });
     } else {
       setRequiredCoins(3);
@@ -604,23 +639,33 @@ const ImageGenerateScreen = () => {
         style={styles.keyboardAvoidView}
         keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 10}
       >
-        {selectedImage && (
+        {selectedImages.length > 0 && (
           <View style={styles.attachedImageContainer}>
-            <View style={styles.attachedImageWrapper}>
-              {isUploading && (
-                <View style={styles.uploadingOverlay}>
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                  <Text style={styles.uploadingText}>Uploading...</Text>
+            <FlatList
+              data={selectedImages}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <View style={styles.attachedImageWrapper}>
+                  {item.uploading && (
+                    <View style={styles.uploadingOverlay}>
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                      <Text style={styles.uploadingText}>Uploading...</Text>
+                    </View>
+                  )}
+                  <Image source={{ uri: item.uri }} style={styles.attachedImage} />
+                  <TouchableOpacity 
+                    style={styles.removeImageButton}
+                    onPress={() => handleRemoveAttachedImage(item.id)}
+                  >
+                    <MaterialIcons name="close" size={16} color="#FFFFFF" />
+                  </TouchableOpacity>
                 </View>
               )}
-              <Image source={{ uri: selectedImage }} style={styles.attachedImage} />
-              <TouchableOpacity 
-                style={styles.removeImageButton}
-                onPress={handleRemoveAttachedImage}
-              >
-                <MaterialIcons name="close" size={16} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
+              contentContainerStyle={{ paddingHorizontal: 5 }}
+              ItemSeparatorComponent={() => <View style={{ width: 10 }} />}
+            />
           </View>
         )}
         {!isFinished && (
@@ -916,6 +961,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.1)',
+    marginRight: 10,
   },
   attachedImage: {
     width: '100%',

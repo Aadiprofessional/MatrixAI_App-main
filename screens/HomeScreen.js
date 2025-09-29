@@ -155,6 +155,7 @@ const HomeScreen = () => {
       colors: ['#D500F9', '#9C27B0'],
       screen: 'CombinedContentScreen'
     },
+
   ];
 
   const renderTool = ({ item, index }) => {

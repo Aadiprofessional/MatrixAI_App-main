@@ -5,7 +5,7 @@ import { WebView } from 'react-native-webview';
 import axios from 'axios';
 import { XMLParser } from 'fast-xml-parser';
 import { useTheme } from '../context/ThemeContext';
-import { DASHSCOPE_API_KEY } from '@env';
+import { REACT_APP_ALIYUN_API_KEY } from '@env';
 const ForceDirectedGraph2 = ({ transcription, uid, audioid, xmlData }) => {
   const { getThemeColors } = useTheme();
   const colors = getThemeColors() || {
@@ -74,7 +74,7 @@ const ForceDirectedGraph2 = ({ transcription, uid, audioid, xmlData }) => {
     try {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', true);
-      xhr.setRequestHeader('Authorization', `Bearer ${DASHSCOPE_API_KEY}`);
+      xhr.setRequestHeader('Authorization', `Bearer ${REACT_APP_ALIYUN_API_KEY}`);
       xhr.setRequestHeader('Content-Type', 'application/json');
 
       let fullContent = '';
@@ -102,7 +102,7 @@ const ForceDirectedGraph2 = ({ transcription, uid, audioid, xmlData }) => {
       };
 
       const requestBody = JSON.stringify({
-       model: "qwen-plus",
+       model: "qwen-max",
         messages: [
           {
             role: "user",

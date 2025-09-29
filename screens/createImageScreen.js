@@ -44,7 +44,7 @@ const CreateImagesScreen = ({ route, navigation }) => {
   const { getThemeColors } = useTheme();
   const colors = getThemeColors();
   const { t } = useLanguage();
-  const { message, imageCount = 1, uid: routeUid, imageUrl } = route.params; // Extract text, imageCount, uid and imageUrl from params
+  const { message, imageCount = 1, uid: routeUid, imageUrls } = route.params; // Extract text, imageCount, uid and imageUrls from params
   const [images, setImages] = useState([]); // Store the generated image URLs
   const [loading, setLoading] = useState(true); // Track loading state
   const [modalVisible, setModalVisible] = useState(false); // Modal visibility state
@@ -52,7 +52,7 @@ const CreateImagesScreen = ({ route, navigation }) => {
   const [showSkeleton, setShowSkeleton] = useState(true); // Control skeleton visibility
   const { uid: authUid } = useAuthUser();  
   const [downloadingImageId, setDownloadingImageId] = useState(null);
-  const [uploadedImage, setUploadedImage] = useState(imageUrl || null); // Store the uploaded image URL
+  const [uploadedImages, setUploadedImages] = useState(imageUrls || []); // Store the uploaded image URLs
   
   // Animated values
   const shimmerValue = useRef(new Animated.Value(0)).current;
@@ -72,7 +72,7 @@ const CreateImagesScreen = ({ route, navigation }) => {
       // This runs when the screen comes into focus
       // Clear any previously stored images and reset state
       setImages([]);
-      setUploadedImage(null);
+      setUploadedImages([]);
       setCurrentViewingImage(null);
       setModalVisible(false);
       setShowSkeleton(true);
@@ -194,70 +194,35 @@ const CreateImagesScreen = ({ route, navigation }) => {
       imageScale.setValue(0.95);
       
       try {
-        // Direct image generation without polling for status
         const userId = routeUid || authUid;
-        console.log('Generating images with direct API call for UID:', userId);
+        console.log('Generating images with imageService for UID:', userId);
         console.log('Prompt:', message);
         console.log('Image count:', imageCount);
-        console.log('Uploaded image URL:', uploadedImage);
+        console.log('Uploaded image URLs:', uploadedImages);
         
         let response;
         
-        // If we have an uploaded image URL, use the createImageFromUrl API
-        if (uploadedImage) {
-          console.log('Using createImageFromUrl API with image:', uploadedImage);
-          response = await fetch('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/image/createImageFromUrl', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              uid: userId,
-              promptText: message,
-              userImageUrl: uploadedImage
-            })
-          });
-        } else {
-          // Otherwise use the standard createImage API
-          console.log('Using standard createImage API');
-          response = await fetch('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/image/createImage', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              uid: userId,
-              promptText: message,
-              imageCount
-            })
-          });
-        }
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('API error response:', errorText);
-          throw new Error(`API error: ${response.status} ${errorText}`);
-        }
-        
-        const data = await response.json();
-        console.log('Direct API response:', JSON.stringify(data));
-        
-        // Handle different response formats based on which API was used
-        if (uploadedImage) {
-          // For createImageFromUrl API, which returns a single image
-          if (data && data.imageUrl) {
-            console.log('Enhanced image received:', data.imageUrl);
+        // If we have uploaded image URLs, use the createImageFromUrls method
+        if (uploadedImages && uploadedImages.length > 0) {
+          // Clean up the image URLs by removing any backticks
+          const cleanImageUrls = uploadedImages.map(url => url.replace(/`/g, '').trim());
+          console.log('Using createImageFromUrls with images:', cleanImageUrls);
+          response = await imageService.createImageFromUrls(userId, message, cleanImageUrls);
+          
+          // Handle single image enhancement response
+          if (response && response.imageUrl) {
+            console.log('Enhanced image received:', response.imageUrl);
             
             const imageData = [{
-              imageUrl: data.imageUrl,
-              imageId: data.imageId || null,
-              imageName: data.imageName || null
+              imageUrl: response.imageUrl,
+              imageId: response.imageId || null,
+              imageName: response.imageName || null
             }];
             
             await AsyncStorage.setItem("downloadedImages", JSON.stringify(imageData));
-            setImages([data.imageUrl]);
+            setImages([response.imageUrl]);
             
-            // Show skeleton for 1 second before revealing the images for uploaded images too
+            // Show skeleton for 1 second before revealing the images
             setTimeout(() => {
               setShowSkeleton(false);
               setLoading(false);
@@ -266,33 +231,88 @@ const CreateImagesScreen = ({ route, navigation }) => {
           } else {
             throw new Error('No enhanced image was generated');
           }
-        } else if (data && data.images && data.images.length > 0) {
-          // For standard createImage API, which returns an array of images
-          console.log('Image data received:', JSON.stringify(data.images));
-          
-          // Extract image URLs - handle different possible property names
-          const imageUrls = data.images.map(img => {
-            // Check for different possible property names
-            const url = img.imageUrl || img.image_url || img.url;
-            console.log('Image object:', img, 'Using URL:', url);
-            return url;
-          });
-          console.log('Extracted image URLs:', imageUrls);
-          
-          await AsyncStorage.setItem("downloadedImages", JSON.stringify(data.images));
-          setImages(imageUrls);
-          
-          // Show skeleton for 1 second before revealing the images
-          setTimeout(() => {
-            setShowSkeleton(false);
-            setLoading(false);
-            fadeInImage();
-          }, 1000);
         } else {
-          throw new Error('No images were generated');
+          // Use the standard generateImage method
+          console.log('Using standard generateImage method');
+          const generationResponse = await imageService.generateImage(userId, message, imageCount);
+          
+          console.log('=== API RESPONSE DEBUG ===');
+          console.log('Full generationResponse:', JSON.stringify(generationResponse, null, 2));
+          console.log('Response keys:', Object.keys(generationResponse || {}));
+          console.log('Has taskId:', !!generationResponse?.taskId);
+          console.log('Has success:', !!generationResponse?.success);
+          console.log('Has imageUrl:', !!generationResponse?.imageUrl);
+          console.log('Has images:', !!generationResponse?.images);
+          console.log('=== END DEBUG ===');
+          
+          // Check if images are returned directly (new API format)
+          if (generationResponse && generationResponse.images && generationResponse.images.length > 0) {
+            console.log('Images generated successfully (direct response):', generationResponse.images);
+            
+            // Extract image URLs
+            const imageUrls = generationResponse.images.map(img => {
+              const url = img.imageUrl || img.image_url || img.url;
+              console.log('Image object:', img, 'Using URL:', url);
+              return url;
+            });
+            
+            await AsyncStorage.setItem("downloadedImages", JSON.stringify(generationResponse.images));
+            setImages(imageUrls);
+            
+            // Show skeleton for 1 second before revealing the images
+            setTimeout(() => {
+              setShowSkeleton(false);
+              setLoading(false);
+              fadeInImage();
+            }, 1000);
+          } else if (generationResponse && generationResponse.taskId) {
+            console.log('Image generation started, taskId:', generationResponse.taskId);
+            
+            // Poll for image status
+            const pollForImages = async () => {
+              try {
+                const statusResponse = await imageService.getImageStatus(userId, generationResponse.taskId);
+                console.log('Status response:', statusResponse);
+                
+                if (statusResponse.status === 'completed' && statusResponse.images && statusResponse.images.length > 0) {
+                  console.log('Images generated successfully:', statusResponse.images);
+                  
+                  // Extract image URLs
+                  const imageUrls = statusResponse.images.map(img => {
+                    const url = img.imageUrl || img.image_url || img.url;
+                    console.log('Image object:', img, 'Using URL:', url);
+                    return url;
+                  });
+                  
+                  await AsyncStorage.setItem("downloadedImages", JSON.stringify(statusResponse.images));
+                  setImages(imageUrls);
+                  
+                  // Show skeleton for 1 second before revealing the images
+                  setTimeout(() => {
+                    setShowSkeleton(false);
+                    setLoading(false);
+                    fadeInImage();
+                  }, 1000);
+                } else if (statusResponse.status === 'failed' || statusResponse.error) {
+                  throw new Error(statusResponse.error || 'Image generation failed');
+                } else {
+                  // Still processing, continue polling
+                  setTimeout(pollForImages, 2000);
+                }
+              } catch (pollError) {
+                console.error('Error polling for images:', pollError);
+                throw pollError;
+              }
+            };
+            
+            // Start polling after a short delay
+            setTimeout(pollForImages, 2000);
+          } else {
+            throw new Error('Failed to start image generation');
+          }
         }
       } catch (apiError) {
-        console.error('Direct API call failed:', apiError);
+        console.error('Image service call failed:', apiError);
         throw apiError;
       }
     } catch (error) {
@@ -390,44 +410,51 @@ const CreateImagesScreen = ({ route, navigation }) => {
   );
 
   const renderUploadedImageWithScanning = () => (
-    <View style={styles.singleContainer}>
-      <View style={styles.uploadedImageContainer}>
-        <Image
-          source={{ uri: uploadedImage }}
-          style={styles.uploadedImage}
-          resizeMode="contain"
-        />
-        <Animated.View
-          style={[
-            styles.scanningOverlay,
-            { 
-              transform: [{ translateY: shimmerValue.interpolate({
-                inputRange: [0, 1],
-                outputRange: [-20, height/1.5]
-              }) }],
-              opacity: shimmerValue.interpolate({
-                inputRange: [0, 0.5, 1],
-                outputRange: [0.8, 1, 0.8]
-              })
-            },
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.magicParticles,
-            {
-              opacity: shimmerValue.interpolate({
-                inputRange: [0, 0.5, 1],
-                outputRange: [0, 1, 0]
-              })
-            }
-          ]}
-        />
-        <View style={styles.processingTextContainer}>
-          <Text style={styles.processingText}>Enhancing image with AI...</Text>
+    <ScrollView 
+      horizontal 
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ paddingHorizontal: 16 }}
+      style={{ marginVertical: 16 }}
+    >
+      {uploadedImages.map((imageUrl, index) => (
+        <View key={index} style={[styles.uploadedImageContainer, { marginRight: index < uploadedImages.length - 1 ? 12 : 0 }]}>
+          <Image
+            source={{ uri: imageUrl }}
+            style={styles.uploadedImage}
+            resizeMode="contain"
+          />
+          <Animated.View
+            style={[
+              styles.scanningOverlay,
+              { 
+                transform: [{ translateY: shimmerValue.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-20, 280]
+                }) }],
+                opacity: shimmerValue.interpolate({
+                  inputRange: [0, 0.5, 1],
+                  outputRange: [0.8, 1, 0.8]
+                })
+              },
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.magicParticles,
+              {
+                opacity: shimmerValue.interpolate({
+                  inputRange: [0, 0.5, 1],
+                  outputRange: [0, 1, 0]
+                })
+              }
+            ]}
+          />
+          <View style={styles.processingTextContainer}>
+            <Text style={styles.processingText}>Enhancing image with AI...</Text>
+          </View>
         </View>
-      </View>
-    </View>
+      ))}
+    </ScrollView>
   );
 
   const renderSingleSkeleton = () => (
@@ -724,11 +751,11 @@ const CreateImagesScreen = ({ route, navigation }) => {
                 </Text>
               </Animatable.View>
               
-              {uploadedImage ? renderUploadedImageWithScanning() : (imageCount === 1 ? renderSingleSkeleton() : renderSkeleton())}
+              {uploadedImages && uploadedImages.length > 0 ? renderUploadedImageWithScanning() : (imageCount === 1 ? renderSingleSkeleton() : renderSkeleton())}
             </>
           ) : (
             <>
-              {uploadedImage && images.length > 0 ? renderProcessedUploadedImage() : (imageCount === 1 ? renderSingleImage() : renderGridImages())}
+              {uploadedImages && uploadedImages.length > 0 && images.length > 0 ? renderProcessedUploadedImage() : (imageCount === 1 ? renderSingleImage() : renderGridImages())}
               
               {!loading && (
                 <Animatable.View 

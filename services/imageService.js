@@ -1,76 +1,9 @@
-interface ImageGenerationResponse {
-  message: string;
-  taskId: string;
-  status: string;
-  requestedCount: number;
-  coinsDeducted: number;
-}
-
-interface ImageStatusResponse {
-  message: string;
-  images?: Array<{
-    imageId: string;
-    imageName: string;
-    imageUrl: string;
-    imagePath: string;
-  }>;
-  status: string;
-  totalImages?: number;
-  error?: string;
-}
-
-interface ImageListResponse {
-  message: string;
-  images: Array<{
-    image_id: string;
-    image_name: string;
-    image_url: string;
-    image_path: string;
-    prompt_text: string;
-    created_at: string;
-  }>;
-}
-
-interface ImageHistoryResponse {
-  success: boolean;
-  data: Array<{
-    image_id: string;
-    image_name: string;
-    image_url: string;
-    prompt_text: string;
-    created_at: string;
-    url: string; // For backward compatibility
-  }>;
-}
-
-interface ImageRemoveResponse {
-  message: string;
-}
-
-interface ImageDataResponse {
-  data: Array<{
-    image_name: string;
-    image_id: string;
-    image_url: string;
-    created_at: string;
-  }>;
-}
-
-interface GeneratedImageResponse {
-  data: Array<{
-    image_id: string;
-    image_name: string;
-    image_url: string;
-    prompt_text: string;
-    created_at: string;
-  }>;
-}
-
-const API_BASE_URL = 'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run';
+// Image service for handling API calls related to image generation and management
+import { API_BASE_URL } from '../config/api';
 
 export const imageService = {
   // Generate images using the correct API endpoint
-  generateImage: async (uid: string, promptText: string, imageCount: number = 4): Promise<ImageGenerationResponse> => {
+  generateImage: async (uid, promptText, imageCount = 4) => {
     const response = await fetch(`${API_BASE_URL}/api/image/createImage`, {
       method: 'POST',
       headers: {
@@ -92,7 +25,7 @@ export const imageService = {
   },
 
   // Get image generation status and results
-  getImageStatus: async (uid: string, taskId: string): Promise<ImageStatusResponse> => {
+  getImageStatus: async (uid, taskId) => {
     const response = await fetch(`${API_BASE_URL}/api/image/getImageStatus`, {
       method: 'POST',
       headers: {
@@ -113,7 +46,7 @@ export const imageService = {
   },
 
   // Get all images for a user
-  getAllImages: async (uid: string): Promise<ImageListResponse> => {
+  getAllImages: async (uid) => {
     const response = await fetch(`${API_BASE_URL}/api/image/getAllImages`, {
       method: 'POST',
       headers: {
@@ -133,7 +66,7 @@ export const imageService = {
   },
 
   // Get images (GET endpoint)
-  getImage: async (uid: string): Promise<ImageDataResponse> => {
+  getImage: async (uid) => {
     const response = await fetch(`${API_BASE_URL}/api/image/getImage/${encodeURIComponent(uid)}`, {
       method: 'GET',
       headers: {
@@ -150,7 +83,7 @@ export const imageService = {
   },
 
   // Get generated images (GET endpoint)
-  getGeneratedImage: async (uid: string): Promise<GeneratedImageResponse> => {
+  getGeneratedImage: async (uid) => {
     const response = await fetch(`${API_BASE_URL}/api/image/getGeneratedImage/${encodeURIComponent(uid)}`, {
       method: 'GET',
       headers: {
@@ -167,7 +100,7 @@ export const imageService = {
   },
 
   // Get image history (alias for getAllImages with pagination support)
-  getImageHistory: async (uid: string, page: number = 1, limit: number = 10): Promise<ImageHistoryResponse> => {
+  getImageHistory: async (uid, page = 1, limit = 10) => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/image/getAllImages`, {
         method: 'POST',
@@ -189,7 +122,7 @@ export const imageService = {
       const result = await response.json();
       
       // Transform the response to match expected format
-      const transformedData = (result.images || []).map((img: any) => ({
+      const transformedData = (result.images || []).map((img) => ({
         ...img,
         url: img.image_url // Add url property for backward compatibility
       }));
@@ -204,7 +137,7 @@ export const imageService = {
   },
 
   // Remove image
-  removeImage: async (uid: string, imageId: string): Promise<ImageRemoveResponse> => {
+  removeImage: async (uid, imageId) => {
     const response = await fetch(`${API_BASE_URL}/api/image/removeImage`, {
       method: 'POST',
       headers: {
@@ -222,5 +155,49 @@ export const imageService = {
     }
 
     return response.json();
+  },
+
+  // Enhance image from URL
+  enhanceImageFromUrl: async (uid, promptText, userImageUrl) => {
+    const response = await fetch(`${API_BASE_URL}/api/image/createImageFromUrl`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        uid,
+        promptText,
+        userImageUrl
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || errorData.error || 'Failed to enhance image');
+    }
+
+    return response.json();
+  },
+
+  // Create image from multiple URLs
+  createImageFromUrls: async (uid, promptText, imageUrls) => {
+    const response = await fetch(`${API_BASE_URL}/api/image/createImageFromUrl`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        uid,
+        promptText,
+        imageUrls
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || errorData.error || 'Failed to create image from URLs');
+    }
+
+    return response.json();
   }
-}; 
+};

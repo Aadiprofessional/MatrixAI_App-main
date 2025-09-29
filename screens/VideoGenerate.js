@@ -102,7 +102,7 @@ const VideoGenerateScreen = () => {
   const [error, setError] = useState(null);
   const [historyPage, setHistoryPage] = useState(1);
   const [hasMoreVideos, setHasMoreVideos] = useState(false);
-  const videosPerPage = 10;
+  const videosPerPage = 20; // Updated to match API requirement
   const [downloadingVideoId, setDownloadingVideoId] = useState(null);
   
   // Video preview modal state
@@ -194,18 +194,26 @@ const VideoGenerateScreen = () => {
   }, [historyOpen]);
 
   const fetchVideoHistory = async (page = 1) => {
-    // Use the user's actual UID from AuthContext
+    // Don't fetch if already loading or if we're trying to load a page we know doesn't exist
+    if (isLoading || (page > 1 && !hasMoreVideos)) {
+      return;
+    }
     
     setIsLoading(true);
     setError(null);
     
     try {
-      // Use enhanced video service to get all videos with more details
-      const result = await videoService.getAllVideosEnhanced({
-        uid: uid,
+      // Use the correct API format as specified
+      const requestPayload = {
+        uid: uid, // Use uid as expected by the API
         page: page,
-        itemsPerPage: videosPerPage
-      });
+        itemsPerPage: 20 // Use 20 items per page as specified
+      };
+      
+      console.log('Fetching video history with payload:', requestPayload);
+      
+      // Use enhanced video service to get all videos with more details
+      const result = await videoService.getAllVideosEnhanced(requestPayload);
       
       console.log('Video history result:', result);
       
@@ -229,24 +237,46 @@ const VideoGenerateScreen = () => {
       console.log('Processed videos:', processedVideos);
       
       if (page === 1) {
+        // Reset history for first page
         setVideoHistory(processedVideos);
       } else {
+        // Append to existing history for subsequent pages
         setVideoHistory(prev => [...prev, ...processedVideos]);
       }
       
       setHistoryPage(page);
-      setHasMoreVideos(processedVideos.length === videosPerPage);
+      // Check if there are more videos to load (if we got exactly 20, there might be more)
+      setHasMoreVideos(processedVideos.length === 20);
     } catch (err) {
       console.error('Error fetching video history:', err);
       setError(err.message);
+      
+      // Show user-friendly error message
+      if (Platform.OS === 'android') {
+        ToastAndroid.show('Failed to load video history', ToastAndroid.SHORT);
+      } else {
+        Alert.alert('Error', 'Failed to load video history. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   const loadMoreVideos = () => {
-    if (!isLoading && hasMoreVideos) {
+    // Only load more if we're not currently loading and there are more videos to load
+    if (!isLoading && hasMoreVideos && uid) {
+      console.log('Loading more videos, current page:', historyPage, 'next page:', historyPage + 1);
       fetchVideoHistory(historyPage + 1);
+    }
+  };
+
+  // Function to handle refresh/pull-to-refresh functionality
+  const refreshVideoHistory = async () => {
+    if (uid) {
+      console.log('Refreshing video history');
+      setHistoryPage(1);
+      setHasMoreVideos(false);
+      await fetchVideoHistory(1);
     }
   };
   
@@ -321,6 +351,63 @@ const VideoGenerateScreen = () => {
     }
   };
   
+  const uploadImageToSupabase = async (asset) => {
+    try {
+      setIsUploading(true);
+      
+      // Extract file extension from the asset URI
+      const fileExt = asset.uri.substring(asset.uri.lastIndexOf('.') + 1).toLowerCase();
+      
+      // Create a unique file path for Supabase storage
+      const filePath = `video-images/${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+      
+      // Handle iOS file:// URIs
+      let fileUri = asset.uri;
+      if (Platform.OS === 'ios' && fileUri.startsWith('file://')) {
+        fileUri = fileUri.substring(7);
+      }
+      
+      // Read the image file as base64
+      const base64Data = await RNFS.readFile(fileUri, 'base64');
+      
+      // Convert base64 to Uint8Array
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      
+      // Upload to Supabase storage
+      const { data, error } = await supabase.storage
+        .from('user-uploads')
+        .upload(filePath, byteArray, {
+          contentType: asset.type || `image/${fileExt}`,
+          cacheControl: '3600',
+        });
+      
+      if (error) {
+        console.error('Supabase upload error:', error);
+        throw error;
+      }
+      
+      // Get the public URL
+      const { data: urlData } = supabase.storage
+        .from('user-uploads')
+        .getPublicUrl(filePath);
+      
+      console.log('Image uploaded successfully:', urlData.publicUrl);
+      setUploadedImageUrl(urlData.publicUrl);
+      setIsUploading(false);
+      
+      return urlData.publicUrl;
+    } catch (error) {
+      console.error('Error uploading image to Supabase:', error);
+      setIsUploading(false);
+      throw error;
+    }
+  };
+
   const handleAttachImage = async () => {
     const options = {
       mediaType: 'photo',
@@ -334,7 +421,7 @@ const VideoGenerateScreen = () => {
       const result = await launchImageLibrary(options);
       if (result.assets && result.assets[0]) {
         const asset = result.assets[0];
-        // Store the entire asset object instead of just the URI
+        // Store the entire asset object for UI display
         setSelectedImage(asset);
         
         // Log detailed information about the selected image
@@ -344,7 +431,6 @@ const VideoGenerateScreen = () => {
         const fileExt = asset.uri.substring(asset.uri.lastIndexOf('.') + 1).toLowerCase();
         if (fileExt === 'heic' || fileExt === 'heif') {
           console.log('HEIC image detected, will convert to JPEG');
-          // We'll continue with processing but inform the user
           Toast.show({
             type: 'info',
             text1: 'Converting image format',
@@ -366,10 +452,29 @@ const VideoGenerateScreen = () => {
           });
         }
         
-        // Process the image but don't upload to Supabase
-        // Just set it as selected and show in UI
-        setIsUploading(true);
-        setTimeout(() => setIsUploading(false), 500); // Just for UI feedback
+        // Upload image to Supabase and get URL
+        try {
+          await uploadImageToSupabase(asset);
+          Toast.show({
+            type: 'success',
+            text1: 'Image uploaded successfully',
+            text2: 'Ready for video generation',
+            position: 'bottom',
+            visibilityTime: 3000,
+          });
+        } catch (uploadError) {
+          console.error('Failed to upload image:', uploadError);
+          Toast.show({
+            type: 'error',
+            text1: 'Upload failed',
+            text2: 'Please try selecting the image again',
+            position: 'bottom',
+            visibilityTime: 4000,
+          });
+          // Reset states on upload failure
+          setSelectedImage(null);
+          setUploadedImageUrl(null);
+        }
       }
     } catch (error) {
       console.error('Error picking image:', error.message || error);
@@ -559,14 +664,34 @@ const VideoGenerateScreen = () => {
         message: promptTextToPass,
         hasImage: hasValidImage,
         template: templateToPass,
-        requiredCoins: requiredCoinsAmount
+        requiredCoins: requiredCoinsAmount,
+        imageUrl: uploadedImageUrl
       });
       
-      navigation.navigate('CreateVideoScreen', { 
-        message: promptTextToPass,
-        imageFile: selectedImage, // Pass the image file directly instead of URL
-        template: templateToPass
-      });
+      // For options 2 and 3 (image with prompt or template), use the uploaded image URL
+      // For option 1 (text-only), no image is needed
+      if (hasValidImage && uploadedImageUrl) {
+        navigation.navigate('CreateVideoScreen', { 
+          message: promptTextToPass,
+          imageUrl: uploadedImageUrl, // Use the uploaded image URL instead of file
+          template: templateToPass
+        });
+      } else if (!hasValidImage) {
+        // Text-only generation (option 1)
+        navigation.navigate('CreateVideoScreen', { 
+          message: promptTextToPass,
+          template: templateToPass
+        });
+      } else {
+        // Image selected but not uploaded yet
+        Toast.show({
+          type: 'error',
+          text1: 'Image upload required',
+          text2: 'Please wait for image upload to complete',
+          position: 'bottom',
+          visibilityTime: 3000,
+        });
+      }
     } else {
       setRequiredCoins(requiredCoinsAmount);
       setLowBalanceModalVisible(true);
@@ -1399,11 +1524,16 @@ const VideoGenerateScreen = () => {
               renderItem={renderHistoryItem}
               keyExtractor={item => item.videoId}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.historyList}
+              contentContainerStyle={[
+                styles.historyList,
+                videoHistory.length === 0 && { flex: 1, justifyContent: 'center' }
+              ]}
               onEndReached={loadMoreVideos}
-              onEndReachedThreshold={0.5}
+              onEndReachedThreshold={0.3} // Reduced threshold for better responsiveness
+              refreshing={isLoading && historyPage === 1} // Show refresh indicator only for first page
+              onRefresh={refreshVideoHistory} // Pull-to-refresh functionality
               ListFooterComponent={
-                hasMoreVideos ? (
+                hasMoreVideos && !isLoading ? (
                   <TouchableOpacity 
                     style={styles.viewMoreButton}
                     onPress={() => {
@@ -1412,12 +1542,13 @@ const VideoGenerateScreen = () => {
                     }}
                     disabled={isLoading}
                   >
-                    {isLoading ? (
-                      <ActivityIndicator size="small" color={colors.text} />
-                    ) : (
-                      <Text style={[styles.viewMoreText, {color: colors.text}]}>{t('viewMore')}</Text>
-                    )}
+                    <Text style={[styles.viewMoreText, {color: colors.text}]}>{t('viewMore')}</Text>
                   </TouchableOpacity>
+                ) : isLoading && historyPage > 1 ? (
+                  <View style={styles.loadingMoreContainer}>
+                    <ActivityIndicator size="small" color={colors.text} />
+                    <Text style={[styles.loadingMoreText, {color: colors.text}]}>{t('loadingMore')}</Text>
+                  </View>
                 ) : null
               }
             />
@@ -2283,6 +2414,18 @@ const styles = StyleSheet.create({
   viewMoreText: {
     color: '#fff',
     fontSize: 14,
+    fontWeight: '500',
+  },
+  loadingMoreContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 15,
+  },
+  loadingMoreText: {
+    color: '#fff',
+    fontSize: 14,
+    marginLeft: 8,
     fontWeight: '500',
   },
   // Modal styles

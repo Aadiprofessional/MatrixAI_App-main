@@ -62,6 +62,49 @@
 
 const API_BASE_URL = 'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run';
 
+// Timeout and retry configuration for video generation
+const VIDEO_GENERATION_TIMEOUT = 300000; // 5 minutes in milliseconds
+const MAX_RETRIES = 2;
+const RETRY_DELAY = 2000; // 2 seconds
+
+/**
+ * Helper function to make fetch requests with timeout and retry logic
+ * @param {string} url - The URL to fetch
+ * @param {Object} options - Fetch options
+ * @param {number} retries - Number of retries remaining
+ * @returns {Promise<Response>} The fetch response
+ */
+const fetchWithTimeoutAndRetry = async (url, options, retries = MAX_RETRIES) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), VIDEO_GENERATION_TIMEOUT);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    
+    // If it's a timeout or network error and we have retries left
+    if ((error.name === 'AbortError' || error.message.includes('Network request failed') || error.message.includes('timeout')) && retries > 0) {
+      console.log(`Request failed, retrying... (${MAX_RETRIES - retries + 1}/${MAX_RETRIES + 1})`);
+      
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      
+      // Retry the request
+      return fetchWithTimeoutAndRetry(url, options, retries - 1);
+    }
+    
+    // If no retries left or it's a different error, throw it
+    throw error;
+  }
+};
+
 /**
  * Helper function to convert React Native image object to FormData
  * @param {Object} imageFile - Image file object from react-native-image-picker
@@ -155,7 +198,8 @@ export const videoService = {
    * @returns {Promise<VideoGenerationWithNegativePromptResponse>} The video generation response
    */
   createVideoWithNegativePrompt: async ({ uid, promptText, negativePrompt, size = '720P' }) => {
-    const response = await fetch(`${API_BASE_URL}/api/video/createVideo`, {
+    console.log('Making video generation request with negative prompt using timeout and retry logic...');
+    const response = await fetchWithTimeoutAndRetry(`${API_BASE_URL}/api/video/createVideo`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -184,7 +228,8 @@ export const videoService = {
    * @returns {Promise<VideoGenerationResponse>} The video generation response
    */
   createVideo: async ({ uid, promptText, size = '720P' }) => {
-    const response = await fetch(`${API_BASE_URL}/api/video/createVideo`, {
+    console.log('Making text-to-video generation request with timeout and retry logic...');
+    const response = await fetchWithTimeoutAndRetry(`${API_BASE_URL}/api/video/createVideo`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -285,9 +330,9 @@ export const videoService = {
           formData.append('size', size);
         }
         
-        console.log('Sending form data with image to API');
+        console.log('Sending form data with image to API using timeout and retry logic...');
         
-        const response = await fetch(`${API_BASE_URL}/api/video/createVideo`, {
+        const response = await fetchWithTimeoutAndRetry(`${API_BASE_URL}/api/video/createVideo`, {
           method: 'POST',
           body: formData,
           headers: {
@@ -351,7 +396,11 @@ export const videoService = {
         requestBody.negative_prompt = negativePrompt;
       }
       
-      const response = await fetch(`${API_BASE_URL}/api/video/createVideo`, {
+      console.log('Making video generation request with timeout and retry logic...');
+      console.log('Request URL:', `${API_BASE_URL}/api/video/createVideo`);
+      console.log('Request body:', JSON.stringify(requestBody, null, 2));
+      
+      const response = await fetchWithTimeoutAndRetry(`${API_BASE_URL}/api/video/createVideo`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -359,12 +408,18 @@ export const videoService = {
         body: JSON.stringify(requestBody)
       });
       
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
+      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        console.log('Error response data:', errorData);
         throw new Error(errorData.message || errorData.error || 'Failed to generate video from image URL');
       }
       
-      return response.json();
+      const responseData = await response.json();
+      console.log('Success response data:', responseData);
+      return responseData;
     } catch (error) {
       console.error('Error in createVideoWithUrl:', error);
       throw error;

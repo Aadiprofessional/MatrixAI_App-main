@@ -93,6 +93,7 @@ import { ProfileUpdateProvider } from './context/ProfileUpdateContext.js';
 
 
 import StoriesScreen from './screens/StoriesScreen.js';
+// Removed MathTestScreen import - no longer needed
 
 const Stack = createStackNavigator();
 
@@ -679,6 +680,7 @@ const App = () => {
                                         component={StoriesScreen}
                                         options={{ headerShown: false }} 
                                     />
+
                                    
                                 </Stack.Navigator>
                             </NavigationContainer>
