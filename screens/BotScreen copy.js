@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,9 @@ import {
   Dimensions,
   Linking,
   KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+  BackHandler,
   ScrollView,
   Share,
   TouchableWithoutFeedback,
@@ -33,17 +36,79 @@ import AntDesign from 'react-native-vector-icons/AntDesign';
 import RNFS from 'react-native-fs';
 import { Buffer } from 'buffer';
 import { supabase } from '../supabaseClient';
+import Toast from 'react-native-toast-message';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Markdown from 'react-native-markdown-display';
 import KaTeX from 'react-native-katex';
 import MathView from 'react-native-math-view';
+import RenderHtml from 'react-native-render-html';
+import { marked } from 'marked';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCoinsSubscription } from '../hooks/useCoinsSubscription';
 import { useAuthUser } from '../hooks/useAuthUser';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { REACT_APP_ALIYUN_API_KEY } from '@env';
 import paymentService from '../services/paymentService';
+import ImageResizer from '@bam.tech/react-native-image-resizer';
+import LinearGradient from 'react-native-linear-gradient';
+
+// Chart and Math imports
+import chartService from '../services/chartService';
+import WebViewChart from '../components/WebViewChart';
+import MathRenderer from '../components/MathRenderer';
+import { containsMathContent, extractMathContent, formatMathContent, parseMixedContent } from '../utils/mathParser';
+
+// Attachment and File handling imports
+import AttachmentComponent from '../components/AttachmentComponent';
+import FilePreviewComponent from '../components/FilePreviewComponent';
+import { 
+  processImageUnderstanding, 
+  processDocument, 
+  generateXLSX, 
+  generateDOC,
+  getFileTypeCategory 
+} from '../services/webhookService';
+import { 
+  processExcelDocument, 
+  processPDFDocument, 
+  processWordDocument,
+  getDocumentProcessingMethod 
+} from '../utils/documentProcessor';
+import { uploadFileToStorage, validateFile, generateUniqueFileName, simpleUploadToStorage } from '../utils/fileUploadUtils';
+import { parseMessageForAttachments, formatMessageText } from '../utils/messageParser';
+
+// Chat service imports
+import { 
+  addUserMessageWithAttachment,
+  getNewUserChats,
+  getNewChatMessages,
+  addUserMessage,
+  startAssistantMessage,
+  appendMessageChunk,
+  finalizeMessage,
+  updateNewChatTitle,
+  supabaseMessageToFrontend,
+  cancelMessage,
+  getChatMessagesLazy,
+  getLatestChatMessages,
+  updateChatRole,
+  frontendMessageToSupabase,
+  subscribeToMessages,
+  subscribeToChats,
+  unsubscribeFromUpdates,
+  getNewChat
+} from '../services/chatService';
+
+// Intelligent agent and streaming imports
+import { analyzeMessageForImageNeeds, generateMultipleImages, createResponsePlan } from '../services/intelligentAgentService';
+import StreamingService from '../services/streamingService';
+import ImageSkeletonLoader from '../components/ImageSkeletonLoader';
+import IntelligentImageContainer from '../components/IntelligentImageContainer';
+
+// Translation support
+import { useTranslation } from 'react-i18next';
 
 // Function to decode base64 to ArrayBuffer
 const decode = (base64) => {
@@ -141,6 +206,7 @@ const renderTextWithMath = (text, textStyle) => {
 
 const BotScreen2 = ({ navigation, route }) => {
   const { t } = useLanguage();
+  const { t: translate } = useTranslation();
   const flatListRef = React.useRef(null);
   const { transcription, XMLData, audioid } = route.params || {};
   const { uid, loading } = useAuthUser();
@@ -155,11 +221,61 @@ const BotScreen2 = ({ navigation, route }) => {
   // Initialize messages state with an empty array instead of default message
   const [messages, setMessages] = useState([]);
 
-  // New state variables for image preview modal
+  // Image handling states
   const [selectedImage, setSelectedImage] = useState(null);
   const [imageType, setImageType] = useState('');
   const [imageFileName, setImageFileName] = useState('');
   const [fullScreenImage, setFullScreenImage] = useState(null);
+
+  // File attachment states
+  const [attachedFiles, setAttachedFiles] = useState([]);
+  const [showFileAttachmentSheet, setShowFileAttachmentSheet] = useState(false);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  // Role and generation states
+  const [currentRole, setCurrentRole] = useState('');
+  const [selectedGenerateOption, setSelectedGenerateOption] = useState(null); // 'doc' or 'xlsx'
+
+  // Coins management states
+  const [sessionData, setSessionData] = useState(null);
+  const [lowBalanceModalVisible, setLowBalanceModalVisible] = useState(false);
+  const [requiredCoins, setRequiredCoins] = useState(1);
+  const [lastCoinsDeducted, setLastCoinsDeducted] = useState(0);
+  const [recentCoinDeductions, setRecentCoinDeductions] = useState(new Set());
+
+  // Keyboard and UI states
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [listHeight, setListHeight] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
+
+  // Loading and skeleton states
+  const [isChatsLoading, setIsChatsLoading] = useState(true);
+  const shimmerValue = useRef(new Animated.Value(0)).current;
+
+  // Pagination states for lazy loading
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [messageOffset, setMessageOffset] = useState(0);
+  const MESSAGE_PAGE_SIZE = 20;
+
+  // Intelligent Agent System States
+  const [pendingImages, setPendingImages] = useState([]);
+  const [currentResponsePlan, setCurrentResponsePlan] = useState(null);
+  const [streamingWithImages, setStreamingWithImages] = useState(false);
+  const [imageGenerationQueue, setImageGenerationQueue] = useState([]);
+  const [generatedImages, setGeneratedImages] = useState(new Map());
+
+  // Enhanced streaming service instance
+  const streamingService = useRef(new StreamingService()).current;
+
+  // Debounced data fetching refs
+  const fetchTimeoutRef = useRef(null);
+  const lastFetchTime = useRef(0);
+  const FETCH_DEBOUNCE_DELAY = 300;
+  const MIN_FETCH_INTERVAL = 1000;
 
   useEffect(() => {
     return () => {
@@ -170,8 +286,6 @@ const BotScreen2 = ({ navigation, route }) => {
       }
     };
   }, []);
-
-
 
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -377,10 +491,17 @@ const BotScreen2 = ({ navigation, route }) => {
             // Create file path for Supabase storage
             const filePath = `users/${uid}/Image/${imageID}.${fileExtension}`;
             
+            // Convert base64 to Uint8Array for proper binary upload
+            const binaryString = atob(fileContent);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+
             // Upload to Supabase storage
             const { data: uploadData, error: uploadError } = await supabase.storage
               .from('user-uploads')
-              .upload(filePath, decode(fileContent), {
+              .upload(filePath, bytes, {
                 contentType: imageType || 'image/jpeg',
                 upsert: false
               });
@@ -515,7 +636,416 @@ const BotScreen2 = ({ navigation, route }) => {
     }
   };
 
+  // Function to preprocess HTML content for better formatting
+  const preprocessHtmlContent = (html) => {
+    if (!html) return html;
+    
+    try {
+      let processedHtml = html;
+      
+      // Fix ordered list numbering by ensuring proper list structure
+      processedHtml = processedHtml.replace(/<ol>/g, '<ol style="list-style-type: decimal; padding-left: 20px;">');
+      processedHtml = processedHtml.replace(/<li>/g, '<li style="margin-bottom: 8px; display: list-item;">');
+      
+      // Conservative math expression wrapping - only wrap genuine mathematical expressions
+      // First, temporarily replace existing math expressions to protect them
+      const mathExpressions = [];
+      let mathIndex = 0;
+      
+      // Protect existing LaTeX expressions
+      processedHtml = processedHtml.replace(/\\\((.*?)\\\)/g, (match) => {
+        mathExpressions[mathIndex] = match;
+        return `__MATH_PLACEHOLDER_${mathIndex++}__`;
+      });
+      
+      processedHtml = processedHtml.replace(/\\\[(.*?)\\\]/g, (match) => {
+        mathExpressions[mathIndex] = match;
+        return `__MATH_PLACEHOLDER_${mathIndex++}__`;
+      });
+      
+      processedHtml = processedHtml.replace(/\$\$(.*?)\$\$/g, (match) => {
+        mathExpressions[mathIndex] = match;
+        return `__MATH_PLACEHOLDER_${mathIndex++}__`;
+      });
+      
+      processedHtml = processedHtml.replace(/\$([^$\n]+?)\$/g, (match) => {
+        mathExpressions[mathIndex] = match;
+        return `__MATH_PLACEHOLDER_${mathIndex++}__`;
+      });
+      
+      // Only wrap complex mathematical expressions, not single letters
+      // Auto-wrap mathematical expressions with operators and symbols
+      processedHtml = processedHtml.replace(/\|([A-Z])\|\s*=\s*(\d+)/g, (match, letter, number, offset, string) => {
+        if (string.substring(offset - 10, offset + 10).includes('__MATH_PLACEHOLDER_')) {
+          return match;
+        }
+        return `\\(|${letter}| = ${number}\\)`;
+      });
+      
+      processedHtml = processedHtml.replace(/([A-Z])\s*∪\s*([A-Z])/g, (match, letter1, letter2, offset, string) => {
+        if (string.substring(offset - 10, offset + 10).includes('__MATH_PLACEHOLDER_')) {
+          return match;
+        }
+        return `\\(${letter1} \\cup ${letter2}\\)`;
+      });
+      
+      processedHtml = processedHtml.replace(/([A-Z])\s*∩\s*([A-Z])/g, (match, letter1, letter2, offset, string) => {
+        if (string.substring(offset - 10, offset + 10).includes('__MATH_PLACEHOLDER_')) {
+          return match;
+        }
+        return `\\(${letter1} \\cap ${letter2}\\)`;
+      });
+      
+      // Restore protected math expressions
+      for (let i = mathExpressions.length - 1; i >= 0; i--) {
+        processedHtml = processedHtml.replace(`__MATH_PLACEHOLDER_${i}__`, mathExpressions[i]);
+      }
+      
+      return processedHtml;
+    } catch (error) {
+      console.error('Error preprocessing HTML content:', error);
+      return html;
+    }
+  };
+
+  // Function to process mathematical expressions for MathRenderer
+  const processMathExpressions = (text) => {
+    if (!text) return text;
+    
+    try {
+      let processedText = text;
+      
+      // Handle display math: \[...\] and $$...$$
+      processedText = processedText.replace(/\\\[([\s\S]*?)\\\]/g, (match, math) => {
+        return `<div class="math-display" data-math="${math.trim()}" data-display="true"></div>`;
+      });
+      
+      processedText = processedText.replace(/\$\$([\s\S]*?)\$\$/g, (match, math) => {
+        return `<div class="math-display" data-math="${math.trim()}" data-display="true"></div>`;
+      });
+      
+      // Handle inline math: \(...\) and $...$
+      processedText = processedText.replace(/\\\(([\s\S]*?)\\\)/g, (match, math) => {
+        return `<span class="math-inline" data-math="${math.trim()}" data-display="false"></span>`;
+      });
+      
+      processedText = processedText.replace(/\$([^$\n]+?)\$/g, (match, math) => {
+        return `<span class="math-inline" data-math="${math.trim()}" data-display="false"></span>`;
+      });
+      
+      return processedText;
+    } catch (error) {
+      console.error('Error processing math expressions:', error);
+      return text;
+    }
+  };
+
+  // Function to process text with charts
+  const processTextWithCharts = (text, isDarkMode = false) => {
+    if (!text) return { text, charts: [] };
+    
+    try {
+      const result = chartService.processTextWithCharts(text, isDarkMode);
+      return result;
+    } catch (error) {
+      console.error('Error processing charts:', error);
+      return { text, charts: [] };
+    }
+  };
+
+  // Function to render charts using react-native-chart-kit
+  const renderChart = (chartIdOrData, isDarkMode = false, width = 300) => {
+    console.log('📊 [DEBUG] renderChart called with:', {
+      chartIdOrData: chartIdOrData,
+      isDarkMode: isDarkMode,
+      width: width,
+      isString: typeof chartIdOrData === 'string'
+    });
+    
+    let chartData;
+    
+    // If it's a string, treat it as a chart ID and retrieve from service
+    if (typeof chartIdOrData === 'string') {
+      chartData = chartService.getChart(chartIdOrData);
+      console.log('📊 [DEBUG] Retrieved chart data from service:', chartData);
+    } else {
+      // Otherwise, use it directly as chart data
+      chartData = chartIdOrData;
+    }
+    
+    if (!chartData || !chartData.type || !chartData.data) {
+      console.log('❌ [DEBUG] renderChart: Missing required data, returning null');
+      return null;
+    }
+
+    try {
+      return (
+        <WebViewChart
+          chartData={chartData}
+          width={width}
+          height={220}
+          isDarkMode={isDarkMode}
+        />
+      );
+    } catch (error) {
+      console.error('Error rendering chart:', error);
+      return (
+        <View style={{ padding: 10, backgroundColor: '#f0f0f0', borderRadius: 5 }}>
+          <Text style={{ color: '#666' }}>Error rendering chart</Text>
+        </View>
+      );
+    }
+  };
+
+  // File attachment utility functions
+  const handleRemoveFile = (index) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleFilePress = (file, index) => {
+    // Handle file preview/open
+    if (file.fileType === 'image' && file.uri) {
+      setFullScreenImage(file.uri);
+      setIsFullScreen(true);
+    }
+  };
+
+  const handleFileSelected = async (file, fileType) => {
+    try {
+      setIsUploadingFile(true);
+      setUploadProgress(0);
+
+      // Validate file
+      const validation = validateFile(file, fileType);
+      if (!validation.isValid) {
+        Alert.alert('Invalid File', validation.error);
+        return;
+      }
+
+      // Generate unique filename
+      const uniqueFileName = generateUniqueFileName(file.name);
+
+      // Upload file to storage
+      const uploadResult = await uploadFileToStorage(file, uniqueFileName, (progress) => {
+        setUploadProgress(progress);
+      });
+
+      if (uploadResult.success) {
+        // Add to attached files
+        const attachedFile = {
+          id: generateUUID(),
+          name: file.name,
+          uri: uploadResult.url,
+          fileType: fileType,
+          size: file.size,
+          uploadedAt: new Date().toISOString(),
+        };
+
+        setAttachedFiles(prev => [...prev, attachedFile]);
+        
+        Toast.show({
+          type: 'success',
+          text1: 'File uploaded successfully',
+          text2: file.name,
+        });
+      } else {
+        throw new Error(uploadResult.error || 'Upload failed');
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      Alert.alert('Upload Error', error.message || 'Failed to upload file');
+    } finally {
+      setIsUploadingFile(false);
+      setUploadProgress(0);
+    }
+  };
+
+  const handleImageSelection = async (source = 'gallery') => {
+    try {
+      setShowAdditionalButtons(false);
+      
+      const options = {
+        mediaType: 'photo',
+        quality: 0.8,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        includeBase64: false,
+      };
+
+      const launchFunction = source === 'camera' ? launchCamera : launchImageLibrary;
+      
+      launchFunction(options, async (response) => {
+        if (response.didCancel || response.errorMessage) {
+          return;
+        }
+
+        if (response.assets && response.assets[0]) {
+          const asset = response.assets[0];
+          
+          // Resize image if needed
+          try {
+            const resizedImage = await ImageResizer.createResizedImage(
+              asset.uri,
+              1024,
+              1024,
+              'JPEG',
+              80
+            );
+
+            setSelectedImage(resizedImage.uri);
+            setImageType(asset.type || 'image/jpeg');
+            setImageFileName(asset.fileName || 'image.jpg');
+          } catch (resizeError) {
+            console.error('Error resizing image:', resizeError);
+            setSelectedImage(asset.uri);
+            setImageType(asset.type || 'image/jpeg');
+            setImageFileName(asset.fileName || 'image.jpg');
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error selecting image:', error);
+      Alert.alert('Error', 'Failed to select image');
+    }
+  };
+
+  const handleDocumentSelection = async () => {
+    try {
+      setShowAdditionalButtons(false);
+      
+      const result = await DocumentPicker.pick({
+        type: [DocumentPicker.types.pdf, DocumentPicker.types.doc, DocumentPicker.types.docx],
+        copyTo: 'cachesDirectory',
+      });
+      
+      const selectedFile = result[0];
+      const { uri, type, name, size, fileCopyUri } = selectedFile;
+      
+      const fileToUpload = {
+        uri: fileCopyUri || uri,
+        type,
+        name,
+        size,
+      };
+      
+      let fileType = 'document';
+      if (type === 'application/pdf') {
+        fileType = 'pdf';
+      }
+      
+      await handleFileSelected(fileToUpload, fileType);
+      
+    } catch (error) {
+      if (DocumentPicker.isCancel(error)) {
+        console.log('Document picking cancelled');
+      } else {
+        console.error('Error picking document:', error);
+        Alert.alert('Error', 'Failed to pick document');
+      }
+    }
+  };
+
   // New streaming API function compatible with React Native
+  const parseIntelligentMessage = (messageText) => {
+    const parts = [];
+    let currentIndex = 0;
+    
+    // First, check for special tags (images, charts, etc.)
+    // Regex patterns for image skeleton, image tags, and chart tags
+    const imageSkeletonRegex = /\[IMAGE_SKELETON:([^:]+):([^\]]+)\]/g;
+    const imageRegex = /\[IMAGE:([^:]+):([^\]]+)\]/g;
+    const imageErrorRegex = /\[IMAGE_ERROR:([^\]]+)\]/g;
+    const chartRegex = /\[CHART:([^\]]+)\]/g;
+    
+    // Find all matches
+    const allMatches = [];
+    
+    let match;
+    while ((match = imageSkeletonRegex.exec(messageText)) !== null) {
+      allMatches.push({
+        type: 'skeleton',
+        index: match.index,
+        length: match[0].length,
+        id: match[1],
+        description: match[2],
+        fullMatch: match[0]
+      });
+    }
+    
+    imageSkeletonRegex.lastIndex = 0;
+    while ((match = imageRegex.exec(messageText)) !== null) {
+      allMatches.push({
+        type: 'image',
+        index: match.index,
+        length: match[0].length,
+        url: match[1],
+        description: match[2],
+        fullMatch: match[0]
+      });
+    }
+    
+    imageRegex.lastIndex = 0;
+    while ((match = imageErrorRegex.exec(messageText)) !== null) {
+      allMatches.push({
+        type: 'error',
+        index: match.index,
+        length: match[0].length,
+        message: match[1],
+        fullMatch: match[0]
+      });
+    }
+    
+    imageErrorRegex.lastIndex = 0;
+    while ((match = chartRegex.exec(messageText)) !== null) {
+      allMatches.push({
+        type: 'chart',
+        index: match.index,
+        length: match[0].length,
+        chartId: match[1],
+        fullMatch: match[0]
+      });
+    }
+    
+    // Sort matches by index
+    allMatches.sort((a, b) => a.index - b.index);
+    
+    // Build parts array
+    allMatches.forEach((match, i) => {
+      // Add text before this match (parse for mixed content)
+      if (match.index > currentIndex) {
+        const textPart = messageText.substring(currentIndex, match.index);
+        if (textPart.trim()) {
+          // Parse this text part for mixed content (text + math)
+          const mixedParts = parseMixedContent(textPart);
+          parts.push(...mixedParts);
+        }
+      }
+      
+      // Add the match
+      parts.push(match);
+      
+      currentIndex = match.index + match.length;
+    });
+    
+    // Add remaining text (parse for mixed content)
+    if (currentIndex < messageText.length) {
+      const remainingText = messageText.substring(currentIndex);
+      if (remainingText.trim()) {
+        // Parse this remaining text for mixed content (text + math)
+        const mixedParts = parseMixedContent(remainingText);
+        parts.push(...mixedParts);
+      }
+    }
+    
+    // If no special tags found, parse the entire message for mixed content
+    if (parts.length === 0) {
+      const mixedParts = parseMixedContent(messageText);
+      parts.push(...mixedParts);
+    }
+    
+    return parts;
+  };
+
   const sendMessageToAI = async (message, imageUrl = null, onChunk = null) => {
     return new Promise((resolve, reject) => {
       try {
@@ -840,46 +1370,7 @@ const BotScreen2 = ({ navigation, route }) => {
     }
   };
 
-  const handleDocumentSelection = async () => {
-    try {
-      // Hide additional buttons after selection
-      setShowAdditionalButtons(false);
-      
-      // Pick a document (PDF, DOC, DOCX)
-      const result = await DocumentPicker.pick({
-        type: [DocumentPicker.types.pdf, DocumentPicker.types.doc, DocumentPicker.types.docx],
-      });
-      
-      // Show loading indicator
-      setIsLoading(true);
-      
-      // Get the selected file
-      const selectedFile = result[0];
-      const { uri, type, name } = selectedFile;
-      
-      // Check if it's a PDF file
-      if (type === 'application/pdf') {
-        await processPdfDocument(uri, name);
-      } else {
-        // For DOC/DOCX files, alert the user to convert to PDF first
-        Alert.alert(
-          'Document Format',
-          'DOC/DOCX files need to be converted to PDF first. Please convert and try again.',
-          [{ text: 'OK' }]
-        );
-        setIsLoading(false);
-      }
-    } catch (error) {
-      console.error('Error selecting document:', error);
-      if (DocumentPicker.isCancel(error)) {
-        // User cancelled the picker
-        console.log('User cancelled document picker');
-      } else {
-        Alert.alert('Error', 'Failed to select document');
-      }
-      setIsLoading(false);
-    }
-  };
+
   
   const processPdfDocument = async (fileUri, fileName) => {
     try {
@@ -1091,7 +1582,7 @@ const BotScreen2 = ({ navigation, route }) => {
   };
 
   // Function to process and format the message text
-  const formatMessageText = (text, sender) => {
+  const formatMessageText = (text, sender, isDarkMode = false) => {
     if (!text) return [];
     
     const isBot = sender === 'bot';
@@ -1154,6 +1645,10 @@ const BotScreen2 = ({ navigation, route }) => {
         // For inline math, keep as is
         return match;
       });
+      
+      // Process charts
+      const { text: textWithCharts, charts } = processTextWithCharts(text, isDarkMode);
+      text = textWithCharts;
       
       // For tables, we need to maintain the special handling
       const lines = text.split('\n');
@@ -1491,9 +1986,44 @@ const BotScreen2 = ({ navigation, route }) => {
   const renderMessage = ({ item }) => {
     const isBot = item.sender === 'bot';
     const isUser = item.sender === 'user';
+    
+    // Ensure text is always a string to prevent markdown parser errors
+    const messageText = typeof item.text === 'string' ? item.text : String(item.text || '');
+    
+    // Parse message for attachments (only for bot messages)
+    const { cleanText, attachments } = isBot ? parseMessageForAttachments(messageText) : { cleanText: messageText, attachments: [] };
+    
+    // Use clean text for display (without URLs) and format HTML for bot messages
+    const textToDisplay = isBot ? formatMessageText(cleanText, 'bot', isDarkMode) : messageText;
+    
+    // Handle the case where formatMessageText returns an array (for bot messages)
+    // Extract text content for truncation logic
+    let displayText;
+    let shouldTruncate = false;
+    
     // Invert the logic: messages are expanded by default, expandedMessages tracks collapsed ones
     const isCollapsed = expandedMessages[item.id];
-    const shouldTruncate = item.text && item.text.length > 100;
+    
+    if (isBot && Array.isArray(textToDisplay)) {
+      // Extract text content from the array for truncation
+      const textContent = textToDisplay
+        .map(item => item.text || item.tableText || '')
+        .join(' ')
+        .trim();
+      
+      shouldTruncate = textContent && textContent.length > 100;
+      
+      // For bot messages, we'll use the original cleanText for parseIntelligentMessage
+      // and handle truncation at the rendering level
+      displayText = cleanText;
+    } else {
+      // For user messages, handle as before
+      shouldTruncate = textToDisplay && textToDisplay.length > 100;
+      
+      displayText = shouldTruncate && isCollapsed 
+        ? textToDisplay.substring(0, 100) + '...' 
+        : textToDisplay;
+    }
   
     // Function to handle long press
     const handleLongPress = () => {
@@ -1599,6 +2129,21 @@ const BotScreen2 = ({ navigation, route }) => {
                     </View>
                   )}
                   
+                  {/* Render attachments for bot messages - above text */}
+                  {isBot && attachments && attachments.length > 0 && (
+                    <View style={styles.attachmentsContainer}>
+                      {attachments.map((attachment, index) => (
+                        <AttachmentComponent
+                          key={`${item.id}-attachment-${index}`}
+                          url={attachment.url}
+                          filename={attachment.filename}
+                          fileType={attachment.fileType}
+                          colors={colors}
+                        />
+                      ))}
+                    </View>
+                  )}
+                  
                   {item.image ? (
                     <TouchableOpacity 
                       onPress={() => handleImageTap(item.image)}
@@ -1606,191 +2151,261 @@ const BotScreen2 = ({ navigation, route }) => {
                     >
                       <Image
                         source={{ uri: item.image }}
-                        style={{ width: 200, height: 200, borderRadius: 10 }}
-                        resizeMode="cover"
+                        style={{ width: 200, height: 200, borderRadius: 10, maxWidth: '100%' }}
+                        resizeMode="contain"
                       />
                     </TouchableOpacity>
                   ) : (
                     <View style={isBot ? styles.botTextContainer : styles.userTextContainer}>
-                      <Markdown 
-                        style={{
+                      {isBot ? (
+                        // Intelligent message rendering for bot messages
+                        (() => {
+                          const isDarkMode = colors.background === '#1C1C1E' || colors.background === '#000000';
+                          const messageParts = parseIntelligentMessage(displayText);
+                          return messageParts.map((part, index) => {
+                            switch (part.type) {
+                              case 'text':
+                                return (
+                                  <RenderHtml
+                                    key={`text-${index}`}
+                                    contentWidth={Dimensions.get('window').width - 100}
+                                    source={{ html: marked(part.content) }}
+                                    tagsStyles={{
+                                      body: {
+                                        color: colors.botText,
+                                        fontSize: 16,
+                                        lineHeight: 26,
+                                        margin: 0,
+                                        padding: 0,
+                                      },
+                                      h1: {
+                                        color: colors.primary,
+                                        fontWeight: '800',
+                                        fontSize: 28,
+                                        marginTop: 20,
+                                        marginBottom: 12,
+                                        borderBottomWidth: 2,
+                                        borderBottomColor: colors.primary,
+                                        paddingBottom: 8,
+                                        lineHeight: 34,
+                                      },
+                                      h2: {
+                                        color: colors.primary,
+                                        fontWeight: '700',
+                                        fontSize: 24,
+                                        marginTop: 18,
+                                        marginBottom: 10,
+                                        paddingBottom: 6,
+                                        lineHeight: 30,
+                                      },
+                                      h3: {
+                                        color: colors.primary,
+                                        fontWeight: '600',
+                                        fontSize: 20,
+                                        marginTop: 16,
+                                        marginBottom: 8,
+                                        lineHeight: 26,
+                                      },
+                                      p: {
+                                        color: colors.botText,
+                                        fontSize: 16,
+                                        marginTop: 8,
+                                        marginBottom: 12,
+                                        lineHeight: 26,
+                                        fontWeight: '400',
+                                      },
+                                      code: {
+                                        backgroundColor: 'rgba(128, 128, 128, 0.08)',
+                                        paddingHorizontal: 4,
+                                        paddingVertical: 2,
+                                        borderRadius: 3,
+                                        color: colors.primary,
+                                        fontFamily: 'Courier',
+                                        fontSize: 14,
+                                        fontWeight: '500',
+                                      },
+                                      strong: {
+                                        fontWeight: 'bold',
+                                        color: colors.botText,
+                                      },
+                                    }}
+                                  />
+                                );
+                              case 'skeleton':
+                                return (
+                                  <ImageSkeletonLoader
+                                    key={`skeleton-${index}`}
+                                    description={part.description}
+                                    colors={colors}
+                                  />
+                                );
+                              case 'image':
+                                return (
+                                  <IntelligentImageContainer
+                                    key={`image-${index}`}
+                                    imageUrl={part.url}
+                                    description={part.description}
+                                    colors={colors}
+                                  />
+                                );
+                              case 'error':
+                                return (
+                                  <View key={`error-${index}`} style={{
+                                    backgroundColor: 'rgba(255, 0, 0, 0.1)',
+                                    padding: 10,
+                                    borderRadius: 8,
+                                    marginVertical: 5,
+                                    borderLeftWidth: 3,
+                                    borderLeftColor: '#ff4444'
+                                  }}>
+                                    <Text style={{ color: '#ff4444', fontSize: 14 }}>
+                                      ⚠️ {part.message}
+                                    </Text>
+                                  </View>
+                                );
+                              case 'chart':
+                                return renderChart(part.chartId, isDarkMode, Dimensions.get('window').width - 80);
+                              case 'math':
+                                console.log('🧮 Rendering math content:', part.content);
+                                return (
+                                  <MathRenderer
+                                    key={`math-${index}`}
+                                    mathContent={part.content}
+                                    isDarkMode={isDarkMode}
+                                    width={Dimensions.get('window').width - 80}
+                                  />
+                                );
+                              default:
+                                return null;
+                            }
+                          });
+                        })()
+                      ) : (
+                        // Simple rendering for user messages
+                        <RenderHtml
+                          contentWidth={Dimensions.get('window').width - 100}
+                          source={{ html: marked(displayText) }}
+                          tagsStyles={{
                           body: {
-                            color: isBot ? colors.botText : '#fff',
+                            color: isBot ? colors.botText : '#FFFFFF',
                             fontSize: 16,
+                            lineHeight: 26,
+                            margin: 0,
+                            padding: 0,
                           },
-                          heading1: {
-                            color: isBot ? colors.primary : '#fff',
-                            fontWeight: 'bold',
-                            fontSize: 22,
-                            marginTop: 12,
-                            marginBottom: 6,
-                            borderBottomWidth: 1,
-                            borderBottomColor: colors.border,
+                          h1: {
+                            color: isBot ? colors.primary : '#FFFFFF',
+                            fontWeight: '800',
+                            fontSize: 28,
+                            marginTop: 20,
+                            marginBottom: 12,
+                            borderBottomWidth: 2,
+                            borderBottomColor: colors.primary,
+                            paddingBottom: 8,
+                            lineHeight: 34,
+                          },
+                          h2: {
+                            color: isBot ? colors.primary : '#FFFFFF',
+                            fontWeight: '700',
+                            fontSize: 24,
+                            marginTop: 18,
+                            marginBottom: 10,
                             paddingBottom: 6,
+                            lineHeight: 30,
                           },
-                          heading2: {
-                            color: isBot ? colors.primary : '#fff',
-                            fontWeight: 'bold',
+                          h3: {
+                            color: isBot ? colors.primary : '#FFFFFF',
+                            fontWeight: '600',
+                            fontSize: 20,
+                            marginTop: 16,
+                            marginBottom: 8,
+                            lineHeight: 26,
+                          },
+                          h4: {
+                            color: isBot ? colors.primary : '#FFFFFF',
+                            fontWeight: '600',
                             fontSize: 18,
-                            marginTop: 10,
-                            marginBottom: 5,
-                            paddingBottom: 4,
+                            marginTop: 14,
+                            marginBottom: 6,
+                            lineHeight: 24,
                           },
-                          heading3: {
-                            color: isBot ? colors.primary : '#fff',
-                            fontWeight: 'bold',
+                          h5: {
+                            color: isBot ? colors.primary : '#FFFFFF',
+                            fontWeight: '500',
+                            fontSize: 16,
+                            marginTop: 12,
+                            marginBottom: 5,
+                            lineHeight: 22,
+                          },
+                          h6: {
+                            color: isBot ? colors.primary : '#FFFFFF',
+                            fontWeight: '500',
+                            fontSize: 14,
+                            marginTop: 10,
+                            marginBottom: 4,
+                            lineHeight: 20,
+                          },
+                          p: {
+                            color: isBot ? colors.botText : '#FFFFFF',
                             fontSize: 16,
                             marginTop: 8,
-                            marginBottom: 4,
+                            marginBottom: 12,
+                            lineHeight: 26,
+                            fontWeight: '400',
                           },
-                          paragraph: {
-                            color: isBot ? colors.botText : '#fff',
+                          li: {
+                            color: isBot ? colors.botText : '#FFFFFF',
                             fontSize: 16,
-                            marginTop: 4,
-                            marginBottom: 4,
+                            lineHeight: 24,
+                            marginBottom: 8,
                           },
-                          list_item: {
-                            color: isBot ? colors.botText : '#fff',
-                            fontSize: 16,
-                            marginTop: 4,
+                          ul: {
+                            color: isBot ? colors.botText : '#FFFFFF',
+                            paddingLeft: 20,
                           },
-                          bullet_list: {
-                            color: isBot ? colors.botText : '#fff',
-                          },
-                          ordered_list: {
-                            marginLeft: 10,
-                          },
-                          ordered_list_item: {
-                            flexDirection: 'row',
-                            alignItems: 'flex-start',
-                            marginBottom: 4,
-                          },
-                          ordered_list_icon: {
-                            marginRight: 5,
-                            fontWeight: 'bold',
-                            color: colors.botText,
-                          },
-                          list_item_number: {
-                            marginRight: 5,
-                            fontWeight: 'bold',
-                            fontSize: 16,
-                            color: colors.botText,
-                            width: 20,
-                            textAlign: 'right',
-                          },
-                          list_item_content: {
-                            flex: 1,
-                            fontSize: 16,
-                            color: colors.botText,
-                          },
-                          list_item_bullet: {
-                            marginRight: 5,
-                            fontSize: 16,
-                            color: colors.botText,
-                            marginTop: 0,
-                            lineHeight: 16,
-                            marginBottom: 0,
-                            paddingTop: 1,
+                          ol: {
+                            color: isBot ? colors.botText : '#FFFFFF',
+                            paddingLeft: 20,
                           },
                           blockquote: {
-                            backgroundColor: 'rgba(128, 128, 128, 0.1)',
+                            backgroundColor: 'rgba(128, 128, 128, 0.08)',
                             borderLeftWidth: 4,
                             borderLeftColor: colors.primary,
-                            paddingLeft: 8,
-                            paddingVertical: 4,
-                            color: colors.botText,
-                          },
-                          code_block: {
-                            backgroundColor: 'rgba(128, 128, 128, 0.1)',
-                            padding: 8,
+                            paddingLeft: 12,
+                            paddingVertical: 12,
+                            paddingRight: 12,
+                            color: isBot ? colors.botText : '#FFFFFF',
+                            marginVertical: 8,
                             borderRadius: 4,
-                            color: colors.botText,
                           },
-                          code_inline: {
-                            backgroundColor: 'rgba(128, 128, 128, 0.1)',
-                            padding: 2,
-                            borderRadius: 2,
-                            color: colors.botText,
-                          },
-                          link: {
+                          code: {
+                            backgroundColor: 'rgba(128, 128, 128, 0.08)',
+                            paddingHorizontal: 4,
+                            paddingVertical: 2,
+                            borderRadius: 3,
                             color: colors.primary,
-                            textDecorationLine: 'underline',
+                            fontFamily: 'Courier',
+                            fontSize: 14,
+                            fontWeight: '500',
                           },
-                          table: {
-                            borderWidth: 1,
-                            borderColor: '#E0E0E0',
-                            marginVertical: 10,
+                          pre: {
+                            backgroundColor: 'rgba(128, 128, 128, 0.08)',
+                            padding: 12,
+                            borderRadius: 8,
+                            marginVertical: 8,
+                            overflow: 'scroll',
                           },
-                          tr: {
-                            borderBottomWidth: 1,
-                            borderBottomColor: '#E0E0E0',
-                            flexDirection: 'row',
-                          },
-                          th: {
-                            padding: 8,
+                          strong: {
                             fontWeight: 'bold',
-                            borderRightWidth: 1,
-                            borderRightColor: '#E0E0E0',
-                            backgroundColor: '#F5F5F5',
-                            color: '#333333',
+                            color: isBot ? colors.botText : '#FFFFFF',
                           },
-                          td: {
-                            padding: 8,
-                            borderRightWidth: 1,
-                            borderRightColor: '#E0E0E0',
-                            color: '#333333',
+                          em: {
+                            fontStyle: 'italic',
+                            color: isBot ? colors.botText : '#FFFFFF',
                           },
-                          text: {
-                            color: colors.botText,
-                          }
-                        }}
-                        rules={{
-                          list: (node, children, parent, styles) => {
-                            if (node.ordered) {
-                              return (
-                                <View key={node.key} style={styles.ordered_list}>
-                                  {children}
-                                </View>
-                              );
-                            }
-                            return (
-                              <View key={node.key} style={styles.bullet_list}>
-                                {children}
-                              </View>
-                            );
-                          },
-                          list_item: (node, children, parent, styles) => {
-                            if (parent.ordered) {
-                              return (
-                                <View key={node.key} style={styles.ordered_list_item}>
-                                  <Text style={[styles.list_item_number, {color: '#2274F0'}]}>{node.index + 1}.</Text>
-                                  <View style={styles.list_item_content}>
-                                    {children}
-                                  </View>
-                                </View>
-                              );
-                            }
-                            return (
-                              <View key={node.key} style={styles.list_item}>
-                                <Text style={[styles.list_item_bullet, {color: '#2274F0'}]}>•</Text>
-                                <View style={{ flex: 1 }}>
-                                  {children}
-                                </View>
-                              </View>
-                            );
-                          },
-                          text: (node, children, parent, styles) => {
-  const textStyle = [styles.text, {color: isBot ? colors.botText : '#fff'}];
-  return (
-    <View key={node.key} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
-      {renderTextWithMath(node.content, textStyle)}
-    </View>
-  );
-}
-                        }}
-                      >
-                        {item.text}
-                      </Markdown>
+                          }}
+                        />
+                      )}
                     </View>
                   )}
                   {shouldTruncate && (
@@ -1861,6 +2476,12 @@ const BotScreen2 = ({ navigation, route }) => {
   const handleImageTap = (imageUri) => {
     console.log('Image tapped, displaying in fullscreen:', imageUri);
     setFullScreenImage(imageUri);
+  };
+
+  // Function to handle input text changes
+  const handleInputChange = (text) => {
+    setInputText(text);
+    setIsTyping(text.length > 0);
   };
 
 
@@ -1993,48 +2614,165 @@ const BotScreen2 = ({ navigation, route }) => {
       {/* Quick Action Buttons */}
     
 
-      {/* Chat Input Box */}
-      <View style={styles.chatBoxContainer}>
-        <TextInput
-          style={[styles.textInput, { textAlignVertical: 'top' }]}
-          placeholder="Type a message..."
-          placeholderTextColor="#ccc"
-          value={inputText}
-          onChangeText={setInputText}
-          onSubmitEditing={handleSendMessage}
-          multiline={true}
-          numberOfLines={3}
-          maxLength={2000}
-          scrollEnabled={true}
-        />
-        {/* Upload button commented out */}
-        {/* <TouchableOpacity onPress={handleAttach} style={styles.sendButton}>
-          {showAdditionalButtons ? (
-            <Ionicons name="close" size={28} color="#4C8EF7" />
-          ) : (
-            <Ionicons name="add" size={28} color="#4C8EF7" />
-          )}
-        </TouchableOpacity> */}
-       
-        <View style={styles.sendButtonContainer}>
-          {(inputText.trim() || selectedImage) && (
-            <View style={styles.sendButtonCoinLabel}>
-              <Image 
-                source={require('../assets/coin.png')} 
-                style={styles.sendButtonCoinIcon} 
-              />
-              <Text style={styles.sendButtonCoinText}>-{selectedImage ? 2 : 1}</Text>
+      {/* Input area */}
+      <View style={styles.inputContainer}>
+        <View style={styles.inputContentContainer}>
+          {/* File Preview Component */}
+          <FilePreviewComponent
+            attachedFiles={attachedFiles}
+            onRemoveFile={handleRemoveFile}
+            onFilePress={handleFilePress}
+            colors={colors}
+          />
+          
+          {selectedImage && (
+            <View style={[styles.imagePreviewContainer]}>
+              <View style={styles.imageIconContainer}>
+                <Ionicons name="image-outline" size={24} color="#fff" />
+              </View>
+              <Text style={styles.imageNameText} numberOfLines={1} ellipsizeMode="middle">
+                {imageFileName || "Selected Image"}
+              </Text>
+              <TouchableOpacity 
+                style={styles.removeImageButton}
+                onPress={() => setSelectedImage(null)}
+              >
+                <Ionicons name="close-circle" size={24} color="#fff" />
+              </TouchableOpacity>
             </View>
           )}
-          <TouchableOpacity 
-            onPress={handleSendMessage} 
-            style={[styles.sendButton, isSendDisabled && styles.disabledButton]} 
-            disabled={isSendDisabled}
-          >
-            <Ionicons name="send" size={24} color={isSendDisabled ? "#ccc" : "#4C8EF7"} />
-          </TouchableOpacity>
-        </View>
-      </View>
+          <View style={[styles.chatBoxContainer2 , {zIndex: 20}]}>
+            <LinearGradient
+              colors={['transparent', 'transparent', colors.background2, colors.background2]}
+              locations={[0, 0.5, 0.5, 1]}
+              style={{
+                height:40,
+                width: '100%',
+                overflow: 'visible'
+              }}>
+              <View style={[styles.chatBoxContainer , {zIndex: 20}]}>
+                <TextInput
+                  style={[styles.textInput, { textAlignVertical: 'top' }]}
+                  placeholder={selectedImage ? "Add a caption..." : t('sendAMessage')}
+                  placeholderTextColor="#ccc"
+                  value={inputText}
+                  onChangeText={handleInputChange}
+                  onSubmitEditing={() => {
+                    handleSendMessage();
+                    Keyboard.dismiss();
+                  }}
+                  multiline={true}
+                  numberOfLines={3}
+                  maxLength={2000}
+                  scrollEnabled={true}
+                  returnKeyType="send"
+                  blurOnSubmit={Platform.OS === 'ios' ? false : true}
+                />
+                <TouchableOpacity onPress={handleAttach} style={styles.sendButton}>
+                   {showAdditionalButtons ? (
+                     <Ionicons name="close" size={28} color="#4C8EF7" />
+                   ) : (
+                     <Ionicons name="add" size={28} color="#4C8EF7" />
+                   )}
+                 </TouchableOpacity>
+                 <View style={styles.sendButtonContainer}>
+                   <TouchableOpacity 
+                     onPress={handleSendMessage} 
+                     style={[styles.sendButton, isSendDisabled && styles.sendButtonDisabled]} 
+                     disabled={isSendDisabled}
+                   >
+                     {isSendDisabled ? (
+                       <ActivityIndicator size="small" color="#fff" />
+                     ) : (
+                       <Ionicons name="send" size={24} color="#4C8EF7" />
+                     )}
+                   </TouchableOpacity>
+                   {/* Coin cost label on send button */}
+                   {(inputText.trim() || selectedImage || selectedGenerateOption) && (
+                     <View style={styles.sendButtonCoinLabel}>
+                       <Image 
+                         source={require('../assets/coin.png')} 
+                         style={styles.sendButtonCoinIcon} 
+                       />
+                       <Text style={styles.sendButtonCoinText}>
+                         -{selectedGenerateOption ? 3 : selectedImage ? 2 : 1}
+                       </Text>
+                     </View>
+                   )}
+                 </View>
+               </View>
+             </LinearGradient>
+           </View>
+           
+           {/* Generate Options */}
+           <View style={styles.generateOptionsContainer}>
+             <TouchableOpacity 
+               style={[
+                 styles.radioButton,
+                 selectedGenerateOption === 'ppt' && styles.radioButtonSelected
+               ]}
+               onPress={() => setSelectedGenerateOption(selectedGenerateOption === 'ppt' ? null : 'ppt')}
+             >
+               <View style={[
+                 styles.radioButtonInner,
+                 selectedGenerateOption === 'ppt' && styles.radioButtonInnerSelected
+               ]} />
+               <Text style={[
+                 styles.radioButtonText,
+                 selectedGenerateOption === 'ppt' && styles.radioButtonTextSelected
+               ]}>
+                 Generate PPT
+               </Text>
+             </TouchableOpacity>
+             
+             <TouchableOpacity 
+               style={[
+                 styles.radioButton,
+                 selectedGenerateOption === 'xlsx' && styles.radioButtonSelected
+               ]}
+               onPress={() => setSelectedGenerateOption(selectedGenerateOption === 'xlsx' ? null : 'xlsx')}
+             >
+               <View style={[
+                 styles.radioButtonInner,
+                 selectedGenerateOption === 'xlsx' && styles.radioButtonInnerSelected
+               ]} />
+               <Text style={[
+                 styles.radioButtonText,
+                 selectedGenerateOption === 'xlsx' && styles.radioButtonTextSelected
+               ]}>
+                 Generate XLSX
+               </Text>
+             </TouchableOpacity>
+         </View>
+         
+         {showAdditionalButtons && (
+           <View style={[styles.additionalButtonsContainer, {backgroundColor: colors.background2} , {zIndex: 10}]}>
+             <View style={styles.buttonRow}>
+               <TouchableOpacity style={styles.additionalButton2} onPress={() => handleImageSelection('camera')}>
+                 <View style={styles.additionalButton}>
+                   <Ionicons name="camera" size={28} color="#4C8EF7" />
+                 </View>
+                 <Text style={{color: colors.text}}>Photo</Text>
+               </TouchableOpacity>
+                     
+               <TouchableOpacity style={styles.additionalButton2} onPress={() => handleImageSelection('gallery')}>
+                 <View style={styles.additionalButton}>
+                   <Ionicons name="image" size={28} color="#4C8EF7" />
+                 </View>
+                 <Text style={{color: colors.text}}>Image</Text>
+               </TouchableOpacity>
+                     
+               <TouchableOpacity style={styles.additionalButton2} onPress={handleDocumentSelection}>
+                 <View style={styles.additionalButton}>
+                   <Ionicons name="attach" size={28} color="#4C8EF7" />
+                 </View>
+                 <Text style={{color: colors.text}}>Document</Text>
+               </TouchableOpacity>
+             </View>
+           </View>
+         )}
+       </View>
+     </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
       <View style={[styles.quickActionContainer , {backgroundColor: colors.background2}]}>
         <TouchableOpacity 
@@ -2882,6 +3620,16 @@ marginBottom:-10,
   displayMathContainer: {
   
   },
+  blockMathContainer: {
+    width: '100%',
+    padding: 12,
+    marginVertical: 10,
+    backgroundColor: 'rgba(240, 240, 240, 0.3)',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+  },
   inlineMathContainer: {
     backgroundColor: '#F8F9FA',
     borderRadius: 4,
@@ -2890,6 +3638,30 @@ marginBottom:-10,
     borderWidth: 1,
     borderColor: '#E0E0E0',
     alignSelf: 'flex-start',
+  },
+  fullScreenImageWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+  },
+  fullScreenImageError: {
+    padding: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 10,
+  },
+  fullScreenErrorText: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  fullScreenBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1,
   },
   chineseSubSubheadingContainer: {
     flexDirection: 'row',

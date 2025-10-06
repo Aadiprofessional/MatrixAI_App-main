@@ -199,5 +199,22 @@ export const imageService = {
     }
 
     return response.json();
+  },
+
+  // Get all image prompts/templates
+  getAllImagePrompts: async () => {
+    const response = await fetch(`${API_BASE_URL}/api/image-prompt/getAllImagePrompts`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || errorData.error || 'Failed to get image prompts');
+    }
+
+    return response.json();
   }
 };

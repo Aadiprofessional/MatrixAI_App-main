@@ -38,6 +38,7 @@ import DocumentPicker from 'react-native-document-picker';
 import { PDFDocument } from 'react-native-pdf-lib';
 import RNFS from 'react-native-fs';
 import { Buffer } from 'buffer';
+import { decode } from 'base-64';
 import { supabase } from '../supabaseClient';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../context/ThemeContext';
@@ -63,17 +64,15 @@ import {
   processWordDocument,
   getDocumentProcessingMethod 
 } from '../utils/documentProcessor';
-import { uploadFile } from '../utils/fileUploadUtils';
 import { 
-  addUserMessageWithAttachment,
   createNewChat,
+  addUserMessageWithAttachment,
   getNewUserChats,
   getNewChatMessages,
   addUserMessage,
   startAssistantMessage,
   appendMessageChunk,
   finalizeMessage,
-  deleteNewChat,
   updateNewChatTitle,
   supabaseMessageToFrontend,
   cancelMessage,
@@ -102,11 +101,7 @@ import IntelligentImageContainer from '../components/IntelligentImageContainer';
 import MathRenderer from '../components/MathRenderer';
 import { containsMathContent, extractMathContent, formatMathContent, parseMixedContent } from '../utils/mathParser';
 
-// Function to decode base64 to ArrayBuffer
-const decode = (base64) => {
-  const bytes = Buffer.from(base64, 'base64');
-  return bytes;
-};
+
 
 // Function to generate UUID v4
 const generateUUID = () => {
@@ -124,6 +119,45 @@ const persistEvent = (event) => {
   }
   return event;
 };
+
+// HTML formatting system prompt based on user requirements
+const HTML_FORMATTING_SYSTEM_PROMPT = `You are an AI tutor assistant helping students with their homework and studies. Provide helpful, educational responses with clear explanations and examples that students can easily understand.
+
+CRITICAL FORMATTING REQUIREMENTS:
+1. **ALWAYS format your responses in HTML** - Never use plain text or markdown
+2. Use proper HTML tags for structure: <h1>, <h2>, <h3>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <br>
+3. For mathematical expressions, use proper HTML formatting or MathML when possible
+4. For code examples, use <pre><code> tags with appropriate syntax highlighting classes
+5. Use <blockquote> for important quotes or key concepts
+6. Structure your response with clear headings and organized content
+
+CHART.JS INTEGRATION:
+When data visualization would be helpful, include Chart.js configuration in a <script> tag:
+- Use chart types: line, bar, pie, doughnut, radar, polarArea
+- Include proper data structure with labels and datasets
+- Add responsive configuration and styling options
+
+EXAMPLE HTML OUTPUT:
+<h2>Understanding Photosynthesis</h2>
+<p>Photosynthesis is the process by which <strong>plants convert sunlight into energy</strong>.</p>
+<h3>Key Components:</h3>
+<ul>
+  <li><strong>Chlorophyll:</strong> The green pigment that captures light</li>
+  <li><strong>Carbon Dioxide:</strong> Absorbed from the atmosphere</li>
+  <li><strong>Water:</strong> Absorbed through the roots</li>
+</ul>
+<blockquote>
+  <p><em>6CO₂ + 6H₂O + light energy → C₆H₁₂O₆ + 6O₂</em></p>
+</blockquote>
+
+FILE OPERATIONS:
+For document and image uploads, use the n8n webhook endpoint:
+- Endpoint: https://your-n8n-instance.com/webhook/file-upload
+- Payload structure: {"file": "base64_content", "filename": "name.ext", "type": "document|image"}
+- Supported types: PDF, DOC, DOCX, JPG, PNG, GIF
+
+Always maintain educational focus while ensuring proper HTML formatting for optimal display.`;
+
 
   const BotScreen = ({ navigation, route }) => {
   const { getThemeColors } = useTheme();
@@ -148,7 +182,7 @@ const persistEvent = (event) => {
   const [chats, setChats] = useState([]);
   const [currentChatId, setCurrentChatId] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const currentChat = chats.find(chat => chat.id === currentChatId) || { messages: [] };
+  const currentChat = chats.find(chat => chat && chat.id === currentChatId) || { messages: [] };
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [showInput, setShowInput] = useState(true);
@@ -298,7 +332,7 @@ const persistEvent = (event) => {
         // If user is authenticated and this is a new chat (UUID format), create it in Supabase
         if (sessionData?.session?.user && chatid.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
           try {
-            await createNewChat(chatid, chatName || 'New Chat');
+            await createChat(sessionData.session.user.id, chatName || 'New Chat', currentRole || '', chatid);
           } catch (error) {
             console.log('Chat may already exist or error creating:', error);
           }
@@ -382,7 +416,7 @@ const persistEvent = (event) => {
       // If the deleted chat is the current chat, select another chat or start a new one
       if (chatToDelete === currentChatId) {
         const remainingChats = chats.filter(chat => chat.id !== chatToDelete);
-        if (remainingChats.length > 0) {
+        if (remainingChats.length > 0 && remainingChats[0] && remainingChats[0].id) {
           // Select the first available chat and keep the sidebar open
           selectChat(remainingChats[0].id, false);
         } else {
@@ -393,7 +427,7 @@ const persistEvent = (event) => {
       }
       
       // Delete chat from Supabase using new schema
-      const deleteSuccess = await deleteNewChat(chatToDelete, uid);
+      const deleteSuccess = await deleteChat(chatToDelete, uid);
       
       if (!deleteSuccess) {
         console.error('Error deleting chat from Supabase');
@@ -404,6 +438,78 @@ const persistEvent = (event) => {
     } catch (error) {
       console.error('Error deleting chat:', error);
       Alert.alert('Error', 'Failed to delete chat');
+    }
+  };
+
+  // Function to preprocess HTML content for better formatting
+  const preprocessHtmlContent = (html) => {
+    if (!html) return html;
+    
+    try {
+      let processedHtml = html;
+      
+      // Fix ordered list numbering by ensuring proper list structure
+      processedHtml = processedHtml.replace(/<ol>/g, '<ol style="list-style-type: decimal; padding-left: 20px;">');
+      processedHtml = processedHtml.replace(/<li>/g, '<li style="margin-bottom: 8px; display: list-item;">');
+      
+      // Conservative math expression wrapping - only wrap genuine mathematical expressions
+      // First, temporarily replace existing math expressions to protect them
+      const mathExpressions = [];
+      let mathIndex = 0;
+      
+      // Protect existing LaTeX expressions
+      processedHtml = processedHtml.replace(/\\\((.*?)\\\)/g, (match) => {
+        mathExpressions[mathIndex] = match;
+        return `__MATH_PLACEHOLDER_${mathIndex++}__`;
+      });
+      
+      processedHtml = processedHtml.replace(/\\\[(.*?)\\\]/g, (match) => {
+        mathExpressions[mathIndex] = match;
+        return `__MATH_PLACEHOLDER_${mathIndex++}__`;
+      });
+      
+      processedHtml = processedHtml.replace(/\$\$(.*?)\$\$/g, (match) => {
+        mathExpressions[mathIndex] = match;
+        return `__MATH_PLACEHOLDER_${mathIndex++}__`;
+      });
+      
+      processedHtml = processedHtml.replace(/\$([^$\n]+?)\$/g, (match) => {
+        mathExpressions[mathIndex] = match;
+        return `__MATH_PLACEHOLDER_${mathIndex++}__`;
+      });
+      
+      // Only wrap complex mathematical expressions, not single letters
+      // Auto-wrap mathematical expressions with operators and symbols
+      processedHtml = processedHtml.replace(/\|([A-Z])\|\s*=\s*(\d+)/g, (match, letter, number, offset, string) => {
+        if (string.substring(offset - 10, offset + 10).includes('__MATH_PLACEHOLDER_')) {
+          return match;
+        }
+        return `\\(|${letter}| = ${number}\\)`;
+      });
+      
+      processedHtml = processedHtml.replace(/([A-Z])\s*∪\s*([A-Z])/g, (match, letter1, letter2, offset, string) => {
+        if (string.substring(offset - 10, offset + 10).includes('__MATH_PLACEHOLDER_')) {
+          return match;
+        }
+        return `\\(${letter1} \\cup ${letter2}\\)`;
+      });
+      
+      processedHtml = processedHtml.replace(/([A-Z])\s*∩\s*([A-Z])/g, (match, letter1, letter2, offset, string) => {
+        if (string.substring(offset - 10, offset + 10).includes('__MATH_PLACEHOLDER_')) {
+          return match;
+        }
+        return `\\(${letter1} \\cap ${letter2}\\)`;
+      });
+      
+      // Restore protected math expressions
+      for (let i = mathExpressions.length - 1; i >= 0; i--) {
+        processedHtml = processedHtml.replace(`__MATH_PLACEHOLDER_${i}__`, mathExpressions[i]);
+      }
+      
+      return processedHtml;
+    } catch (error) {
+      console.error('Error preprocessing HTML content:', error);
+      return html;
     }
   };
 
@@ -519,8 +625,12 @@ const renderTextWithMath = (text, textStyle) => {
   console.log('📱 [DEBUG] isDarkMode:', isDarkMode);
   console.log('📱 [DEBUG] Screen width:', width);
   
+  // Preprocess HTML content for better formatting
+  let preprocessedText = preprocessHtmlContent(text);
+  console.log('📱 [DEBUG] After preprocessing, text length:', preprocessedText?.length);
+  
   // Process mathematical expressions with KaTeX
-  let processedText = processMathExpressions(text);
+  let processedText = processMathExpressions(preprocessedText);
   console.log('📱 [DEBUG] After math processing, text length:', processedText?.length);
   
   // Process charts
@@ -698,14 +808,38 @@ const getHtmlTagStyles = (isDarkMode, textStyle, colors) => ({
     fontWeight: 'bold',
     backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
   },
+  // List styles
+  ol: {
+    marginVertical: 8,
+    paddingLeft: 24,
+    listStyleType: 'decimal',
+    display: 'block',
+  },
+  ul: {
+    marginVertical: 8,
+    paddingLeft: 24,
+    listStyleType: 'disc',
+    display: 'block',
+  },
+  li: {
+    marginVertical: 6,
+    paddingLeft: 4,
+    lineHeight: 1.6,
+    color: textStyle?.color || colors.text,
+    display: 'list-item',
+    listStylePosition: 'outside',
+  },
   // KaTeX math styles
   '.math-display': {
     textAlign: 'center',
     marginVertical: 12,
     padding: 8,
+    display: 'block',
   },
   '.math-inline': {
-    display: 'inline',
+    display: 'inline-block',
+    verticalAlign: 'baseline',
+    whiteSpace: 'nowrap',
   },
   '.math-error': {
     color: '#cc0000',
@@ -899,8 +1033,6 @@ FORMATTING REQUIREMENTS:
 - Use <em> for italic text
 - Use <ul>, <ol>, <li> for lists
 - Use <blockquote> for quotes
-- Use <code> for inline code
-- Use <pre><code> for code blocks
 
 CHART GENERATION:
 When users request charts, graphs, or data visualizations, create them using Chart.js code blocks:
@@ -927,8 +1059,9 @@ When users request charts, graphs, or data visualizations, create them using Cha
 \`\`\`
 
 MATHEMATICAL EXPRESSIONS:
-- Use LaTeX syntax for math: $inline$ or $$display$$
+- Use LaTeX syntax for mathematical expressions only: $inline$ or $$display$$
 - Support both inline \\(...\\) and display \\[...\\] formats
+- Only wrap actual mathematical expressions, formulas, and equations - not single letters or variables
 
 Always provide helpful, accurate, and well-formatted responses.`
               } 
@@ -1215,22 +1348,562 @@ Always provide helpful, accurate, and well-formatted responses.`
     });
   };
 
+  // Streaming function for Generate XLSX
+  const generateXLSXStreaming = async (prompt, onChunk) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'https://matrixai212.app.n8n.cloud/webhook/aea0cafd-493a-4217-a29c-501a11cccbb8');
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.setRequestHeader('Accept', 'text/event-stream');
+
+        let fullResponse = '';
+        let processedLength = 0;
+        let finalContent = '';
+        let hasStartedFinalResponse = false;
+
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === XMLHttpRequest.LOADING || xhr.readyState === XMLHttpRequest.DONE) {
+            const responseText = xhr.responseText;
+            const newContent = responseText.substring(processedLength);
+            processedLength = responseText.length;
+            
+            if (newContent && onChunk) {
+              // Parse streaming content - handle structured JSON format from webhook
+              // Handle multiple JSON objects that might be concatenated together
+              const extractJsonObjects = (text) => {
+                const objects = [];
+                let depth = 0;
+                let start = -1;
+                let inString = false;
+                let escaped = false;
+                
+                for (let i = 0; i < text.length; i++) {
+                  const char = text[i];
+                  
+                  if (escaped) {
+                    escaped = false;
+                    continue;
+                  }
+                  
+                  if (char === '\\' && inString) {
+                    escaped = true;
+                    continue;
+                  }
+                  
+                  if (char === '"') {
+                    inString = !inString;
+                    continue;
+                  }
+                  
+                  if (!inString) {
+                    if (char === '{') {
+                      if (depth === 0) start = i;
+                      depth++;
+                    } else if (char === '}') {
+                      depth--;
+                      if (depth === 0 && start !== -1) {
+                        const jsonStr = text.substring(start, i + 1);
+                        try {
+                          const obj = JSON.parse(jsonStr);
+                          objects.push(obj);
+                        } catch (e) {
+                          // Skip invalid JSON
+                        }
+                        start = -1;
+                      }
+                    }
+                  }
+                }
+                return objects;
+              };
+              
+              const lines = newContent.split('\n');
+              
+              for (const line of lines) {
+                if (line.trim()) {
+                  // Try to extract JSON objects from the line
+                  const jsonObjects = extractJsonObjects(line.trim());
+                  
+                  if (jsonObjects.length > 0) {
+                    // Process each JSON object
+                    for (const chunk of jsonObjects) {
+                      // Handle structured streaming responses from n8n webhook
+                      if (chunk.type === 'begin') {
+                        // Start of a new content stream
+                        if (!hasStartedFinalResponse) {
+                          hasStartedFinalResponse = true;
+                          finalContent = '';
+                          onChunk('__RESET__');
+                        }
+                      } else if (chunk.type === 'item' && chunk.content) {
+                        // Check if this is JSON content that we want to skip
+                        if (typeof chunk.content === 'string') {
+                          // Skip various JSON patterns that shouldn't be displayed
+                          if (chunk.content.startsWith('{"output":') ||
+                              chunk.content.startsWith('{"type":') ||
+                              chunk.content.includes('"metadata":') ||
+                              chunk.content.includes('"nodeId":') ||
+                              chunk.content.includes('"itemIndex":') ||
+                              chunk.content.includes('"runIndex":') ||
+                              chunk.content.includes('"timestamp":') ||
+                              chunk.content.includes('type":"item') ||
+                              chunk.content.includes('content":"') ||
+                              chunk.content.includes('"type":"item"') ||
+                              chunk.content.includes('"content":"') ||
+                              chunk.content.match(/^\s*\{\s*"type"\s*:\s*"item"/) ||
+                              chunk.content.match(/^\s*\{\s*"content"\s*:\s*"/) ||
+                              (chunk.content.startsWith('{') && chunk.content.includes('"Agent1"'))) {
+                            // This is JSON metadata or structured data - skip it completely
+                            console.log('🚫 Skipping JSON metadata chunk:', chunk.content.substring(0, 50) + '...');
+                            continue;
+                          }
+                        }
+                        
+                        // Stream content chunks (only the actual content, not metadata)
+                        if (hasStartedFinalResponse) {
+                          finalContent += chunk.content;
+                          onChunk(chunk.content);
+                        }
+                      } else if (chunk.type === 'end') {
+                        // End of content stream - continue to next stream if any
+                        continue;
+                      }
+                    }
+                  } else {
+                    // This is plain text, not JSON - handle as fallback
+                    const trimmedLine = line.trim();
+                    
+                    // Skip JSON patterns even in plain text
+                    if (trimmedLine.includes('{"type":"item"') ||
+                        trimmedLine.includes('"content":"') ||
+                        trimmedLine.includes('type":"item') ||
+                        trimmedLine.includes('content":"') ||
+                        trimmedLine.match(/^\s*\{\s*"type"\s*:\s*"item"/) ||
+                        trimmedLine.match(/^\s*\{\s*"content"\s*:\s*"/)) {
+                      console.log('🚫 Skipping JSON in plain text:', trimmedLine.substring(0, 50) + '...');
+                      continue;
+                    }
+                    
+                    if (!hasStartedFinalResponse) {
+                      hasStartedFinalResponse = true;
+                      finalContent = trimmedLine;
+                      onChunk('__RESET__');
+                      onChunk(trimmedLine);
+                    } else {
+                      // Add new plain text content
+                      finalContent += '\n' + trimmedLine;
+                      onChunk('\n' + trimmedLine);
+                    }
+                  }
+                }
+              }
+            }
+            
+            fullResponse = responseText;
+            
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+              if (xhr.status === 200) {
+                // Return only the final content, never return fullResponse to avoid unwanted JSON output
+                resolve(finalContent || '');
+              } else {
+                reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
+              }
+            }
+          }
+        };
+
+        xhr.onerror = function() {
+          reject(new Error('Failed to generate XLSX. Please try again.'));
+        };
+
+        xhr.ontimeout = function() {
+          reject(new Error('Request timed out. Please try again.'));
+        };
+
+        xhr.timeout = 60000;
+
+        // Get authenticated user UID
+        const { data: { session } } = await supabase.auth.getSession();
+        const userUID = session?.user?.id || uid || '';
+        
+        if (!userUID) {
+          reject(new Error('User not authenticated - cannot generate XLSX'));
+          return;
+        }
+        
+        const requestBody = JSON.stringify({
+          messages: [
+            {
+              uid: userUID,
+              type: "sheet_generate",
+              text: {
+                body: prompt
+              }
+            }
+          ],
+          stream: true
+        });
+
+        console.log('📤 Sending XLSX generation request to n8n webhook:', requestBody);
+        xhr.send(requestBody);
+      } catch (error) {
+        console.error('Error in generateXLSXStreaming:', error);
+        reject(new Error('Failed to generate XLSX. Please try again.'));
+      }
+    });
+  };
+
+  // Streaming function for Generate DOC
+  const generateDOCStreaming = async (prompt, onChunk) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'https://matrixai212.app.n8n.cloud/webhook/aea0cafd-493a-4217-a29c-501a11cccbb8');
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.setRequestHeader('Accept', 'text/event-stream');
+
+        let fullResponse = '';
+        let processedLength = 0;
+        let finalContent = '';
+        let hasStartedFinalResponse = false;
+
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === XMLHttpRequest.LOADING || xhr.readyState === XMLHttpRequest.DONE) {
+            const responseText = xhr.responseText;
+            const newContent = responseText.substring(processedLength);
+            processedLength = responseText.length;
+            
+            if (newContent && onChunk) {
+              // Parse streaming content - handle structured JSON format from webhook
+              // Handle multiple JSON objects that might be concatenated together
+              const extractJsonObjects = (text) => {
+                const objects = [];
+                let depth = 0;
+                let start = -1;
+                let inString = false;
+                let escaped = false;
+                
+                for (let i = 0; i < text.length; i++) {
+                  const char = text[i];
+                  
+                  if (escaped) {
+                    escaped = false;
+                    continue;
+                  }
+                  
+                  if (char === '\\' && inString) {
+                    escaped = true;
+                    continue;
+                  }
+                  
+                  if (char === '"') {
+                    inString = !inString;
+                    continue;
+                  }
+                  
+                  if (!inString) {
+                    if (char === '{') {
+                      if (depth === 0) start = i;
+                      depth++;
+                    } else if (char === '}') {
+                      depth--;
+                      if (depth === 0 && start !== -1) {
+                        const jsonStr = text.substring(start, i + 1);
+                        try {
+                          const obj = JSON.parse(jsonStr);
+                          objects.push(obj);
+                        } catch (e) {
+                          // Skip invalid JSON
+                        }
+                        start = -1;
+                      }
+                    }
+                  }
+                }
+                return objects;
+              };
+              
+              const lines = newContent.split('\n');
+              
+              for (const line of lines) {
+                if (line.trim()) {
+                  // Try to extract JSON objects from the line
+                  const jsonObjects = extractJsonObjects(line.trim());
+                  
+                  if (jsonObjects.length > 0) {
+                    // Process each JSON object
+                    for (const chunk of jsonObjects) {
+                      // Handle structured streaming responses from n8n webhook
+                      if (chunk.type === 'begin') {
+                        // Start of a new content stream
+                        if (!hasStartedFinalResponse) {
+                          hasStartedFinalResponse = true;
+                          finalContent = '';
+                          onChunk('__RESET__');
+                        }
+                      } else if (chunk.type === 'item' && chunk.content) {
+                        // Check if this is JSON content that we want to skip
+                        if (typeof chunk.content === 'string') {
+                          // Skip various JSON patterns that shouldn't be displayed
+                          if (chunk.content.startsWith('{"output":') ||
+                              chunk.content.startsWith('{"type":') ||
+                              chunk.content.includes('"metadata":') ||
+                              chunk.content.includes('"nodeId":') ||
+                              chunk.content.includes('"itemIndex":') ||
+                              chunk.content.includes('"runIndex":') ||
+                              chunk.content.includes('"timestamp":') ||
+                              chunk.content.includes('type":"item') ||
+                              chunk.content.includes('content":"') ||
+                              chunk.content.includes('"type":"item"') ||
+                              chunk.content.includes('"content":"') ||
+                              chunk.content.match(/^\s*\{\s*"type"\s*:\s*"item"/) ||
+                              chunk.content.match(/^\s*\{\s*"content"\s*:\s*"/) ||
+                              (chunk.content.startsWith('{') && chunk.content.includes('"Agent1"'))) {
+                            // This is JSON metadata or structured data - skip it completely
+                            console.log('🚫 Skipping JSON metadata chunk:', chunk.content.substring(0, 50) + '...');
+                            continue;
+                          }
+                        }
+                        
+                        // Stream content chunks (only the actual content, not metadata)
+                        if (hasStartedFinalResponse) {
+                          finalContent += chunk.content;
+                          onChunk(chunk.content);
+                        }
+                      } else if (chunk.type === 'end') {
+                        // End of content stream - continue to next stream if any
+                        continue;
+                      }
+                    }
+                  } else {
+                    // This is plain text, not JSON - handle as fallback
+                    const trimmedLine = line.trim();
+                    
+                    // Skip JSON patterns even in plain text
+                    if (trimmedLine.includes('{"type":"item"') ||
+                        trimmedLine.includes('"content":"') ||
+                        trimmedLine.includes('type":"item') ||
+                        trimmedLine.includes('content":"') ||
+                        trimmedLine.match(/^\s*\{\s*"type"\s*:\s*"item"/) ||
+                        trimmedLine.match(/^\s*\{\s*"content"\s*:\s*"/)) {
+                      console.log('🚫 Skipping JSON in plain text:', trimmedLine.substring(0, 50) + '...');
+                      continue;
+                    }
+                    
+                    if (!hasStartedFinalResponse) {
+                      hasStartedFinalResponse = true;
+                      finalContent = trimmedLine;
+                      onChunk('__RESET__');
+                      onChunk(trimmedLine);
+                    } else {
+                      // Add new plain text content
+                      finalContent += '\n' + trimmedLine;
+                      onChunk('\n' + trimmedLine);
+                    }
+                  }
+                }
+              }
+            }
+            
+            fullResponse = responseText;
+            
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+              if (xhr.status === 200) {
+                // Return only the final content, never return fullResponse to avoid unwanted JSON output
+                resolve(finalContent || '');
+              } else {
+                reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
+              }
+            }
+          }
+        };
+
+        xhr.onerror = function() {
+          reject(new Error('Failed to generate DOC. Please try again.'));
+        };
+
+        xhr.ontimeout = function() {
+          reject(new Error('Request timed out. Please try again.'));
+        };
+
+        xhr.timeout = 60000;
+
+        // Get authenticated user UID
+        const { data: { session } } = await supabase.auth.getSession();
+        const userUID = session?.user?.id || uid || '';
+        
+        if (!userUID) {
+          reject(new Error('User not authenticated - cannot generate DOC'));
+          return;
+        }
+        
+        const requestBody = JSON.stringify({
+          messages: [
+            {
+              uid: userUID,
+              type: "document_generate",
+              text: {
+                body: prompt
+              }
+            }
+          ],
+          stream: true
+        });
+
+        console.log('📤 Sending DOC generation request to n8n webhook:', requestBody);
+        xhr.send(requestBody);
+      } catch (error) {
+        console.error('Error in generateDOCStreaming:', error);
+        reject(new Error('Failed to generate DOC. Please try again.'));
+      }
+    });
+  };
+
+  // Streaming function for Image Understanding
+  const imageUnderstandingStreaming = async (prompt, imageUrl, onChunk) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'https://matrixai212.app.n8n.cloud/webhook/aea0cafd-493a-4217-a29c-501a11cccbb8');
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.setRequestHeader('Accept', 'text/event-stream');
+
+        let fullResponse = '';
+        let processedLength = 0;
+
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === XMLHttpRequest.LOADING || xhr.readyState === XMLHttpRequest.DONE) {
+            const responseText = xhr.responseText;
+            const newContent = responseText.substring(processedLength);
+            processedLength = responseText.length;
+
+            if (newContent) {
+              const lines = newContent.split('\n');
+              
+              for (const line of lines) {
+                if (line.trim()) {
+                  try {
+                    // Handle data: prefixed lines (OpenAI format)
+                    if (line.startsWith('data: ')) {
+                      const jsonStr = line.substring(6).trim();
+                      if (jsonStr === '[DONE]') {
+                        continue;
+                      }
+                      
+                      try {
+                        const parsed = JSON.parse(jsonStr);
+                        if (parsed.choices && parsed.choices[0] && parsed.choices[0].delta && parsed.choices[0].delta.content) {
+                          const chunk = parsed.choices[0].delta.content;
+                          fullResponse += chunk;
+                          if (onChunk) onChunk(chunk);
+                        }
+                      } catch (parseError) {
+                        // If JSON parsing fails, treat as plain text
+                        const chunk = jsonStr;
+                        fullResponse += chunk;
+                        if (onChunk) onChunk(chunk);
+                      }
+                    } else {
+                      // Handle n8n format or plain text
+                      try {
+                        const parsed = JSON.parse(line);
+                        if (parsed.content) {
+                          const chunk = parsed.content;
+                          fullResponse += chunk;
+                          if (onChunk) onChunk(chunk);
+                        } else if (parsed.text) {
+                          const chunk = parsed.text;
+                          fullResponse += chunk;
+                          if (onChunk) onChunk(chunk);
+                        }
+                      } catch (parseError) {
+                        // If JSON parsing fails, treat as plain text
+                        const chunk = line;
+                        fullResponse += chunk;
+                        if (onChunk) onChunk(chunk);
+                      }
+                    }
+                  } catch (error) {
+                    console.error('Error processing chunk:', error);
+                  }
+                }
+              }
+            }
+
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+              if (xhr.status === 200) {
+                resolve(fullResponse);
+              } else {
+                reject(new Error(`HTTP ${xhr.status}: Failed to understand image. Please try again.`));
+              }
+            }
+          }
+        };
+
+        xhr.onerror = function() {
+          reject(new Error('Network error occurred while understanding image. Please check your connection.'));
+        };
+
+        xhr.ontimeout = function() {
+          reject(new Error('Request timed out. Please try again.'));
+        };
+
+        xhr.timeout = 60000;
+
+        // Get authenticated user UID
+        const { data: { session } } = await supabase.auth.getSession();
+        const userUID = session?.user?.id || uid || '';
+        
+        if (!userUID) {
+          reject(new Error('User not authenticated - cannot understand image'));
+          return;
+        }
+        
+        const requestBody = JSON.stringify({
+          messages: [
+            {
+              uid: userUID,
+              type: "image_understanding",
+              text: {
+                body: prompt
+              },
+              image_url: imageUrl
+            }
+          ],
+          stream: true
+        });
+
+        console.log('📤 Sending image understanding request to n8n webhook:', requestBody);
+        xhr.send(requestBody);
+      } catch (error) {
+        console.error('Error in imageUnderstandingStreaming:', error);
+        reject(new Error('Failed to understand image. Please try again.'));
+      }
+    });
+  };
+
   const fetchDeepSeekResponse = async (userMessage, retryCount = 0) => {
     try {
+      console.log('🚀 fetchDeepSeekResponse called with message:', userMessage);
+      
       // Check if user has enough coins (1 coin required for chat)
       if (coinCount < 1) {
+        console.log('❌ Insufficient coins, showing modal');
         setRequiredCoins(1);
         setLowBalanceModalVisible(true);
         return;
       }
       
       setIsLoading(true);
+      console.log('⏳ Set loading to true');
       
       // Get current user session
       const { data: { session } } = await supabase.auth.getSession();
-      const userId = session?.user?.id || 'anonymous';
+      const userId = uid || session?.user?.id || 'anonymous';
+      console.log('👤 User ID:', userId);
       
-      console.log('Starting enhanced streaming with parallel image generation...');
+      console.log('🎯 Starting enhanced streaming with parallel image generation...');
       
       // Step 1: Create response plan with parallel image generation
       const conversationHistory = messages
@@ -1244,13 +1917,18 @@ Always provide helpful, accurate, and well-formatted responses.`
       // Start assistant message in database if authenticated
       let assistantMessageId = null;
       if (userId !== 'anonymous') {
-        const assistantMessage = await startAssistantMessage(
-          currentChatId,
-          userId,
-          {},
-          Date.now().toString()
-        );
-        assistantMessageId = assistantMessage?.id;
+        try {
+          const assistantMessage = await startAssistantMessage(
+            currentChatId,
+            userId,
+            {},
+            Date.now().toString()
+          );
+          assistantMessageId = assistantMessage?.id || null;
+        } catch (error) {
+          console.error('Error starting assistant message:', error);
+          assistantMessageId = null;
+        }
       }
       
       // Create a streaming bot message that will be updated in real-time
@@ -1273,6 +1951,7 @@ Always provide helpful, accurate, and well-formatted responses.`
 
       // Define callbacks for the enhanced streaming
       const handleTextChunk = async (chunk) => {
+        console.log('📝 Received text chunk:', chunk);
         streamingContent += chunk;
         
         // Update the streaming message in real-time
@@ -1330,11 +2009,6 @@ Always provide helpful, accurate, and well-formatted responses.`
             finalizeMessage(assistantMessageId);
           }
           
-          // Save bot response to chat history
-          saveChatHistoryEnhanced(streamingContent, 'bot', 1).catch(error => {
-            console.error('Failed to save bot response:', error);
-          });
-          
           // Store the coins deducted for UI display
           setLastCoinsDeducted(1);
         }
@@ -1343,13 +2017,20 @@ Always provide helpful, accurate, and well-formatted responses.`
       };
 
       // Start the enhanced streaming with parallel image generation
+      console.log('🔄 Starting streaming service with:', {
+        userMessage,
+        conversationHistoryLength: conversationHistory.length,
+        responsePlan
+      });
+      
       await streamingService.startStreamingWithImages(
         userMessage,
         conversationHistory,
         responsePlan,
         handleTextChunk,
         handleImageReady,
-        handleComplete
+        handleComplete,
+        HTML_FORMATTING_SYSTEM_PROMPT
       );
       
     } catch (error) {
@@ -1372,9 +2053,115 @@ Always provide helpful, accurate, and well-formatted responses.`
         }];
       });
       
-      // Save the error message to chat history
-      await saveChatHistoryEnhanced('Sorry, I encountered an error. Could you try again?', 'bot');
+      // Error message is already added to local state above
       setIsLoading(false);
+    }
+  };
+
+  // Function to send messages with attached files to n8n
+  const sendMessageWithAttachmentsToN8N = async (attachedFiles, userText, onChunk = null) => {
+    try {
+      const messages = attachedFiles.map(file => {
+        const fileType = file.type?.includes('image') ? 'image' : 'document';
+        const defaultPrompt = fileType === 'image' 
+          ? userText || "Can you see what is in this image"
+          : userText || "Can you perform as a ocr and extract all the text if this file";
+        
+        return {
+          uid: generateUUID(),
+          type: fileType,
+          text: {
+            body: defaultPrompt
+          },
+          url: file.publicUrl
+        };
+      });
+
+      const requestBody = {
+        messages: messages,
+        stream: true
+      };
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', 'https://matrixai212.app.n8n.cloud/webhook/aea0cafd-493a-4217-a29c-501a11cccbb8', true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.setRequestHeader('Accept', 'text/event-stream');
+
+      let fullContent = '';
+      let processedLength = 0;
+
+      return new Promise((resolve, reject) => {
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === 3 || xhr.readyState === 4) {
+            const responseText = xhr.responseText;
+            const newContent = responseText.substring(processedLength);
+            processedLength = responseText.length;
+            
+            if (newContent) {
+              const lines = newContent.split('\n');
+              
+              for (const line of lines) {
+                if (line.trim()) {
+                  try {
+                    const parsed = JSON.parse(line.trim());
+                    if (parsed.type === 'item' && parsed.content) {
+                      let content_chunk = parsed.content;
+                      
+                      // Filter out common system messages and static content
+                      const systemPatterns = [
+                        /^(Processing|Analyzing|Loading|Uploading|Please wait|System:|Assistant:)/i,
+                        /^(I'm analyzing|I'm processing|Let me analyze|Let me process)/i,
+                        /^(Starting|Initializing|Preparing)/i
+                      ];
+                      
+                      // Check if this chunk contains only system messages
+                      const isSystemMessage = systemPatterns.some(pattern => 
+                        pattern.test(content_chunk.trim())
+                      );
+                      
+                      // Only add content that's not a system message
+                      if (!isSystemMessage) {
+                        fullContent += content_chunk;
+                        
+                        if (onChunk) {
+                          onChunk(content_chunk);
+                        }
+                      }
+                    }
+                  } catch (parseError) {
+                    // Skip invalid JSON lines
+                    continue;
+                  }
+                }
+              }
+            }
+            
+            if (xhr.readyState === 4) {
+              if (xhr.status === 200) {
+                resolve(fullContent.trim() || 'Processing completed successfully.');
+              } else {
+                reject(new Error(`Request failed: ${xhr.status} ${xhr.statusText}`));
+              }
+            }
+          }
+        };
+
+        xhr.onerror = function() {
+          reject(new Error('Failed to get response from AI. Please try again.'));
+        };
+
+        xhr.ontimeout = function() {
+          reject(new Error('Request timed out. Please try again.'));
+        };
+
+        xhr.timeout = 60000; // 60 second timeout
+
+        console.log('📊 Sending request to n8n with attachments:', requestBody);
+        xhr.send(JSON.stringify(requestBody));
+      });
+    } catch (error) {
+      console.error('Error sending message with attachments to n8n:', error);
+      throw error;
     }
   };
 
@@ -1404,23 +2191,26 @@ Always provide helpful, accurate, and well-formatted responses.`
       
       try {
         // Deduct coins before processing
+        let coinDeductionSuccessful = false;
         try {
           const transactionName = hasAttachments ? 'Message with Attachments' : 'Text Message';
           await paymentService.subtractCoins(uid, requiredCoins, transactionName);
+          coinDeductionSuccessful = true;
           // Note: coinCount will be automatically updated by useCoinsSubscription hook
         } catch (error) {
           console.error('Error deducting coins:', error);
-          Alert.alert(
-            'Payment Error',
-            'Failed to process payment. Please try again.',
-            [{ text: 'OK' }]
-          );
-          setIsSendDisabled(false);
-          return;
+          // Show error but continue with message processing for better user experience
+          Toast.show({
+            type: 'error',
+            text1: 'Payment Warning',
+            text2: 'Coin deduction failed, but message will be processed',
+            position: 'bottom',
+            visibilityTime: 3000,
+          });
         }
         // Get current user session first to ensure we have authentication
         const { data: sessionData } = await supabase.auth.getSession();
-        const userId = sessionData?.session?.user?.id || 'anonymous';
+        const userId = uid || sessionData?.session?.user?.id || 'anonymous';
         
         setIsTyping(true);
         
@@ -1504,10 +2294,17 @@ Always provide helpful, accurate, and well-formatted responses.`
               }
             }
             
+            // Convert base64 to Uint8Array for proper binary upload
+            const binaryString = atob(fileContent);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+
             // Upload image to Supabase storage
             const { data: uploadData, error: uploadError } = await supabase.storage
               .from('user-uploads')
-              .upload(filePath, decode(fileContent), {
+              .upload(filePath, bytes, {
                 contentType: mimeType,
                 upsert: false
               });
@@ -1534,17 +2331,19 @@ Always provide helpful, accurate, and well-formatted responses.`
             const captionText = inputText.trim();
             const question = captionText ? captionText : "What do you see in this image?";
             
-            // Save user message with attachment using enhanced error handling
+            // Save user message with attachment using the new schema
             let userMessageId = null;
             if (userId !== 'anonymous') {
               try {
-                const fileAttachment = {
-                  url: imageUrl,
-                  name: imageFileName || `image.${fileExtension}`,
-                  type: mimeType,
-                  size: compressedImage.size
-                };
-                const savedMessage = await saveChatHistoryEnhanced(captionText, 'user', 0, fileAttachment);
+                const savedMessage = await addUserMessageWithAttachment(
+                  currentChatId,
+                  userId,
+                  captionText || "What do you see in this image?",
+                  imageUrl,
+                  imageFileName || `image.${fileExtension}`,
+                  mimeType,
+                  compressedImage.size
+                );
                 userMessageId = savedMessage?.id;
               } catch (error) {
                 console.error('Failed to save image message:', error);
@@ -1574,48 +2373,64 @@ Always provide helpful, accurate, and well-formatted responses.`
             setSelectedImage(null);
             setInputText('');
 
-            // Create a streaming bot message that will be updated in real-time
-            const streamingMessageId = 'streaming-' + Date.now().toString();
-            let streamingContent = '';
+            // Create a streaming bot message using the new schema
+            let assistantMessage = null;
+            let streamingMessageId = 'streaming-' + Date.now().toString();
             
-            // Add initial empty streaming message
-            setMessages(prev => [...prev, {
-              id: streamingMessageId,
-              text: '',
-              sender: 'bot',
-              isStreaming: true
-            }]);
-
-            // Define chunk handler for real-time updates
-            const handleChunk = (chunk) => {
-              streamingContent += chunk;
+            try {
+              // Only create database message if user is not anonymous
+              if (userId !== 'anonymous') {
+                assistantMessage = await startAssistantMessage(currentChatId, userId, {
+                  content_type: 'text',
+                  metadata: { image_analyzed: true }
+                });
+              }
               
-              // Update the streaming message in real-time
-              setMessages(prev => prev.map(msg => 
-                msg.id === streamingMessageId 
-                  ? { ...msg, text: streamingContent }
-                  : msg
-              ));
-              
-              // Removed auto-scroll during streaming to prevent unwanted scrolling
-            };
+              // Add initial streaming message to local state
+              setMessages(prev => [...prev, {
+                id: assistantMessage?.id || streamingMessageId,
+                text: '',
+                sender: 'bot',
+                isStreaming: true
+              }]);
+            } catch (error) {
+              console.error('Failed to start assistant message:', error);
+              // Fallback to local streaming message
+              setMessages(prev => [...prev, {
+                id: streamingMessageId,
+                text: '',
+                sender: 'bot',
+                isStreaming: true
+              }]);
+            }
 
-            // Get streaming response with image
-            const fullResponse = await sendMessageToAI(question, imageUrl, handleChunk);
+            // Get response from n8n webhook for image processing
+            const fullResponse = await processImageUnderstanding(imageUrl, question);
+            
+            // Update the streaming message with the full response
+            if (assistantMessage) {
+              try {
+                await appendMessageChunk(assistantMessage.id, fullResponse);
+              } catch (error) {
+                console.error('Failed to append response:', error);
+              }
+            }
             
             // Finalize the streaming message
+            if (assistantMessage) {
+              try {
+                await finalizeMessage(assistantMessage.id);
+              } catch (error) {
+                console.error('Failed to finalize message:', error);
+              }
+            }
+            
+            // Update local state with final message
             setMessages(prev => prev.map(msg => 
-              msg.id === streamingMessageId 
+              msg.id === (assistantMessage?.id || streamingMessageId)
                 ? { ...msg, text: fullResponse, isStreaming: false, coinsDeducted: 1 }
                 : msg
             ));
-            
-            // Save bot response with enhanced error handling
-            try {
-              await saveChatHistoryEnhanced(fullResponse, 'bot', 1);
-            } catch (error) {
-              console.error('Failed to save bot response:', error);
-            }
 
             // Show success feedback
             Toast.show({
@@ -1646,8 +2461,7 @@ Always provide helpful, accurate, and well-formatted responses.`
               }];
             });
             
-            // Save the error message to chat history
-            await saveChatHistoryEnhanced('Sorry, I had trouble processing that image. Could you try a different image?', 'bot');
+            // Error message is already added to local state above
           } finally {
             setIsLoading(false);
             setIsImageProcessing(false);
@@ -1660,70 +2474,31 @@ Always provide helpful, accurate, and well-formatted responses.`
             }, 1500); // Increased delay to 1.5 seconds
           }
         } else if (attachedFiles.length > 0) {
-          // File attachment processing
+          // File attachment processing - files are already uploaded to Supabase
           try {
             setIsLoading(true);
-            setIsUploadingFile(true);
             
-            // Process each attached file
-            let processedContent = '';
-            let uploadedFiles = [];
-            
-            for (let i = 0; i < attachedFiles.length; i++) {
-              const file = attachedFiles[i];
-              setUploadProgress((i / attachedFiles.length) * 50); // First 50% for upload
-              
-              try {
-                // Upload file to storage
-                const uploadedFile = await uploadFile(file, userId);
-                uploadedFiles.push(uploadedFile);
-                
-                setUploadProgress(50 + ((i + 1) / attachedFiles.length) * 30); // Next 30% for processing
-                
-                // Process document based on type
-                const processingMethod = getDocumentProcessingMethod(file);
-                
-                if (processingMethod === 'excel') {
-                  // For Excel files, use webhook API with streaming
-                  const excelContent = await processExcelDocument(uploadedFile.publicUrl, (chunk) => {
-                    processedContent += chunk;
-                  });
-                  processedContent += `\n\n**File: ${file.name}**\n${excelContent}\n`;
-                } else if (processingMethod === 'pdf') {
-                  // For PDF files, convert to images
-                  const pdfPages = await processPDFDocument(file.uri);
-                  processedContent += `\n\n**File: ${file.name}** (${pdfPages.length} pages)\n`;
-                  // Note: PDF pages are converted to images for AI analysis
-                } else if (processingMethod === 'word') {
-                  // For Word documents, extract text content
-                  const wordContent = await processWordDocument(file.uri);
-                  processedContent += `\n\n**File: ${file.name}**\n${wordContent.text}\n`;
-                } else {
-                  processedContent += `\n\n**File: ${file.name}** (attached)\n`;
-                }
-                
-              } catch (fileError) {
-                console.error(`Error processing file ${file.name}:`, fileError);
-                processedContent += `\n\n**File: ${file.name}** (processing failed)\n`;
-              }
-            }
-            
-            setUploadProgress(100);
-            
-            // Combine input text with processed file content
-            const fullMessage = inputText.trim() + (processedContent ? `\n\nAttached files:${processedContent}` : '');
-            
-            // Save user message with attachments using enhanced error handling
+            // Save user message with attachments using the new schema
             let userMessageId = null;
             if (userId !== 'anonymous') {
               try {
-                const fileAttachments = uploadedFiles.map(file => ({
-                  url: file.url,
-                  name: file.fileName,
-                  type: file.type || 'application/octet-stream',
-                  size: file.size || 0
-                }));
-                const savedMessage = await saveChatHistoryEnhanced(inputText.trim(), 'user', 0, fileAttachments[0], fileAttachments);
+                // For multiple files, save the first one as the main attachment
+                const primaryAttachment = attachedFiles.length > 0 ? {
+                  file_url: attachedFiles[0].publicUrl,
+                  file_name: attachedFiles[0].name,
+                  file_type: attachedFiles[0].type || 'application/octet-stream',
+                  file_size: attachedFiles[0].size || 0
+                } : null;
+                
+                const savedMessage = await addUserMessageWithAttachment(
+                  currentChatId,
+                  userId,
+                  inputText.trim(),
+                  primaryAttachment?.file_url,
+                  primaryAttachment?.file_name,
+                  primaryAttachment?.file_type,
+                  primaryAttachment?.file_size
+                );
                 userMessageId = savedMessage?.id;
               } catch (error) {
                 console.error('Failed to save file attachment message:', error);
@@ -1737,53 +2512,86 @@ Always provide helpful, accurate, and well-formatted responses.`
               text: inputText.trim(),
               sender: 'user',
               timestamp: new Date().toISOString(),
-              attachments: uploadedFiles
+              attachments: attachedFiles
             };
             
             // Track this message for coin deduction display
             setRecentCoinDeductions(prev => new Set([...prev, newMessage.id]));
             
             setMessages(prev => [...prev, newMessage]);
-            setInputText('');
-            setAttachedFiles([]);
             
-            // Create a streaming bot message
-            const streamingMessageId = 'streaming-' + Date.now().toString();
+            // Create a streaming bot message using the new schema
+            let assistantMessage = null;
+            let streamingMessageId = 'streaming-' + Date.now().toString();
+            
+            try {
+              // Only create database message if user is not anonymous
+              if (userId !== 'anonymous') {
+                assistantMessage = await startAssistantMessage(currentChatId, userId, {
+                  content_type: 'text',
+                  metadata: { files_processed: attachedFiles.length }
+                });
+              }
+              
+              // Add initial streaming message to local state
+              setMessages(prev => [...prev, {
+                id: assistantMessage?.id || streamingMessageId,
+                text: '',
+                sender: 'bot',
+                isStreaming: true
+              }]);
+            } catch (error) {
+              console.error('Failed to start assistant message:', error);
+              // Fallback to local streaming message
+              setMessages(prev => [...prev, {
+                id: streamingMessageId,
+                text: '',
+                sender: 'bot',
+                isStreaming: true
+              }]);
+            }
+            
             let streamingContent = '';
             
-            setMessages(prev => [...prev, {
-              id: streamingMessageId,
-              text: '',
-              sender: 'bot',
-              isStreaming: true
-            }]);
-            
             // Define chunk handler for real-time updates
-            const handleChunk = (chunk) => {
+            const handleChunk = async (chunk) => {
               streamingContent += chunk;
+              
+              // Update the streaming message in database and local state
+              if (assistantMessage) {
+                try {
+                  await appendMessageChunk(assistantMessage.id, chunk);
+                } catch (error) {
+                  console.error('Failed to append chunk:', error);
+                }
+              }
+              
+              // Update local state
               setMessages(prev => prev.map(msg => 
-                msg.id === streamingMessageId 
+                msg.id === (assistantMessage?.id || streamingMessageId)
                   ? { ...msg, text: streamingContent }
                   : msg
               ));
             };
             
-            // Send message with processed file content to AI
-            const fullResponse = await sendMessageToAI(fullMessage, null, handleChunk);
+            // Send message with attached files to n8n using the new format
+            const fullResponse = await sendMessageWithAttachmentsToN8N(attachedFiles, inputText.trim(), handleChunk);
             
             // Finalize the streaming message
+            if (assistantMessage) {
+              try {
+                await finalizeMessage(assistantMessage.id);
+              } catch (error) {
+                console.error('Failed to finalize message:', error);
+              }
+            }
+            
+            // Update local state with final message
             setMessages(prev => prev.map(msg => 
-              msg.id === streamingMessageId 
+              msg.id === (assistantMessage?.id || streamingMessageId)
                 ? { ...msg, text: fullResponse, isStreaming: false, coinsDeducted: 1 }
                 : msg
             ));
-            
-            // Save bot response with enhanced error handling
-            try {
-              await saveChatHistoryEnhanced(fullResponse, 'bot', 1);
-            } catch (error) {
-              console.error('Failed to save bot response:', error);
-            }
             
             // Show success feedback
             Toast.show({
@@ -1809,10 +2617,8 @@ Always provide helpful, accurate, and well-formatted responses.`
             
           } finally {
             setIsLoading(false);
-            setIsUploadingFile(false);
-            setUploadProgress(0);
-            setAttachedFiles([]);
             setInputText('');
+            setAttachedFiles([]);
             
             // Re-enable the send button
             sendTimeoutRef.current = setTimeout(() => {
@@ -1840,11 +2646,11 @@ Always provide helpful, accurate, and well-formatted responses.`
               
             } else {
               // Regular message handling
-              // Save user message to database with enhanced error handling
+              // Save user message to database using the new schema
               let userMessageId = null;
               if (userId !== 'anonymous') {
                 try {
-                  const savedMessage = await saveChatHistoryEnhanced(inputText, 'user');
+                  const savedMessage = await addUserMessage(currentChatId, userId, inputText.trim());
                   userMessageId = savedMessage?.id;
                 } catch (error) {
                   console.error('Failed to save user message:', error);
@@ -1898,8 +2704,7 @@ Always provide helpful, accurate, and well-formatted responses.`
               { id: Date.now().toString(), text: 'Sorry, I encountered an error processing your message. Could you try again?', sender: 'bot' },
             ]);
             
-            // Save the error message to chat history with enhanced error handling
-            await saveChatHistoryEnhanced('Sorry, I encountered an error processing your message. Could you try again?', 'bot');
+            // Error message is already added to local state above
           } finally {
             setIsLoading(false);
             
@@ -1921,543 +2726,13 @@ Always provide helpful, accurate, and well-formatted responses.`
     }
   };
 
-  // Enhanced chat saving function with proper error handling and retry logic
-  const saveChatHistoryEnhanced = async (messageText, sender, coinsDeducted = 0, fileAttachment = null) => {
-    const MAX_RETRIES = 3;
-    const RETRY_DELAY = 1000; // 1 second
-    
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        // Check if user is authenticated
-        if (!uid) {
-          console.log('No authenticated user found, skipping chat history save');
-          return { success: false, error: 'No authenticated user' };
-        }
-        
-        const userId = uid;
-        
-        // Ensure we have a valid chat ID
-        let chatIdToUse = currentChatId;
-        if (!chatIdToUse) {
-          console.log('No current chat ID, creating a new chat');
-          chatIdToUse = generateUUID();
-          setCurrentChatId(chatIdToUse);
-          
-          // Create new chat using the new chat service
-          try {
-            const newChat = await createNewChat(userId, t('newChat'), currentRole || '');
-            chatIdToUse = newChat.id;
-            setCurrentChatId(chatIdToUse);
-            
-            // Update local state
-            setChats(prevChats => [
-              {
-                id: chatIdToUse,
-                name: t('newChat'),
-                description: '',
-                role: currentRole || '',
-                roleDescription: '',
-                messages: [],
-              },
-              ...prevChats
-            ]);
-          } catch (createError) {
-            console.error('Error creating new chat:', createError);
-            return { success: false, error: 'Failed to create chat', attempt };
-          }
-        }
-        
-        // Prepare message data
-        const timestamp = new Date().toISOString();
-        let messageData = {
-          chat_id: chatIdToUse,
-          role: sender === 'bot' ? 'assistant' : 'user',
-          content: messageText,
-          status: 'done',
-          position: await getNextMessagePosition(chatIdToUse),
-          metadata: {
-            timestamp,
-            coinsDeducted: coinsDeducted || 0,
-            sender: sender
-          }
-        };
-        
-        // Handle file attachment if present
-        if (fileAttachment) {
-          // Validate file before processing
-          const validation = await validateFileEnhanced(fileAttachment);
-          if (!validation.isValid) {
-            console.error('File validation failed:', validation.error);
-            return { success: false, error: validation.error, attempt };
-          }
-          
-          try {
-            // Upload file to storage with proper error handling
-            const uploadResult = await uploadFileWithRetry(fileAttachment, userId);
-            if (!uploadResult.success) {
-              throw new Error(uploadResult.error);
-            }
-            
-            // Add file metadata to message
-            messageData.file_url = uploadResult.publicUrl;
-            messageData.file_name = fileAttachment.name || fileAttachment.fileName;
-            messageData.file_type = fileAttachment.type || fileAttachment.mime;
-            messageData.file_size = fileAttachment.size || fileAttachment.fileSize;
-            
-            console.log('File uploaded successfully:', uploadResult.publicUrl);
-          } catch (uploadError) {
-            console.error('File upload failed:', uploadError);
-            return { success: false, error: 'File upload failed: ' + uploadError.message, attempt };
-          }
-        }
-        
-        // Save message to database using direct Supabase call with proper error handling
-        try {
-          const { data: savedMessage, error: saveError } = await supabase
-            .from('messages')
-            .insert(messageData)
-            .select()
-            .single();
-          
-          if (saveError) {
-            // Check if it's a constraint violation and handle accordingly
-            if (saveError.message && saveError.message.includes('check constraint')) {
-              console.log('Retrying with different status value');
-              messageData.status = 'pending';
-              const { data: retryMessage, error: retryError } = await supabase
-                .from('messages')
-                .insert(messageData)
-                .select()
-                .single();
-              
-              if (retryError) {
-                throw retryError;
-              }
-              
-              // Update local state with the saved message
-              const frontendMessage = supabaseMessageToFrontend(retryMessage);
-              setMessages(prevMessages => [...prevMessages, frontendMessage]);
-              
-              console.log('Message saved successfully on retry:', retryMessage.id);
-              return { success: true, messageId: retryMessage.id, attempt };
-            }
-            
-            throw saveError;
-          }
-          
-          // Update local state with the saved message
-          const frontendMessage = supabaseMessageToFrontend(savedMessage);
-          setMessages(prevMessages => [...prevMessages, frontendMessage]);
-          
-          // Update chat description and name if needed
-          await updateChatMetadata(chatIdToUse, messageText, sender);
-          
-          console.log('Message saved successfully:', savedMessage.id);
-          return { success: true, messageId: savedMessage.id, attempt };
-          
-        } catch (saveError) {
-          console.error('Error saving message:', saveError);
-          throw saveError;
-        }
-        
-      } catch (error) {
-        console.error(`Attempt ${attempt} failed:`, error);
-        
-        if (attempt === MAX_RETRIES) {
-          console.error('All retry attempts failed');
-          return { 
-            success: false, 
-            error: error.message || 'Failed to save message after multiple attempts',
-            attempt 
-          };
-        }
-        
-        // Wait before retrying
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
-      }
-    }
-  };
 
-  const saveChatHistory = async (messageText, sender, coinsDeducted = 0) => {
-    try {
-      // Check if user is authenticated
-      if (!uid) {
-        console.log('No authenticated user found, skipping chat history save');
-        return;
-      }
-      
-      const userId = uid;
-      
-      // Make sure we have a valid chat id
-      if (!currentChatId) {
-        console.log('No current chat ID, creating a new chat');
-        const newChatId = generateUUID();
-        setCurrentChatId(newChatId);
-        
-        // Create a new empty chat first
-        const timestamp = new Date().toISOString();
-        const newChat = {
-          chat_id: newChatId,
-          user_id: userId,
-          name: t('newChat'),
-          description: messageText.substring(0, 30) + (messageText.length > 30 ? '...' : ''),
-          role: currentRole || '',
-          role_description: '',
-          messages: [],
-          created_at: timestamp,
-          updated_at: timestamp
-        };
-        
-        // Insert the chat before adding the message using new schema
-        const createdChatId = await createNewChat(
-          userId,
-          t('newChat'),
-          {
-            description: messageText.substring(0, 30) + (messageText.length > 30 ? '...' : '')
-          },
-          currentRole || 'assistant'
-        );
-        
-        if (!createdChatId) {
-          console.error('Error creating new chat');
-          return;
-        }
-        
-        // Update local state
-        setChats(prevChats => [
-          {
-            id: newChatId,
-            name: t('newChat'),
-            description: messageText.substring(0, 30) + (messageText.length > 30 ? '...' : ''),
-            role: currentRole || '',
-            roleDescription: '',
-            messages: [],
-          },
-          ...prevChats
-        ]);
-      }
-      
-      // Now we proceed with adding the message, using the currentChatId which is now guaranteed to exist
-      const chatIdToUse = currentChatId;
-      
-      // Check if chat exists in the database
-      const { data: existingChat, error: chatError } = await supabase
-        .from('chats')
-        .select('*')
-        .eq('id', chatIdToUse)
-        .single();
-      
-      if (chatError && chatError.code !== 'PGRST116') { // PGRST116 is "not found" error
-        console.error('Error checking chat existence:', chatError);
-        return;
-      }
-      
-      const timestamp = new Date().toISOString();
-      let newMessage;
-      let description = '';
-      
-      // Check if this is a combined image and text message (in JSON format)
-      let parsedMessage = null;
-      if (typeof messageText === 'string' && messageText.startsWith('{') && messageText.includes('type')) {
-        try {
-          parsedMessage = JSON.parse(messageText);
-        } catch (e) {
-          console.log('Not a valid JSON message:', e);
-        }
-      }
-      
-      // Check if the message is an image URL from Supabase Storage
-      const isImageUrl = typeof messageText === 'string' && 
-                        (messageText.includes('supabase.co/storage/v1/') || 
-                         messageText.includes('user-uploads'));
-      
-      if (parsedMessage && parsedMessage.type === 'image_message') {
-        // For combined image and text messages
-        newMessage = {
-          id: Date.now().toString(),
-          image: parsedMessage.image,
-          text: parsedMessage.text || '',
-          sender: sender,
-          timestamp: timestamp
-        };
-        description = parsedMessage.text ? parsedMessage.text.substring(0, 30) + (parsedMessage.text.length > 30 ? '...' : '') : 'Image';
-        console.log('Saving image with caption in chat history');
-      } else if (isImageUrl && sender === 'user') {
-        // For legacy image-only messages
-        newMessage = {
-          id: Date.now().toString(),
-          image: messageText,
-          text: '',
-          sender: sender,
-          timestamp: timestamp
-        };
-        description = 'Image';
-        console.log('Saving image URL in chat history:', messageText);
-      } else {
-        // Regular text message
-        newMessage = {
-          id: Date.now().toString(),
-          text: messageText,
-          sender: sender,
-          timestamp: timestamp
-        };
-        description = messageText.substring(0, 30) + (messageText.length > 30 ? '...' : '');
-      }
-      
-      // Check if we need to update the chat name from 'New Chat' to 'MatrixAI Bot'
-      let chatName = existingChat?.name || '';
-      const shouldUpdateName = chatName === t('newChat') && sender === 'user';
-      if (shouldUpdateName) {
-        chatName = t('matrixAIBot');
-      }
-      
-      if (existingChat) {
-        // Chat exists, update messages array
-        // Limit the number of messages to prevent database size issues
-        // Keep only the last 50 messages
-        const updatedMessages = [...(existingChat.messages || []), newMessage].slice(-50);
-        
-        const { error: updateError } = await supabase
-          .from('user_chats')
-          .update({
-            messages: updatedMessages,
-            updated_at: timestamp,
-            // Update name from 'New Chat' to 'MatrixAI Bot' if this is first user message
-            name: shouldUpdateName ? chatName : existingChat.name,
-            // Also update description to the latest message for preview
-            description: description
-          })
-          .eq('chat_id', chatIdToUse);
-        
-        if (updateError) {
-          console.error('Error updating chat:', updateError);
-          
-          // If error is related to size, try with fewer messages
-          if (updateError.message && updateError.message.includes('size')) {
-            console.log('Trying with fewer messages due to size constraint');
-            
-            // Try again with only 10 most recent messages
-            const reducedMessages = [...(existingChat.messages || []), newMessage].slice(-10);
-            
-            const { error: retryError } = await supabase
-              .from('user_chats')
-              .update({
-                messages: reducedMessages,
-                updated_at: timestamp,
-                name: shouldUpdateName ? chatName : existingChat.name,
-                description: description
-              })
-              .eq('chat_id', chatIdToUse);
-              
-            if (retryError) {
-              console.error('Error on retry with reduced messages:', retryError);
-              return;
-            }
-          } else {
-            return;
-          }
-        }
-        
-        console.log('Chat history updated in Supabase');
-      } else {
-        // This is just a fallback - we should never get here as we create the chat first if it doesn't exist
-        console.log('Chat not found, creating a new one with the message');
-        
-        // Create new chat with only this message to ensure size limits
-        const newChat = {
-          chat_id: chatIdToUse,
-          user_id: userId,
-          name: t('matrixAIBot'), // Always use 'MatrixAI Bot' for new chats with messages
-          description: description,
-          role: currentRole || '',
-          role_description: '',
-          messages: [newMessage],
-          created_at: timestamp,
-          updated_at: timestamp
-        };
-        
-        const { error: insertError } = await supabase
-          .from('user_chats')
-          .insert(newChat);
-        
-        if (insertError) {
-          console.error('Error creating new chat:', insertError);
-          return;
-        }
-        
-        console.log('New chat created in Supabase');
-      }
-    
-      
-      // Update the chat in the local state
-      setChats(prevChats => prevChats.map(chat => 
-        chat.id === chatIdToUse 
-          ? { 
-              ...chat, 
-              messages: [...(chat.messages || []), newMessage],
-              name: shouldUpdateName ? chatName : chat.name,
-              description: description
-            } 
-          : chat
-      ));
-    } catch (error) {
-      console.error('Error saving chat history:', error);
-    }
-  };
 
-  // Enhanced file validation function
-  const validateFileEnhanced = async (file) => {
-    try {
-      // Check if file exists and has required properties
-      if (!file) {
-        return { isValid: false, error: 'No file provided' };
-      }
-      
-      const fileName = file.name || file.fileName || '';
-      const fileSize = file.size || file.fileSize || 0;
-      const fileType = file.type || file.mime || '';
-      
-      // Check file name
-      if (!fileName || fileName.trim() === '') {
-        return { isValid: false, error: 'Invalid file name' };
-      }
-      
-      // Check file size (max 10MB)
-      const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-      if (fileSize > MAX_FILE_SIZE) {
-        return { isValid: false, error: 'File size exceeds 10MB limit' };
-      }
-      
-      // Check file type
-      const allowedTypes = [
-        'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
-        'application/pdf', 'text/plain', 'text/csv',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'application/msword', 'application/vnd.ms-excel'
-      ];
-      
-      if (!allowedTypes.includes(fileType)) {
-        return { isValid: false, error: 'Unsupported file type: ' + fileType };
-      }
-      
-      // Additional security checks
-      const suspiciousExtensions = ['.exe', '.bat', '.cmd', '.scr', '.pif', '.com'];
-      const fileExtension = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
-      if (suspiciousExtensions.includes(fileExtension)) {
-        return { isValid: false, error: 'Potentially dangerous file type' };
-      }
-      
-      return { isValid: true };
-      
-    } catch (error) {
-      console.error('File validation error:', error);
-      return { isValid: false, error: 'File validation failed: ' + error.message };
-    }
-  };
+
+
+
   
-  // Enhanced file upload with retry logic
-  const uploadFileWithRetry = async (file, userId, maxRetries = 3) => {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        // Generate unique file name
-        const uniqueFileName = generateUniqueFileName(file.name || file.fileName);
-        const fileType = file.type || file.mime;
-        
-        // Determine upload path based on file type
-        let uploadPath;
-        if (fileType.startsWith('image/')) {
-          uploadPath = `users/${userId}/images/${uniqueFileName}`;
-        } else {
-          uploadPath = `users/${userId}/documents/${uniqueFileName}`;
-        }
-        
-        // Upload to Supabase storage
-        const { data, error } = await supabase.storage
-          .from('user-uploads')
-          .upload(uploadPath, file, {
-            cacheControl: '3600',
-            upsert: false
-          });
-        
-        if (error) {
-          throw error;
-        }
-        
-        // Get public URL
-        const { data: { publicUrl } } = supabase.storage
-          .from('user-uploads')
-          .getPublicUrl(uploadPath);
-        
-        return {
-          success: true,
-          publicUrl,
-          path: uploadPath,
-          fileName: uniqueFileName
-        };
-        
-      } catch (error) {
-        console.error(`Upload attempt ${attempt} failed:`, error);
-        
-        if (attempt === maxRetries) {
-          return {
-            success: false,
-            error: error.message || 'Upload failed after multiple attempts'
-          };
-        }
-        
-        // Wait before retrying
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-      }
-    }
-  };
-  
-  // Helper function to get next message position
-  const getNextMessagePosition = async (chatId) => {
-    try {
-      const { data, error } = await supabase
-        .from('messages')
-        .select('position')
-        .eq('chat_id', chatId)
-        .order('position', { ascending: false })
-        .limit(1);
-      
-      if (error) {
-        console.error('Error getting message position:', error);
-        return 1;
-      }
-      
-      return data.length > 0 ? data[0].position + 1 : 1;
-    } catch (error) {
-      console.error('Error calculating message position:', error);
-      return 1;
-    }
-  };
-  
-  // Helper function to update chat metadata
-  const updateChatMetadata = async (chatId, messageText, sender) => {
-    try {
-      // Only update on first user message to change from "New Chat"
-      if (sender === 'user') {
-        const description = messageText.substring(0, 50) + (messageText.length > 50 ? '...' : '');
-        
-        const { error } = await supabase
-          .from('chats')
-          .update({
-            title: t('matrixAIBot'),
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', chatId)
-          .eq('title', t('newChat')); // Only update if still "New Chat"
-        
-        if (error) {
-          console.error('Error updating chat metadata:', error);
-        }
-      }
-    } catch (error) {
-      console.error('Error in updateChatMetadata:', error);
-    }
-  };
+
 
   const handleInputChange = (text) => {
     setInputText(text);
@@ -2548,8 +2823,27 @@ Always provide helpful, accurate, and well-formatted responses.`
     // Ensure text is always a string to prevent markdown parser errors
     const messageText = typeof item.text === 'string' ? item.text : String(item.text || '');
     
-    // Parse message for attachments (only for bot messages)
-    const { cleanText, attachments } = isBot ? parseMessageForAttachments(messageText) : { cleanText: messageText, attachments: [] };
+    // Parse message for attachments
+    let cleanText, attachments;
+    if (isBot) {
+      // For bot messages, parse attachments from message text
+      const parsed = parseMessageForAttachments(messageText);
+      cleanText = parsed.cleanText;
+      attachments = parsed.attachments;
+    } else {
+      // For user messages, use attachments from the message object (from supabaseMessageToFrontend)
+      cleanText = messageText;
+      attachments = item.attachments || [];
+      
+      // Convert attachment format to match what AttachmentComponent expects
+      if (attachments.length > 0) {
+        attachments = attachments.map(attachment => ({
+          url: attachment.url || attachment.file_url,
+          filename: attachment.fileName || attachment.file_name || attachment.originalName || 'Unknown',
+          fileType: attachment.fileType || attachment.file_type || 'application/octet-stream'
+        }));
+      }
+    }
     
     // Use clean text for display (without URLs) and format HTML for bot messages
     const textToDisplay = isBot ? formatMessageText(cleanText) : messageText;
@@ -2682,7 +2976,23 @@ Always provide helpful, accurate, and well-formatted responses.`
                     </View>
                   )}
                   
-                  {item.image ? (
+                  {/* Render attachments for user messages - above text */}
+                  {!isBot && attachments && attachments.length > 0 && (
+                    <View style={styles.attachmentsContainer}>
+                      {attachments.map((attachment, index) => (
+                        <AttachmentComponent
+                          key={`${item.id}-attachment-${index}`}
+                          url={attachment.url}
+                          filename={attachment.filename}
+                          fileType={attachment.fileType}
+                          colors={colors}
+                        />
+                      ))}
+                    </View>
+                  )}
+                  
+                  {/* For bot messages, show image above text */}
+                  {isBot && item.image && (
                     <TouchableOpacity 
                       onPress={() => handleImageTap(item.image)}
                       activeOpacity={0.8}
@@ -2693,7 +3003,10 @@ Always provide helpful, accurate, and well-formatted responses.`
                         resizeMode="contain"
                       />
                     </TouchableOpacity>
-                  ) : (
+                  )}
+                  
+                  {/* Text content */}
+                  {(item.text || (!item.image && !isBot)) && (
                     <View style={isBot ? styles.botTextContainer : styles.userTextContainer}>
                       {isBot ? (
                         // Intelligent message rendering for bot messages
@@ -2954,6 +3267,21 @@ Always provide helpful, accurate, and well-formatted responses.`
                         />
                       )}
                     </View>
+                  )}
+                  
+                  {/* For user messages, show image below text */}
+                  {!isBot && item.image && (
+                    <TouchableOpacity 
+                      onPress={() => handleImageTap(item.image)}
+                      activeOpacity={0.8}
+                      style={{ marginTop: 8 }}
+                    >
+                      <Image
+                        source={{ uri: item.image }}
+                        style={{ width: 200, height: 200, borderRadius: 10, maxWidth: '100%' }}
+                        resizeMode="contain"
+                      />
+                    </TouchableOpacity>
                   )}
                   
                   {/* Render images from enhanced streaming */}
@@ -3276,7 +3604,14 @@ Always provide helpful, accurate, and well-formatted responses.`
           try {
             const chatMessages = await getNewChatMessages(chat.id);
             // Convert Supabase messages to frontend format
-            messages = chatMessages.map(msg => supabaseMessageToFrontend(msg));
+            messages = chatMessages.map(msg => {
+              const frontendMsg = supabaseMessageToFrontend(msg);
+              // Map file_url to image property for image attachments
+              if (frontendMsg.file_url && frontendMsg.file_type && frontendMsg.file_type.startsWith('image/')) {
+                frontendMsg.image = frontendMsg.file_url;
+              }
+              return frontendMsg;
+            });
           } catch (error) {
             console.error(`Error fetching messages for chat ${chat.id}:`, error);
           }
@@ -3513,7 +3848,9 @@ Always provide helpful, accurate, and well-formatted responses.`
       const frontendMessages = chatMessages.map(supabaseMessageToFrontend).map(msg => ({
         ...msg,
         text: msg.content || '', // Map content field to text field for compatibility
-        sender: msg.role === 'user' ? 'user' : 'bot' // Map role to sender for compatibility
+        sender: msg.role === 'user' ? 'user' : 'bot', // Map role to sender for compatibility
+        // Map file_url to image property for image attachments
+        image: msg.file_url && msg.file_type && msg.file_type.startsWith('image/') ? msg.file_url : msg.image
       }));
       
       // Update messages state
@@ -3586,15 +3923,18 @@ Always provide helpful, accurate, and well-formatted responses.`
       setChats(processedChats);
       
       // Load messages only for the active chat
-      if (processedChats.length > 0) {
+      if (processedChats.length > 0 && processedChats[0] && processedChats[0].id) {
         const targetChatId = route.params?.chatid || processedChats[0].id;
         const targetChat = processedChats.find(chat => chat.id === targetChatId) || processedChats[0];
         
-        setCurrentChatId(targetChat.id);
-        setCurrentRole(targetChat.role);
-        
-        // Load messages for the active chat only
-        await loadChatMessages(targetChat.id);
+        // Additional safety check for targetChat
+        if (targetChat && targetChat.id) {
+          setCurrentChatId(targetChat.id);
+          setCurrentRole(targetChat.role);
+          
+          // Load messages for the active chat only
+          await loadChatMessages(targetChat.id);
+        }
       }
       
       setDataLoaded(true);
@@ -3621,7 +3961,7 @@ Always provide helpful, accurate, and well-formatted responses.`
     try {
       // Get current user session
       const { data: { session } } = await supabase.auth.getSession();
-      const userId = session?.user?.id;
+      const userId = uid || session?.user?.id;
       
       if (!userId || userId === 'anonymous') {
         // For anonymous users, no pagination needed as messages are stored locally
@@ -3649,7 +3989,9 @@ Always provide helpful, accurate, and well-formatted responses.`
         const frontendMessages = olderMessages.map(supabaseMessageToFrontend).map(msg => ({
           ...msg,
           text: msg.content || '', // Map content field to text field for compatibility
-          sender: msg.role === 'user' ? 'user' : 'bot' // Map role to sender for compatibility
+          sender: msg.role === 'user' ? 'user' : 'bot', // Map role to sender for compatibility
+          // Map file_url to image property for image attachments
+          image: msg.file_url && msg.file_type && msg.file_type.startsWith('image/') ? msg.file_url : msg.image
         }));
         
         // Add older messages to the beginning of the current messages
@@ -3798,6 +4140,106 @@ Always provide helpful, accurate, and well-formatted responses.`
     setShowAdditionalButtons(prev => !prev);
   };
 
+  // Upload file to Supabase and attach to text input
+  const uploadFileToSupabaseAndAttach = async (file, fileType) => {
+    const fileId = generateUUID();
+    
+    try {
+      setIsUploadingFile(true);
+      
+      // Add file to attached files with upload progress
+      const newFile = {
+        ...file,
+        id: fileId,
+        fileType,
+        uploadProgress: 0,
+        isUploading: true,
+      };
+      
+      setAttachedFiles(prev => [...prev, newFile]);
+      
+      // Get current user session
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userId = uid || sessionData?.session?.user?.id || 'anonymous';
+      
+      // Generate unique file path
+      const fileExtension = file.name ? file.name.split('.').pop() : (fileType === 'image' ? 'jpg' : 'pdf');
+      const timestamp = Date.now();
+      const randomString = Math.random().toString(36).substring(2, 15);
+      const fileName = `${timestamp}_${randomString}_${userId}.${fileExtension}`;
+      const filePath = `users/${userId}/uploads/${fileName}`;
+      
+      // Read file content as base64
+      const fileContent = await RNFS.readFile(file.uri, 'base64');
+      
+      // Convert base64 to Uint8Array for proper binary file handling
+      const binaryString = atob(fileContent);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      // Determine proper content type
+      const contentType = file.type || file.mime || 'application/octet-stream';
+      
+      // Upload to Supabase storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('user-uploads')
+        .upload(filePath, bytes, {
+          contentType: contentType,
+          upsert: false
+        });
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        throw new Error(`Upload error: ${uploadError.message}`);
+      }
+      
+      // Get public URL
+      const { data } = supabase.storage
+        .from('user-uploads')
+        .getPublicUrl(filePath);
+      
+      if (!data || !data.publicUrl) {
+        throw new Error('Could not get public URL');
+      }
+      
+      const publicUrl = data.publicUrl;
+      console.log('File uploaded successfully:', publicUrl);
+      
+      // Update file with upload result
+      setAttachedFiles(prev => prev.map(f => 
+        f.id === fileId 
+          ? { 
+              ...f, 
+              uploadProgress: 100,
+              isUploading: false,
+              publicUrl: publicUrl,
+              uid: fileId,
+              url: publicUrl
+            }
+          : f
+      ));
+      
+      Toast.show({
+        type: 'success',
+        text1: 'File Uploaded',
+        text2: `${file.name} attached successfully`,
+        position: 'bottom',
+        visibilityTime: 2000,
+      });
+      
+    } catch (error) {
+      console.error('File upload error:', error);
+      Alert.alert('Upload Error', 'Failed to upload file. Please try again.');
+      
+      // Remove failed file from list
+      setAttachedFiles(prev => prev.filter(f => f.id !== fileId));
+    } finally {
+      setIsUploadingFile(false);
+    }
+  };
+
   // File attachment handlers
   const handleFileSelected = async (file, fileType) => {
     // Declare fileId outside try block so it's accessible in catch
@@ -3935,22 +4377,13 @@ Always provide helpful, accurate, and well-formatted responses.`
       const selectedFile = result[0];
       const { uri, type, name, size, fileCopyUri } = selectedFile;
       
-      // Use the new file upload logic
-      const fileToUpload = {
+      // Upload to Supabase immediately
+      await uploadFileToSupabaseAndAttach({
         uri: fileCopyUri || uri,
         type,
         name,
         size,
-      };
-      
-      // Determine file type for the new upload system
-      let fileType = 'document';
-      if (type === 'application/pdf') {
-        fileType = 'pdf';
-      }
-      
-      // Use the new file upload handler
-      await handleFileSelected(fileToUpload, fileType);
+      }, 'document');
       
     } catch (error) {
       if (DocumentPicker.isCancel(error)) {
@@ -4141,8 +4574,7 @@ Always provide helpful, accurate, and well-formatted responses.`
         throw readError; // Re-throw to be caught by the outer catch block
       }
       
-      // Save the chat history
-      await saveChatHistoryEnhanced(`Document: ${fileName}`, 'user');
+      // Document message is already handled through the proper message flow above
       
     } catch (error) {
       console.error('Error sending document to AI:', error);
@@ -4274,23 +4706,13 @@ Always provide helpful, accurate, and well-formatted responses.`
           }
         }
         
-        // Use the new file upload logic
-        const fileToUpload = {
+        // Upload to Supabase immediately
+        await uploadFileToSupabaseAndAttach({
           uri,
           type: mimeType,
           name: fileName || `image_${Date.now()}.jpg`,
-          size: fileSize || 0, // Provide default size if not available
-        };
-        
-        console.log('File to upload:', {
-          uri: fileToUpload.uri,
-          type: fileToUpload.type,
-          name: fileToUpload.name,
-          size: fileToUpload.size
-        });
-        
-        // Use the new file upload handler
-        await handleFileSelected(fileToUpload, 'image');
+          size: fileSize || 0,
+        }, 'image');
       }
     } catch (error) {
       console.error('Error selecting image:', error);
@@ -4476,29 +4898,39 @@ Always provide helpful, accurate, and well-formatted responses.`
         isStreaming: true
       }]);
 
-      // Call webhook for XLSX generation
-      const result = await generateXLSX(text, uid);
+      // Define chunk handler for real-time updates
+      let displayContent = '';
       
-      // Simulate streaming by gradually displaying the result
-      const words = result.split(' ');
-      for (let i = 0; i < words.length; i++) {
-        streamingContent += (i > 0 ? ' ' : '') + words[i];
+      const handleChunk = (chunk) => {
+        // Check for reset signal
+        if (chunk === '__RESET__') {
+          displayContent = '';
+          return;
+        }
+        if (chunk.startsWith('__RESET__')) {
+          displayContent = '';
+          chunk = chunk.substring(9);
+        }
         
-        // Update the streaming message in real-time
+        // Since the streaming function already sends clean content, just accumulate it
+        displayContent += chunk;
+        
+        // Update the streaming message with clean content
         setMessages(prev => prev.map(msg => 
           msg.id === streamingMessageId 
-            ? { ...msg, text: streamingContent }
+            ? { ...msg, text: displayContent || 'Processing...' }
             : msg
         ));
-        
-        // Small delay to simulate streaming
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
+      };
+
+      // Call streaming webhook for XLSX generation
+      const result = await generateXLSXStreaming(text, handleChunk);
       
-      // Finalize the streaming message
+      // Finalize the streaming message with the clean response
+      const finalText = displayContent || result || 'Response completed';
       setMessages(prev => prev.map(msg => 
         msg.id === streamingMessageId 
-          ? { ...msg, text: result, isStreaming: false, timestamp: new Date().toISOString() }
+          ? { ...msg, text: finalText, isStreaming: false, timestamp: new Date().toISOString() }
           : msg
       ));
       
@@ -4506,7 +4938,7 @@ Always provide helpful, accurate, and well-formatted responses.`
       if (uid !== 'anonymous') {
         const assistantMessage = await startAssistantMessage(currentChatId, uid, {}, streamingMessageId);
         if (assistantMessage) {
-          await appendMessageChunk(assistantMessage.id, result);
+          await appendMessageChunk(assistantMessage.id, finalText);
           await finalizeMessage(assistantMessage.id);
         }
       }
@@ -4567,29 +4999,39 @@ Always provide helpful, accurate, and well-formatted responses.`
         isStreaming: true
       }]);
 
-      // Call webhook for DOC generation
-      const result = await generateDOC(text, uid);
+      // Define chunk handler for real-time updates
+      let displayContent = '';
       
-      // Simulate streaming by gradually displaying the result
-      const words = result.split(' ');
-      for (let i = 0; i < words.length; i++) {
-        streamingContent += (i > 0 ? ' ' : '') + words[i];
+      const handleChunk = (chunk) => {
+        // Check for reset signal
+        if (chunk === '__RESET__') {
+          displayContent = '';
+          return;
+        }
+        if (chunk.startsWith('__RESET__')) {
+          displayContent = '';
+          chunk = chunk.substring(9);
+        }
         
-        // Update the streaming message in real-time
+        // Since the streaming function already sends clean content, just accumulate it
+        displayContent += chunk;
+        
+        // Update the streaming message with clean content
         setMessages(prev => prev.map(msg => 
           msg.id === streamingMessageId 
-            ? { ...msg, text: streamingContent }
+            ? { ...msg, text: displayContent || 'Processing...' }
             : msg
         ));
-        
-        // Small delay to simulate streaming
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
+      };
+
+      // Call streaming webhook for DOC generation
+      const result = await generateDOCStreaming(text, handleChunk);
       
-      // Finalize the streaming message
+      // Finalize the streaming message with the clean response
+      const finalText = displayContent || result || 'Response completed';
       setMessages(prev => prev.map(msg => 
         msg.id === streamingMessageId 
-          ? { ...msg, text: result, isStreaming: false, timestamp: new Date().toISOString() }
+          ? { ...msg, text: finalText, isStreaming: false, timestamp: new Date().toISOString() }
           : msg
       ));
       
@@ -4597,7 +5039,7 @@ Always provide helpful, accurate, and well-formatted responses.`
       if (uid !== 'anonymous') {
         const assistantMessage = await startAssistantMessage(currentChatId, uid, {}, streamingMessageId);
         if (assistantMessage) {
-          await appendMessageChunk(assistantMessage.id, result);
+          await appendMessageChunk(assistantMessage.id, finalText);
           await finalizeMessage(assistantMessage.id);
         }
       }
@@ -5261,6 +5703,7 @@ Always provide helpful, accurate, and well-formatted responses.`
             onClose={() => setIsSidebarOpen(false)}
             onDeleteChat={onDeleteChat}
             currentChatId={currentChatId}
+            isLoading={isChatsLoading}
           />
         </TouchableWithoutFeedback>
       )}

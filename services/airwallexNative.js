@@ -57,14 +57,35 @@ class AirwallexNative {
         amount: amount,
         isBillingRequired: false,
         isEmailRequired: false,
-        paymentMethods: ['card', 'alipay', 'alipayhk', 'wechatpay', 'googlepay', 'applepay'],
+        // Enable all available payment methods
+        paymentMethods: [
+          'card',           // Credit/Debit Cards
+          'alipay',         // Alipay
+          'alipayhk',       // Alipay HK
+          'wechatpay',      // WeChat Pay
+          'googlepay',      // Google Pay
+          'applepay',       // Apple Pay
+          'dana',           // Dana
+          'gcash',          // GCash
+          'kakaopay',       // Kakao Pay
+          'tng',            // Touch 'n Go
+          'truemoney',      // TrueMoney
+          'fps',            // FPS (Faster Payment System)
+          'octopus',        // Octopus
+          'payme',          // PayMe
+          'unionpay'        // UnionPay
+        ],
         clientSecret: clientSecret,
         // Add additional required fields for SDK authentication
         returnUrl: 'matrixai://payment/result',
         logoUrl: null,
         theme: {
           primaryColor: '#2274F0'
-        }
+        },
+        // Additional configuration for better payment method support
+        autoCapture: true,
+        hidePaymentConsents: false,
+        skipCaptureAmount: false
       };
       
       console.log('PaymentSession object created:', {

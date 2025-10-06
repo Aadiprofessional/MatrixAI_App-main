@@ -25,6 +25,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
+import { useCoinsSubscription } from '../hooks/useCoinsSubscription';
 import { LinearGradient } from 'react-native-linear-gradient';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -33,6 +34,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import Share from 'react-native-share';
 import axios from 'axios';
 import { supabase } from '../supabaseClient';
+import paymentService from '../services/paymentService';
 import MathView from 'react-native-math-view';
 import MarkdownDisplay from 'react-native-markdown-display';
 import * as Animatable from 'react-native-animatable';
@@ -56,6 +58,7 @@ const ContentWriterContent = () => {
   const { t } = useLanguage();
   const navigation = useNavigation();
   const { uid } = useAuth();
+  const coinCount = useCoinsSubscription(uid);
   
   // State variables
   const [prompt, setPrompt] = useState('');
@@ -74,6 +77,9 @@ const ContentWriterContent = () => {
   const [historyFilter, setHistoryFilter] = useState(null);
   const [wordCountModalVisible, setWordCountModalVisible] = useState(false);
   const [toneModalVisible, setToneModalVisible] = useState(false);
+  const [fullScreenModalVisible, setFullScreenModalVisible] = useState(false);
+
+  const requiredCoins = 3;
   
   // Animated values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -284,6 +290,9 @@ const ContentWriterContent = () => {
   const sendMessageToAI = (userMessage, onChunk) => {
     return new Promise((resolve, reject) => {
       try {
+        console.log('🔑 API Key status:', REACT_APP_ALIYUN_API_KEY ? 'Present' : 'Missing');
+        console.log('📨 User message:', userMessage);
+        
         // Create XMLHttpRequest for streaming
         const xhr = new XMLHttpRequest();
         xhr.open('POST', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', true);
@@ -375,8 +384,8 @@ const ContentWriterContent = () => {
         // Create a system prompt based on content type
         let systemPrompt;
         
-        // Common formatting instructions to avoid markdown symbols
-        const formattingInstructions = 'Format your response as clean, readable text without using markdown symbols like ** or ##. Use proper paragraphs and spacing for structure instead of markdown formatting. Do not use asterisks for emphasis or hashtags for headings.';
+        // Common formatting instructions for proper markdown structure
+        const formattingInstructions = 'Format your response using proper markdown syntax. Use # for main titles, ## for subtitles, ### for subheadings, **bold** for emphasis, > for quotes, - for bullet points, and proper paragraph spacing. Create well-structured, visually appealing content with clear hierarchy and formatting.';
         
         switch(contentType) {
           case 'article':
@@ -416,7 +425,8 @@ const ContentWriterContent = () => {
           stream: true
         });
         
-        console.log('Sending request to AI API...');
+        console.log('📤 Sending request to AI API...');
+        console.log('📋 Request body:', requestBody);
         xhr.send(requestBody);
         
       } catch (error) {
@@ -457,7 +467,6 @@ const ContentWriterContent = () => {
           prompt: item.prompt,
           content: item.content,
           type: item.content_type,
-          date: new Date(item.created_at).toLocaleString(),
           title: item.title
         }));
         
@@ -658,15 +667,97 @@ const ContentWriterContent = () => {
     }
   }, [uid]);
   
+  // Function to check user subscription status
+  const checkUserCoins = async (uid, requiredCoins) => {
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("subscription_active")
+        .eq("uid", uid)
+        .single();
+
+      if (error) {
+        console.error('Error checking user subscription:', error);
+        return { isProActive: false };
+      }
+
+      const isProActive = data && data.subscription_active === true;
+
+      return { isProActive };
+    } catch (error) {
+      console.error('Error in checkUserCoins:', error);
+      return { isProActive: false };
+    }
+  };
+  
   const handleGenerate = async () => {
     if (prompt.trim() === '') {
       Alert.alert(t('error'), t('pleaseEnterPrompt'));
       return;
     }
     
+    // Check if user has enough coins using real-time coin count
+    const { isProActive } = await checkUserCoins(uid, requiredCoins);
+    const hasEnoughCoins = coinCount >= requiredCoins;
+    
+    console.log('🪙 Current coin count:', coinCount);
+    console.log('🪙 Required coins:', requiredCoins);
+    console.log('🪙 Has enough coins:', hasEnoughCoins);
+    console.log('🪙 Is Pro active:', isProActive);
+    
+    if (!isProActive) {
+      console.log('❌ No Pro plan - blocking API call');
+      Alert.alert(
+        "Pro Plan Required",
+        "You need a Pro plan to generate content. Upgrade to Pro for unlimited access.",
+        [
+          {
+            text: "Get Pro",
+            onPress: () => navigation.navigate("SubscriptionScreen"),
+          },
+          { text: "Cancel", style: "cancel" },
+        ]
+      );
+      return;
+    } else if (!hasEnoughCoins) {
+      console.log('❌ Insufficient coins - blocking API call');
+      Alert.alert(
+        "Insufficient Coins",
+        `You need ${requiredCoins} coins to generate content. You currently have ${coinCount} coins.`,
+        [
+          {
+            text: "Buy Coins",
+            onPress: () => navigation.navigate("TransactionScreen"),
+          },
+          { text: "Cancel", style: "cancel" },
+        ]
+      );
+      return;
+    }
+    
+    console.log('🚀 Starting content generation...');
+    
+    try {
+      // Deduct coins before processing
+      const transactionName = 'Content Generation';
+      await paymentService.subtractCoins(uid, requiredCoins, transactionName);
+      console.log('💰 Coins deducted successfully');
+      // Note: coinCount will be automatically updated by useCoinsSubscription hook
+    } catch (error) {
+      console.error('Error deducting coins:', error);
+      Alert.alert(
+        'Payment Error',
+        'Failed to deduct coins. Please try again.',
+        [{ text: 'OK', style: 'default' }]
+      );
+      return;
+    }
+    
     // Clear any previous content and set generating state
     setGeneratedContent('');
     setIsGenerating(true);
+    
+    console.log('✅ State cleared, generating set to true');
     
     // Animate result appearance immediately to show streaming content
     Animated.parallel([
@@ -687,10 +778,15 @@ const ContentWriterContent = () => {
     const selectedWordCount = wordCountOptions.find(option => option.id === wordCount)?.count || 500;
     const selectedToneText = toneOptions.find(option => option.id === tone)?.name || 'Professional';
     
-    // Common formatting instructions to ensure clean output without markdown artifacts
+    // Common formatting instructions for proper markdown structure
     const formattingInstructions = `
-    Format your response in clean, readable text. Do not use markdown formatting symbols like ** ## or similar. 
-    Use proper paragraphs, spacing, and structure but avoid raw markdown syntax.
+    Format your response using proper markdown syntax with clear structure:
+    - Use # for main titles, ## for subtitles, ### for subheadings
+    - Use **bold** for emphasis and *italic* for secondary emphasis
+    - Use > for quotes and blockquotes
+    - Use - or * for bullet points and numbered lists where appropriate
+    - Include proper paragraph spacing and line breaks
+    - Create visually appealing, well-structured content with clear hierarchy
     `;
     
     switch(contentType) {
@@ -733,17 +829,32 @@ const ContentWriterContent = () => {
       let streamingContent = '';
       
       // Send the prompt to the AI API with streaming
+      console.log('📤 Sending prompt to AI API...');
       const fullResponse = await sendMessageToAI(contentPrompt, (chunk) => {
         // Update content with each chunk for real-time streaming
-        streamingContent += chunk;
+        console.log('📝 First content chunk received');
+        // Ensure chunk is always a string
+        const chunkStr = typeof chunk === 'string' ? chunk : String(chunk || '');
+        streamingContent += chunkStr;
         setGeneratedContent(streamingContent);
+        console.log('📊 Streaming content length:', streamingContent.length);
       });
       
-      // Create a new history item using the raw AI response
+      console.log('✅ Full response received:', fullResponse);
+      console.log('✅ Full response type:', typeof fullResponse);
+      console.log('✅ Full response length:', fullResponse?.length);
+      console.log('✅ Streaming content final:', streamingContent);
+      console.log('✅ Streaming content type:', typeof streamingContent);
+      console.log('✅ Streaming content length:', streamingContent?.length);
+      
+      // Ensure we use the correct content for final display
+      setGeneratedContent(fullResponse || streamingContent);
+      
+      // Create a new history item
       const newHistoryItem = {
         id: Date.now().toString(),
         prompt: prompt,
-        content: fullResponse, // Use raw AI response instead of formatted streamingContent
+        content: fullResponse,
         type: contentType,
         tone: tone,
         wordCount: wordCount,
@@ -763,12 +874,15 @@ const ContentWriterContent = () => {
       setHistoryItems([newHistoryItem, ...historyItems]);
       
     } catch (error) {
-      console.error('Error generating content:', error);
+      console.error('❌ Error generating content:', error);
+      console.error('❌ Error details:', error.message);
       Alert.alert(t('error'), t('failedToGenerateContent'));
       
       // Fallback to template content if API fails
+      console.log('🔄 Falling back to template content...');
       handleFallbackGeneration();
     } finally {
+      console.log('🏁 Content generation finished, setting generating to false');
       setIsGenerating(false);
     }
   };
@@ -852,45 +966,17 @@ const ContentWriterContent = () => {
     if (!generatedContent) return;
     
     try {
-      // Get the selected history item (if any) or use the current content
-      const contentId = historyItems.find(item => item.content === generatedContent)?.id;
-      
-      if (!contentId) {
-        // If no history item is selected, share directly without API
-        const shareOptions = {
-          message: generatedContent,
-          title: 'Generated Content from MatrixAI'
-        };
-        
-        await Share.open(shareOptions);
-        return;
-      }
-      
-      // Show loading indicator
-      setIsGenerating(true);
-      
-      // Get shareable link from API
-      const shareId = await shareContentViaAPI(contentId);
-      
-      if (!shareId) {
-        Alert.alert(t('error'), t('failedToShareContent'));
-        return;
-      }
-      
-      // Create a shareable link
-      const shareableLink = `https://matrixai.app/shared/${shareId}`;
-      
-      // Show sharing options
-      Share.share({
+      const shareOptions = {
         message: generatedContent,
-        title: 'Share Content',
-        url: shareableLink
-      });
+        title: t('generatedContentFromMatrixAI')
+      };
+      
+      await Share.open(shareOptions);
     } catch (error) {
       console.error('Error sharing content:', error);
-      Alert.alert(t('error'), t('failedToShareContent'));
-    } finally {
-      setIsGenerating(false);
+      if (error.message !== 'User did not share') {
+        Alert.alert(t('error'), t('failedToShareContent'));
+      }
     }
   };
   
@@ -978,6 +1064,11 @@ const ContentWriterContent = () => {
         <TouchableOpacity 
           style={{ flex: 1 }}
           onPress={() => {
+            console.log('📋 History item selected:', item);
+            console.log('📋 History item content type:', typeof item.content);
+            console.log('📋 History item content length:', item.content?.length);
+            console.log('📋 History item content preview:', item.content?.substring(0, 100));
+            
             setSelectedHistoryItem(item);
             setPrompt(item.prompt);
             setGeneratedContent(item.content);
@@ -1013,12 +1104,9 @@ const ContentWriterContent = () => {
                 {item.title || (item.prompt.length > truncateLength ? `${item.prompt.substring(0, truncateLength)}...` : item.prompt)}
               </Text>
               <View style={styles.historyItemMetaContainer}>
-                <Text style={[styles.historyItemDate, { color: colors.text }]}>
-                  {item.date}
-                </Text>
                 {item.tone && (
                   <Text style={[styles.historyItemMeta, { color: colors.text }]}>
-                    • {toneText}
+                    {toneText}
                   </Text>
                 )}
                 {item.wordCount && (
@@ -1453,7 +1541,6 @@ const ContentWriterContent = () => {
                         style={[styles.quickContentButton, { backgroundColor: colors.card, borderColor: colors.border }]}
                         onPress={() => {
                           setPrompt(item.prompt);
-                          handleGenerate();
                         }}
                         disabled={isGenerating}
                       >
@@ -1475,15 +1562,23 @@ const ContentWriterContent = () => {
                 }]}>
                   <View style={styles.resultHeader}>
                     <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('generatedContent')}</Text>
-                    <TouchableOpacity 
-                      style={styles.newContentButton}
-                      onPress={handleClearForm}
-                    >
-                      <MaterialIcons name="refresh" size={20} color={colors.primary} />
-                      <Text style={[styles.newContentButtonText, { color: colors.primary }]}>
-                        {t('newContent')}
-                      </Text>
-                    </TouchableOpacity>
+                    <View style={styles.resultHeaderActions}>
+                      <TouchableOpacity 
+                        style={styles.fullScreenButton}
+                        onPress={() => setFullScreenModalVisible(true)}
+                      >
+                        <MaterialIcons name="fullscreen" size={24} color={colors.primary} />
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.newContentButton}
+                        onPress={handleClearForm}
+                      >
+                        <MaterialIcons name="refresh" size={20} color={colors.primary} />
+                        <Text style={[styles.newContentButtonText, { color: colors.primary }]}>
+                          {t('newContent')}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                   
                   <View style={[styles.contentBox, {
@@ -1494,54 +1589,102 @@ const ContentWriterContent = () => {
                       style={styles.contentScroll}
                       nestedScrollEnabled={true}
                     >
-                      <MarkdownDisplay
-                        style={[styles.contentText, { color: colors.text }]}
-                        value={generatedContent}
-                        mergeStyle={{
-                          body: { color: colors.text },
-                          paragraph: { color: colors.text, lineHeight: 22 },
-                          heading1: { color: colors.text, fontWeight: 'bold', fontSize: 24, marginBottom: 10, marginTop: 16 },
-                          heading2: { color: colors.text, fontWeight: 'bold', fontSize: 20, marginBottom: 8, marginTop: 14 },
-                          heading3: { color: colors.text, fontWeight: 'bold', fontSize: 18, marginBottom: 6, marginTop: 12 },
-                          heading4: { color: colors.text, fontWeight: 'bold', fontSize: 16, marginBottom: 4, marginTop: 10 },
-                          heading5: { color: colors.text, fontWeight: 'bold', fontSize: 14, marginBottom: 2, marginTop: 8 },
-                          heading6: { color: colors.text, fontWeight: 'bold', fontSize: 12, marginBottom: 2, marginTop: 6 },
-                          list_item: { color: colors.text, marginBottom: 4 },
-                          bullet_list: { color: colors.text, marginBottom: 10 },
-                          ordered_list: { color: colors.text, marginBottom: 10 },
-                          code_block: { backgroundColor: colors.card, padding: 10, borderRadius: 5, marginVertical: 8 },
-                          fence: { backgroundColor: colors.card, padding: 10, borderRadius: 5, marginVertical: 8 },
-                          blockquote: { borderLeftColor: colors.primary, backgroundColor: colors.card, opacity: 0.8, paddingLeft: 10, marginVertical: 8 },
-                          link: { color: colors.primary },
-                          em: { fontStyle: 'italic' },
-                          strong: { fontWeight: 'bold' },
-                          hr: { backgroundColor: colors.border, marginVertical: 10 },
-                          table: { borderColor: colors.border, marginVertical: 10 },
-                          tr: { borderBottomColor: colors.border },
-                          th: { padding: 5, fontWeight: 'bold' },
-                          td: { padding: 5 },
-                        }}
-                        rules={{
-                          math: (node) => {
-                            return (
-                              <MathView
-                                key={node.key}
-                                math={node.content}
-                                style={{ color: colors.text }}
-                              />
-                            );
-                          },
-                          inlineMath: (node) => {
-                            return (
-                              <MathView
-                                key={node.key}
-                                math={node.content}
-                                style={{ color: colors.text }}
-                              />
-                            );
-                          }
-                        }}
-                      />
+                      {(() => {
+                        console.log('🔍 MarkdownDisplay Debug Info:');
+                        console.log('📊 generatedContent type:', typeof generatedContent);
+                        console.log('📝 generatedContent value:', generatedContent);
+                        console.log('📏 generatedContent length:', generatedContent?.length);
+                        console.log('🔤 Is string?', typeof generatedContent === 'string');
+                        
+                        if (!generatedContent) {
+                          return (
+                            <Text style={[styles.contentText, { color: colors.text }]}>
+                              No content generated yet...
+                            </Text>
+                          );
+                        }
+                        
+                        const processedValue = typeof generatedContent === 'string' ? generatedContent : String(generatedContent || '');
+                        console.log('✅ Processed value type:', typeof processedValue);
+                        console.log('✅ Processed value length:', processedValue.length);
+                        console.log('✅ Processed value preview:', processedValue.substring(0, 100));
+                        
+                        // Use MarkdownDisplay to render formatted content
+                        return (
+                          <MarkdownDisplay
+                            style={{
+                              body: {
+                                color: colors.text,
+                                fontSize: 16,
+                                lineHeight: 24,
+                              },
+                              heading1: {
+                                color: colors.text,
+                                fontSize: 24,
+                                fontWeight: 'bold',
+                                marginVertical: 8,
+                              },
+                              heading2: {
+                                color: colors.text,
+                                fontSize: 20,
+                                fontWeight: 'bold',
+                                marginVertical: 6,
+                              },
+                              heading3: {
+                                color: colors.text,
+                                fontSize: 18,
+                                fontWeight: 'bold',
+                                marginVertical: 4,
+                              },
+                              paragraph: {
+                                color: colors.text,
+                                marginVertical: 4,
+                              },
+                              strong: {
+                                color: colors.primary,
+                                fontWeight: 'bold',
+                              },
+                              em: {
+                                fontStyle: 'italic',
+                              },
+                              blockquote: {
+                                backgroundColor: 'rgba(40, 40, 40, 0.1)',
+                                borderLeftWidth: 4,
+                                borderLeftColor: colors.primary,
+                                paddingLeft: 12,
+                                paddingVertical: 8,
+                                marginVertical: 8,
+                              },
+                              code_inline: {
+                                backgroundColor: 'rgba(40, 40, 40, 0.1)',
+                                padding: 4,
+                                borderRadius: 4,
+                                fontFamily: 'monospace',
+                                fontSize: 14,
+                              },
+                              code_block: {
+                                backgroundColor: 'rgba(40, 40, 40, 0.1)',
+                                padding: 12,
+                                borderRadius: 8,
+                                fontFamily: 'monospace',
+                                fontSize: 14,
+                              },
+                              list_item: {
+                                color: colors.text,
+                                marginVertical: 2,
+                              },
+                              bullet_list: {
+                                marginVertical: 8,
+                              },
+                              ordered_list: {
+                                marginVertical: 8,
+                              },
+                            }}
+                          >
+                            {processedValue}
+                          </MarkdownDisplay>
+                        );
+                      })()}
                     </ScrollView>
                   </View>
                   
@@ -1686,6 +1829,151 @@ const ContentWriterContent = () => {
           )}
         </SafeAreaView>
       </Animated.View>
+      
+      {/* Full Screen Modal */}
+      <Modal
+        visible={fullScreenModalVisible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setFullScreenModalVisible(false)}
+      >
+        <SafeAreaView style={[styles.fullScreenContainer, { backgroundColor: colors.background }]}>
+          <View style={[styles.fullScreenHeader, { borderBottomColor: colors.border }]}>
+            <TouchableOpacity 
+              style={styles.fullScreenCloseButton}
+              onPress={() => setFullScreenModalVisible(false)}
+            >
+              <MaterialIcons name="close" size={24} color={colors.text} />
+            </TouchableOpacity>
+            <Text style={[styles.fullScreenTitle, { color: colors.text }]}>{t('generatedContent')}</Text>
+            <View style={styles.fullScreenHeaderSpacer} />
+          </View>
+          
+          <ScrollView 
+            style={styles.fullScreenContent}
+            contentContainerStyle={styles.fullScreenContentContainer}
+          >
+            <View style={[styles.fullScreenContentBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              {(() => {
+                if (!generatedContent) {
+                  return (
+                    <Text style={[styles.contentText, { color: colors.text }]}>
+                      No content generated yet...
+                    </Text>
+                  );
+                }
+                
+                const processedValue = typeof generatedContent === 'string' ? generatedContent : String(generatedContent || '');
+                
+                return (
+                  <MarkdownDisplay
+                    style={{
+                      body: {
+                        color: colors.text,
+                        fontSize: 18,
+                        lineHeight: 28,
+                      },
+                      heading1: {
+                        color: colors.text,
+                        fontSize: 28,
+                        fontWeight: 'bold',
+                        marginVertical: 12,
+                      },
+                      heading2: {
+                        color: colors.text,
+                        fontSize: 24,
+                        fontWeight: 'bold',
+                        marginVertical: 10,
+                      },
+                      heading3: {
+                        color: colors.text,
+                        fontSize: 20,
+                        fontWeight: 'bold',
+                        marginVertical: 8,
+                      },
+                      paragraph: {
+                        color: colors.text,
+                        marginVertical: 6,
+                      },
+                      strong: {
+                        color: colors.primary,
+                        fontWeight: 'bold',
+                      },
+                      em: {
+                        fontStyle: 'italic',
+                      },
+                      blockquote: {
+                        backgroundColor: 'rgba(40, 40, 40, 0.1)',
+                        borderLeftWidth: 4,
+                        borderLeftColor: colors.primary,
+                        paddingLeft: 16,
+                        paddingVertical: 12,
+                        marginVertical: 12,
+                      },
+                      code_inline: {
+                        backgroundColor: 'rgba(40, 40, 40, 0.1)',
+                        padding: 6,
+                        borderRadius: 4,
+                        fontFamily: 'monospace',
+                        fontSize: 16,
+                      },
+                      code_block: {
+                        backgroundColor: 'rgba(40, 40, 40, 0.1)',
+                        padding: 16,
+                        borderRadius: 8,
+                        fontFamily: 'monospace',
+                        fontSize: 16,
+                      },
+                      list_item: {
+                        color: colors.text,
+                        marginVertical: 3,
+                      },
+                      bullet_list: {
+                        marginVertical: 12,
+                      },
+                      ordered_list: {
+                        marginVertical: 12,
+                      },
+                    }}
+                  >
+                    {processedValue}
+                  </MarkdownDisplay>
+                );
+              })()}
+            </View>
+          </ScrollView>
+          
+          <View style={[styles.fullScreenActions, { borderTopColor: colors.border }]}>
+            <TouchableOpacity 
+              style={[styles.fullScreenActionButton, { backgroundColor: colors.card }]}
+              onPress={copyToClipboard}
+            >
+              <MaterialIcons 
+                name={isCopied ? "check" : "content-copy"} 
+                size={24} 
+                color={isCopied ? "#4CAF50" : colors.text} 
+              />
+              <Text style={[styles.fullScreenActionButtonText, { 
+                color: isCopied ? "#4CAF50" : colors.text 
+              }]}>
+                {isCopied ? t('copied') : t('copy')}
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.fullScreenActionButton, { backgroundColor: colors.card }]}
+              onPress={shareContent}
+            >
+              <MaterialIcons name="share" size={24} color={colors.text} />
+              <Text style={[styles.fullScreenActionButtonText, { color: colors.text }]}>
+                {t('share')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
+      
+
     </SafeAreaView>
   );
 };
@@ -2180,6 +2468,132 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+  },
+  fullScreenContainer: {
+    flex: 1,
+  },
+  fullScreenHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  fullScreenCloseButton: {
+    padding: 8,
+  },
+  fullScreenTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
+  },
+  fullScreenHeaderSpacer: {
+    width: 40,
+  },
+  fullScreenContent: {
+    flex: 1,
+  },
+  fullScreenContentContainer: {
+    padding: 16,
+  },
+  fullScreenContentBox: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 20,
+    minHeight: 200,
+  },
+  fullScreenActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+  },
+  fullScreenActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    minWidth: 120,
+    justifyContent: 'center',
+  },
+  fullScreenActionButtonText: {
+    marginLeft: 8,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  resultHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  fullScreenIcon: {
+    marginLeft: 12,
+    padding: 8,
+  },
+  // Low Balance Modal Styles
+  lowBalanceModalContent: {
+    width: '85%',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  lowBalanceHeader: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  lowBalanceTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  lowBalanceMessage: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 12,
+    lineHeight: 22,
+  },
+  lowBalanceCurrentCoins: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 24,
+    opacity: 0.7,
+  },
+  lowBalanceActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  lowBalanceButton: {
+    flex: 0.45,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  rechargeButton: {
+    backgroundColor: '#FF6B6B',
+  },
+  rechargeButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

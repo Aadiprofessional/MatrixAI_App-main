@@ -1,9 +1,12 @@
 import Config from 'react-native-config';
+import { API_BASE_URL } from '../config/api';
 
 class AirwallexService {
   constructor() {
+    // Use the centralized API configuration
+    this.backendUrl = API_BASE_URL;
+    
     // Airwallex API configuration
-    this.baseURL = 'https://your-backend-api.com/api'; // Replace with your actual backend URL
     this.airwallexApiUrl = 'https://api-demo.airwallex.com/api/v1'; // Sandbox
     this.airwallexProdApiUrl = 'https://api.airwallex.com/api/v1'; // Production
     this.sandboxApiHost = 'https://api-demo.airwallex.com/api/v1';
@@ -11,16 +14,15 @@ class AirwallexService {
     this.environment = Config.AIRWALLEX_ENVIRONMENT || 'sandbox'; // 'sandbox' or 'production'
     
     // Load credentials from environment using react-native-config
-     this.clientId = Config.AIRWALLEX_CLIENT_ID || null;
-     this.apiKey = Config.AIRWALLEX_API_KEY || null;
+    this.clientId = Config.AIRWALLEX_CLIENT_ID || null;
+    this.apiKey = Config.AIRWALLEX_API_KEY || null;
     
     // Cache for access token
     this.accessToken = null;
     this.tokenExpiry = null;
     
-    // Fallback to backend API if direct integration is not configured
-    this.backendUrl = 'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run';
-    this.useBackendFallback = true; // Set to false when direct integration is configured
+    // Always use backend API for production reliability
+    this.useBackendFallback = true;
     this.airwallexBaseURL = this.environment === 'production' ? this.airwallexProdApiUrl : this.airwallexApiUrl;
   }
   
@@ -140,22 +142,63 @@ class AirwallexService {
   }
 
   /**
-   * Create payment intent using direct Airwallex API or backend fallback
+   * Create a payment intent using backend API
+   * @param {Object} paymentData - Payment data including amount, currency, etc.
+   * @returns {Promise<Object>} Payment intent result
    */
-  async createPaymentIntent(params) {
+  async createPaymentIntent(paymentData) {
+    console.log('🔄 Creating payment intent with data:', paymentData);
+    
     try {
-      // Use direct Airwallex API if credentials are configured
-      if (!this.useBackendFallback && this.hasValidCredentials()) {
-        return await this.createPaymentIntentDirect(params);
-      }
+      const requestData = {
+        amount: paymentData.amount,
+        currency: paymentData.currency || 'HKD',
+        uid: paymentData.uid || 'anonymous',
+        plan: paymentData.plan || 'Unknown Plan',
+        merchant_order_id: paymentData.merchantOrderId || this.generateMerchantOrderId(),
+        return_url: paymentData.returnUrl || 'matrixai://payment/result',
+        metadata: {
+          ...paymentData.metadata
+        }
+      };
+
+      console.log('📡 Sending request to backend API:', `${this.backendUrl}/api/payment/airwallex/create-intent`);
       
-      // Fallback to backend API
-      return await this.createPaymentIntentViaBackend(params);
+      const response = await fetch(`${this.backendUrl}/api/payment/airwallex/create-intent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(requestData),
+        timeout: 30000 // 30 second timeout
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Backend API error response:', errorText);
+        throw new Error(`Backend API error: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Payment intent created successfully:', result);
+
+      return {
+        success: true,
+        data: {
+          id: result.data?.id || result.data?.payment_intent_id || result.id || result.payment_intent_id,
+          client_secret: result.data?.client_secret || result.client_secret,
+          amount: result.data?.amount || result.amount,
+          currency: result.data?.currency || result.currency,
+          status: result.data?.status || result.status,
+          merchant_order_id: result.data?.merchant_order_id || result.merchant_order_id
+        }
+      };
     } catch (error) {
-      console.error('Create payment intent error:', error);
+      console.error('❌ Payment intent creation failed:', error);
       return {
         success: false,
-        error: error.message
+        error: error.message || 'Failed to create payment intent'
       };
     }
   }
@@ -283,24 +326,71 @@ class AirwallexService {
   }
 
   /**
+   * Get subscription plans
+   * @param {string} uid - User ID
+   * @returns {Promise<Object>} Subscription plans result
+   */
+  async getSubscriptionPlans(uid) {
+    try {
+      console.log('📋 Getting subscription plans for user:', uid);
+      
+      const response = await fetch(`${this.backendUrl}/api/user/getSubscriptionPlans`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          uid: uid
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Subscription plans error response:', errorText);
+        throw new Error(`Failed to get subscription plans: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Subscription plans retrieved:', result);
+      
+      return {
+        success: true,
+        data: result
+      };
+    } catch (error) {
+      console.error('❌ Get subscription plans error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
    * Create subscription payment intent
    */
-  async createSubscriptionPayment(planId, amount) {
+  async createSubscriptionPayment(planId, amount, uid) {
     return this.createPaymentIntent({
       amount: amount,
       merchantOrderId: `subscription_${planId}_${Date.now()}`,
-      plan: 'Subscription Plan'
+      plan: 'Subscription Plan',
+      uid: uid,
+      subscriptionId: planId
     });
   }
 
   /**
    * Create addon payment intent
    */
-  async createAddonPayment(addonId, amount) {
+  async createAddonPayment(addonId, amount, uid, currency = 'HKD') {
     return this.createPaymentIntent({
       amount: amount,
+      currency: currency,
       merchantOrderId: `addon_${addonId}_${Date.now()}`,
-      plan: 'Addon Purchase'
+      plan: 'Addon Purchase',
+      uid: uid,
+      addonId: addonId
     });
   }
 
@@ -330,14 +420,210 @@ class AirwallexService {
   }
 
   /**
-   * Get payment status with enhanced error handling
+   * Get payment status from Airwallex
+   * @param {string} paymentIntentId - The payment intent ID
+   * @returns {Promise<Object>} Payment status result
    */
   async getPaymentStatus(paymentIntentId) {
     try {
-      return await this.getPaymentIntentStatus(paymentIntentId);
+      console.log('📊 Getting payment status for:', paymentIntentId);
+      
+      const response = await fetch(`${this.backendUrl}/api/payment/airwallex/status/${paymentIntentId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Payment status error response:', errorText);
+        throw new Error(`Failed to get payment status: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Payment status retrieved:', result);
+      
+      return {
+        success: true,
+        data: {
+          id: result.id,
+          status: result.status,
+          amount: result.amount,
+          currency: result.currency,
+          created_at: result.created_at,
+          updated_at: result.updated_at
+        }
+      };
     } catch (error) {
-      console.error('Payment status fetch error:', error);
-      return 'FAILED';
+      console.error('❌ Get payment status error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Confirm a payment intent
+   * @param {string} paymentIntentId - The payment intent ID
+   * @param {Object} paymentMethod - Payment method details
+   * @returns {Promise<Object>} Confirmation result
+   */
+  async confirmPaymentIntent(paymentIntentId, paymentMethod = { type: 'card' }) {
+    try {
+      console.log('✅ Confirming payment intent:', paymentIntentId);
+      
+      const response = await fetch(`${this.backendUrl}/api/payment/airwallex/confirm/${paymentIntentId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          payment_method: paymentMethod
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Payment confirmation error response:', errorText);
+        throw new Error(`Failed to confirm payment: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Payment confirmed successfully:', result);
+      
+      return {
+        success: true,
+        data: result
+      };
+    } catch (error) {
+      console.error('❌ Payment confirmation error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Cancel a payment intent
+   * @param {string} paymentIntentId - The payment intent ID
+   * @param {string} cancellationReason - Reason for cancellation
+   * @returns {Promise<Object>} Cancellation result
+   */
+  async cancelPaymentIntent(paymentIntentId, cancellationReason = 'requested_by_customer') {
+    try {
+      console.log('❌ Cancelling payment intent:', paymentIntentId);
+      
+      const response = await fetch(`${this.backendUrl}/api/payment/airwallex/cancel/${paymentIntentId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          cancellation_reason: cancellationReason
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Payment cancellation error response:', errorText);
+        throw new Error(`Failed to cancel payment: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Payment cancelled successfully:', result);
+      
+      return {
+        success: true,
+        data: result
+      };
+    } catch (error) {
+      console.error('❌ Payment cancellation error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Get available payment methods
+   * @returns {Promise<Object>} Available payment methods
+   */
+  async getAvailablePaymentMethods() {
+    try {
+      console.log('💳 Getting available payment methods');
+      
+      const response = await fetch(`${this.backendUrl}/api/payment/airwallex/payment-methods`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Payment methods error response:', errorText);
+        throw new Error(`Failed to get payment methods: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Payment methods retrieved:', result);
+      
+      return {
+        success: true,
+        data: result
+      };
+    } catch (error) {
+      console.error('❌ Get payment methods error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Check payment service health
+   * @returns {Promise<Object>} Health check result
+   */
+  async checkPaymentHealth() {
+    try {
+      console.log('🏥 Checking payment service health');
+      
+      const response = await fetch(`${this.backendUrl}/api/payment/health`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Health check error response:', errorText);
+        throw new Error(`Health check failed: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Payment service health:', result);
+      
+      return {
+        success: true,
+        data: result
+      };
+    } catch (error) {
+      console.error('❌ Health check error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 

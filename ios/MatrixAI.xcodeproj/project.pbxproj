@@ -11,7 +11,7 @@
 		5A102A52771FC2C1E8E6DA42 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
-		DAD2222BEE6805C3F3D1CB9A /* libPods-MatrixAI.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1E4376214F3709132D9A1A75 /* libPods-MatrixAI.a */; };
+		CEB49417071C3BB50C584FA1 /* libPods-MatrixAI.a in Frameworks */ = {isa = PBXBuildFile; fileRef = F002C1F696F2748D6A3FF364 /* libPods-MatrixAI.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,12 +20,12 @@
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = MatrixAI/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = MatrixAI/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		13B07FB91A68108700A75B9A /* MatrixAI.entitlements */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.entitlements; name = MatrixAI.entitlements; path = MatrixAI/MatrixAI.entitlements; sourceTree = "<group>"; };
-		1E4376214F3709132D9A1A75 /* libPods-MatrixAI.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-MatrixAI.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		2F24B502642BA6606B3146D1 /* Pods-MatrixAI.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MatrixAI.release.xcconfig"; path = "Target Support Files/Pods-MatrixAI/Pods-MatrixAI.release.xcconfig"; sourceTree = "<group>"; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = MatrixAI/AppDelegate.swift; sourceTree = "<group>"; };
+		7E651E444CF556F61EBC1C88 /* Pods-MatrixAI.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MatrixAI.debug.xcconfig"; path = "Target Support Files/Pods-MatrixAI/Pods-MatrixAI.debug.xcconfig"; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = MatrixAI/LaunchScreen.storyboard; sourceTree = "<group>"; };
-		8B69C1000F3B82DC28F1C420 /* Pods-MatrixAI.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MatrixAI.debug.xcconfig"; path = "Target Support Files/Pods-MatrixAI/Pods-MatrixAI.debug.xcconfig"; sourceTree = "<group>"; };
+		EACEABA9264C2AD2B7869E1E /* Pods-MatrixAI.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MatrixAI.release.xcconfig"; path = "Target Support Files/Pods-MatrixAI/Pods-MatrixAI.release.xcconfig"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		F002C1F696F2748D6A3FF364 /* libPods-MatrixAI.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-MatrixAI.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -33,7 +33,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DAD2222BEE6805C3F3D1CB9A /* libPods-MatrixAI.a in Frameworks */,
+				CEB49417071C3BB50C584FA1 /* libPods-MatrixAI.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -57,7 +57,7 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				1E4376214F3709132D9A1A75 /* libPods-MatrixAI.a */,
+				F002C1F696F2748D6A3FF364 /* libPods-MatrixAI.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -94,8 +94,8 @@
 		BBD78D7AC51CEA395F1C20DB /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				8B69C1000F3B82DC28F1C420 /* Pods-MatrixAI.debug.xcconfig */,
-				2F24B502642BA6606B3146D1 /* Pods-MatrixAI.release.xcconfig */,
+				7E651E444CF556F61EBC1C88 /* Pods-MatrixAI.debug.xcconfig */,
+				EACEABA9264C2AD2B7869E1E /* Pods-MatrixAI.release.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -107,14 +107,14 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "MatrixAI" */;
 			buildPhases = (
-				4C8A4131D9D8372BFD8BDAC2 /* [CP] Check Pods Manifest.lock */,
+				973946CDD4F2FB7FB8B51538 /* [CP] Check Pods Manifest.lock */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				FE4A1F8C2D95DFB100416F24 /* Fix Hermes dSYM */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
-				B0F84A303AF35FD21100F04E /* [CP] Embed Pods Frameworks */,
-				D5B0D45C8DCA7E2F1B0B402D /* [CP] Copy Pods Resources */,
+				B12161CE686019CDA246C532 /* [CP] Embed Pods Frameworks */,
+				277B86731FDCDABBEF8A2B88 /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
 			);
@@ -186,7 +186,24 @@
 			shellPath = /bin/sh;
 			shellScript = "set -e\n\nWITH_ENVIRONMENT=\"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\nREACT_NATIVE_XCODE=\"$REACT_NATIVE_PATH/scripts/react-native-xcode.sh\"\n\n/bin/sh -c \"$WITH_ENVIRONMENT $REACT_NATIVE_XCODE\"\n";
 		};
-		4C8A4131D9D8372BFD8BDAC2 /* [CP] Check Pods Manifest.lock */ = {
+		277B86731FDCDABBEF8A2B88 /* [CP] Copy Pods Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-MatrixAI/Pods-MatrixAI-resources-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			name = "[CP] Copy Pods Resources";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-MatrixAI/Pods-MatrixAI-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-MatrixAI/Pods-MatrixAI-resources.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		973946CDD4F2FB7FB8B51538 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -208,7 +225,7 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		B0F84A303AF35FD21100F04E /* [CP] Embed Pods Frameworks */ = {
+		B12161CE686019CDA246C532 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -223,23 +240,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-MatrixAI/Pods-MatrixAI-frameworks.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
-		D5B0D45C8DCA7E2F1B0B402D /* [CP] Copy Pods Resources */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-MatrixAI/Pods-MatrixAI-resources-${CONFIGURATION}-input-files.xcfilelist",
-			);
-			name = "[CP] Copy Pods Resources";
-			outputFileListPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-MatrixAI/Pods-MatrixAI-resources-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-MatrixAI/Pods-MatrixAI-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 		FE4A1F8C2D95DFB100416F24 /* Fix Hermes dSYM */ = {
@@ -276,23 +276,44 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 8B69C1000F3B82DC28F1C420 /* Pods-MatrixAI.debug.xcconfig */;
+			baseConfigurationReference = 7E651E444CF556F61EBC1C88 /* Pods-MatrixAI.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
 				CODE_SIGN_ENTITLEMENTS = MatrixAI/MatrixAI.entitlements;
 				CURRENT_PROJECT_VERSION = 9;
+				DEAD_CODE_STRIPPING = NO;
 				DEVELOPMENT_TEAM = 75NR4WL287;
 				ENABLE_BITCODE = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(BUILT_PRODUCTS_DIR)\"",
+					"\"$(BUILT_PRODUCTS_DIR)\"",
+				);
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(BUILT_PRODUCTS_DIR)/usr/local/lib/include\"",
+					"\"$(BUILT_PRODUCTS_DIR)/usr/local/lib/Headers\"",
+					"\"$(BUILT_PRODUCTS_DIR)/usr/local/lib/include\"",
+					"\"$(BUILT_PRODUCTS_DIR)/usr/local/lib/Headers\"",
+				);
 				INFOPLIST_FILE = MatrixAI/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = MatrixAI;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
-				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SDKROOT)/usr/lib/swift",
+					"$(inherited)",
+					"\"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)\"",
+					"\"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)\"",
+				);
 				MARKETING_VERSION = 1.4;
+				ONLY_ACTIVE_ARCH = YES;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -308,22 +329,44 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 2F24B502642BA6606B3146D1 /* Pods-MatrixAI.release.xcconfig */;
+			baseConfigurationReference = EACEABA9264C2AD2B7869E1E /* Pods-MatrixAI.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
 				CODE_SIGN_ENTITLEMENTS = MatrixAI/MatrixAI.entitlements;
 				CURRENT_PROJECT_VERSION = 9;
+				DEAD_CODE_STRIPPING = NO;
 				DEVELOPMENT_TEAM = 75NR4WL287;
+				ENABLE_BITCODE = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(BUILT_PRODUCTS_DIR)\"",
+					"\"$(BUILT_PRODUCTS_DIR)\"",
+				);
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(BUILT_PRODUCTS_DIR)/usr/local/lib/include\"",
+					"\"$(BUILT_PRODUCTS_DIR)/usr/local/lib/Headers\"",
+					"\"$(BUILT_PRODUCTS_DIR)/usr/local/lib/include\"",
+					"\"$(BUILT_PRODUCTS_DIR)/usr/local/lib/Headers\"",
+				);
 				INFOPLIST_FILE = MatrixAI/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = MatrixAI;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
-				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SDKROOT)/usr/lib/swift",
+					"$(inherited)",
+					"\"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)\"",
+					"\"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)\"",
+				);
 				MARKETING_VERSION = 1.4;
+				ONLY_ACTIVE_ARCH = NO;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",

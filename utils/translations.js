@@ -245,6 +245,7 @@ export const translations = {
     'generateIV': 'Generate IV',
 
     'prompt': 'Prompt',
+    'imageTemplates': 'Image Templates',
     'creatingYourImages': 'Creating your images...',
     'pleaseDontLeaveThisScreenWhileImagesAreBeingGenerated': 'Please don\'t leave this screen while images are being generated',
     'aiImageGeneration': 'AI Image Generation',
@@ -598,6 +599,8 @@ export const translations = {
     'premium': 'Premium',
     'basic': 'Basic',
     'transcription': 'Transcription',
+    'changeTemplate': 'Change Template',
+    'modelInfo': 'Model Info',
     'chineseSimplified': 'Chinese (Simplified)',
     'chineseTraditional': 'Chinese (Traditional)',
     'spanish': 'Spanish',
@@ -614,6 +617,8 @@ export const translations = {
   'Traditional Chinese': {
     // Common
     'transcription': '轉錄',
+    'changeTemplate': '更換模板',
+    'modelInfo': '模型資訊',
     'english': '英文',
     'chineseSimplified': '中文（簡體）',
     'chineseTraditional': '中文（繁體）',
@@ -906,6 +911,7 @@ export const translations = {
     'generateIV': '生成 IV',
 
     'prompt': '提示',
+    'imageTemplates': '圖片模板',
     'creatingYourImages': '正在生成您的圖片...',
     'pleaseDontLeaveThisScreenWhileImagesAreBeingGenerated': '請勿在生成圖片時切換屏幕',
     'aiImageGeneration': 'AI 圖片生成',
@@ -1160,6 +1166,8 @@ export const translations = {
   'Simplified Chinese': {
     // Common
     'reselectTemplate': '重新选择模板',
+    'changeTemplate': '更换模板',
+    'modelInfo': '模型信息',
     'uploadingImage': '上传中...',
     'typeYourVideoPromptHere': '输入您的视频提示...',
     'chooseThisVideo': '选择此视频',
@@ -1423,6 +1431,7 @@ export const translations = {
     'generateIV': '生成 IV',
 
     'prompt': '提示',
+    'imageTemplates': '图片模板',
     'creatingYourImages': '正在生成您的圖片...',
     'pleaseDontLeaveThisScreenWhileImagesAreBeingGenerated': '請勿在生成圖片時切換屏幕',  
     'aiImageGeneration': 'AI 圖片生成',

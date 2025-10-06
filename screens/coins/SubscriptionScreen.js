@@ -1,67 +1,117 @@
 import React, { useState, useEffect } from 'react';
 
 import supabase from '../../supabaseClient';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ImageBackground } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, ImageBackground, ActivityIndicator, Alert } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient'; // Install react-native-linear-gradient for gradient backgrounds
 
 import { useCoinsSubscription } from '../../hooks/useCoinsSubscription';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useAuthUser } from '../../hooks/useAuthUser';
+import airwallexService from '../../services/airwallexService';
 
 
 const SubscriptionScreen = ({ navigation }) => {
   const { uid } = useAuthUser();
   const coinCount = useCoinsSubscription(uid);
-  const [selectedPlan, setSelectedPlan] = useState('Basic'); // Default selected plan as Basic
+  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [subscriptionPlans, setSubscriptionPlans] = useState([]);
   const [coins, setCoins] = useState(null);
   const [loading, setLoading] = useState(true);
-console.log(uid);
+  const [plansLoading, setPlansLoading] = useState(true);
+  
+  console.log('User ID:', uid);
+
+  useEffect(() => {
+    fetchSubscriptionPlans();
+  }, [uid]);
+
+  const fetchSubscriptionPlans = async () => {
+    try {
+      setPlansLoading(true);
+      console.log('🔄 Fetching subscription plans for user:', uid);
+      
+      const response = await airwallexService.getSubscriptionPlans(uid);
+      
+      if (response.success && response.data) {
+        console.log('✅ Subscription plans fetched successfully:', response.data);
+        setSubscriptionPlans(response.data);
+        
+        // Set default selected plan to the first plan
+        if (response.data.length > 0) {
+          setSelectedPlan(response.data[0].id || response.data[0].name);
+        }
+      } else {
+        console.warn('⚠️ Failed to fetch subscription plans, using fallback');
+        // Fallback to hardcoded plans if API fails
+        const fallbackPlans = [
+          { id: 'basic', name: 'Basic', price: 50, currency: 'HKD', coins: 450, description: 'Basic plan includes 450 coins valid for 1 month.' },
+          { id: 'premium', name: 'Premium', price: 150, currency: 'HKD', coins: 1500, description: 'Premium plan includes 1500 coins valid for 1 month.' },
+          { id: 'enterprise', name: 'Enterprise', price: 500, currency: 'HKD', coins: 5000, description: 'Enterprise plan includes 5000 coins valid for 1 month.', badge: 'Best Value' }
+        ];
+        setSubscriptionPlans(fallbackPlans);
+        setSelectedPlan('basic');
+      }
+    } catch (error) {
+      console.error('❌ Error fetching subscription plans:', error);
+      Alert.alert(
+        'Error',
+        'Failed to load subscription plans. Please try again.',
+        [
+          { text: 'Retry', onPress: fetchSubscriptionPlans },
+          { text: 'Cancel', onPress: () => navigation.goBack() }
+        ]
+      );
+    } finally {
+      setPlansLoading(false);
+      setLoading(false);
+    }
+  };
 
 
-  const handlePlanSelect = (plan) => {
-    setSelectedPlan(plan);
+  const handlePlanSelect = (planId) => {
+    setSelectedPlan(planId);
+  };
+
+  const getSelectedPlanData = () => {
+    return subscriptionPlans.find(plan => (plan.id || plan.name) === selectedPlan);
   };
 
   const getButtonPrice = () => {
-    if (selectedPlan === 'Basic') {
-      return '50 HKD';
-    } else if (selectedPlan === 'Premium') {
-      return '150 HKD';
-    } else if (selectedPlan === 'Enterprise') {
-      return '500 HKD';
-    }
+    const plan = getSelectedPlanData();
+    return plan ? `${plan.price} ${plan.currency || 'HKD'}` : '0 HKD';
   };
 
   const getPlanAmount = () => {
-    if (selectedPlan === 'Basic') {
-      return 50;
-    } else if (selectedPlan === 'Premium') {
-      return 150;
-    } else if (selectedPlan === 'Enterprise') {
-      return 500;
-    }
+    const plan = getSelectedPlanData();
+    return plan ? plan.price : 0;
   };
 
   const getPlanText = () => {
-    if (selectedPlan === 'Basic') {
-      return '*Basic plan includes 450 coins valid for 1 month.';
-    } else if (selectedPlan === 'Premium') {
-      return '*Premium plan includes 1500 coins valid for 1 month.';
-    } else if (selectedPlan === 'Enterprise') {
-      return '*Enterprise plan includes 5000 coins valid for 1 month.';
-    }
+    const plan = getSelectedPlanData();
+    return plan ? `*${plan.description || plan.name + ' plan'}` : '';
   };
 
   const handleBuyNow = () => {
+    const selectedPlanData = getSelectedPlanData();
+    
+    if (!selectedPlanData) {
+      Alert.alert('Error', 'Please select a subscription plan.');
+      return;
+    }
+    
     // Prepare order data for Airwallex payment
     const orderData = {
       type: 'subscription',
-      planId: selectedPlan.toLowerCase(),
-      name: `${selectedPlan} Plan`,
-      amount: getPlanAmount(),
-      currency: 'HKD',
-      quantity: 1
+      planId: selectedPlanData.id || selectedPlanData.name.toLowerCase(),
+      name: `${selectedPlanData.name} Plan`,
+      amount: selectedPlanData.price,
+      currency: selectedPlanData.currency || 'HKD',
+      quantity: 1,
+      description: selectedPlanData.description,
+      coins: selectedPlanData.coins
     };
+    
+    console.log('🛒 Navigating to payment with order data:', orderData);
     
     // Navigate to Airwallex payment screen
     navigation.navigate('AirwallexPaymentScreen', {
@@ -112,66 +162,47 @@ console.log(uid);
       </View>
 
       {/* Plans */}
-      <View style={styles.plansContainer}>
-        <TouchableOpacity
-          style={[styles.plan, selectedPlan === 'Basic' && styles.activePlan]}
-          onPress={() => handlePlanSelect('Basic')}
-        >
-          <Text style={styles.planTitle}>Basic</Text>
-          <Text style={styles.planPrice2}>
-            50 HKD
-          </Text>
-          <View style={styles.planDiscountContainer}>
-            <Text style={styles.planDiscountPlaceholder}> </Text>
-          </View>
-          <View style={styles.planPriceContainer}>
-            <Text style={styles.planPrice}>
-             450
-            </Text>
-           <Image source={require('../../assets/coin.png')} style={styles.planIcon} />
-          </View>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.plan, selectedPlan === 'Premium' && styles.activePlan]}
-          onPress={() => handlePlanSelect('Premium')}
-        >
-          <Text style={styles.planTitle}>Premium</Text>
-          <Text style={styles.planPrice2}>
-            150 HKD
-          </Text>
-          <View style={styles.planDiscountContainer}>
-            <Text style={styles.planDiscountPlaceholder}> </Text>
-          </View>
-          <View style={styles.planPriceContainer}>
-            <Text style={styles.planPrice}>
-             1500
-            </Text>
-           <Image source={require('../../assets/coin.png')} style={styles.planIcon} />
-          </View>
-        </TouchableOpacity>
-      
-        <TouchableOpacity
-          style={[styles.plan, selectedPlan === 'Enterprise' && styles.activePlan]}
-          onPress={() => handlePlanSelect('Enterprise')}
-        >
-          <Text style={styles.planTitle}>Enterprise</Text>
-          <Text style={styles.planPrice2}>
-            500 HKD
-          </Text>
-          <View style={styles.planDiscountContainer}>
-            <Text style={styles.planPrice4}>
-              Best Value
-            </Text>
-          </View>
-          <View style={styles.planPriceContainer}>
-            <Text style={styles.planPrice}>
-             5000
-            </Text>
-           <Image source={require('../../assets/coin.png')} style={styles.planIcon} />
-          </View>
-        </TouchableOpacity>
-      </View>
+      {plansLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.loadingText}>Loading subscription plans...</Text>
+        </View>
+      ) : (
+        <View style={styles.plansContainer}>
+          {subscriptionPlans.map((plan, index) => {
+            const planId = plan.id || plan.name;
+            const isSelected = selectedPlan === planId;
+            
+            return (
+              <TouchableOpacity
+                key={planId}
+                style={[styles.plan, isSelected && styles.activePlan]}
+                onPress={() => handlePlanSelect(planId)}
+              >
+                <Text style={styles.planTitle}>{plan.name}</Text>
+                <Text style={styles.planPrice2}>
+                  {plan.price} {plan.currency || 'HKD'}
+                </Text>
+                <View style={styles.planDiscountContainer}>
+                  {plan.badge ? (
+                    <Text style={styles.planPrice4}>
+                      {plan.badge}
+                    </Text>
+                  ) : (
+                    <Text style={styles.planDiscountPlaceholder}> </Text>
+                  )}
+                </View>
+                <View style={styles.planPriceContainer}>
+                  <Text style={styles.planPrice}>
+                    {plan.coins || 0}
+                  </Text>
+                  <Image source={require('../../assets/coin.png')} style={styles.planIcon} />
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
       
       <View style={styles.planTextContainer}>
         <Text style={styles.planText}>
@@ -403,6 +434,16 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: 14,
+    marginTop: 10,
   },
 });
 

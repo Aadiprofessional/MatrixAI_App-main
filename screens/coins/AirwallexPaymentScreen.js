@@ -8,90 +8,85 @@ import {
   TouchableOpacity,
   SafeAreaView,
   ScrollView,
+  Dimensions,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import airwallexService from '../../services/airwallexService';
-import { initialize, presentEntirePaymentFlow } from 'airwallex-payment-react-native';
+import AirwallexNative from '../../services/airwallexNative';
+import paymentAttemptTracker from '../../services/paymentAttemptTracker';
 import { useAuth } from '../../context/AuthContext';
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 const AirwallexPaymentScreen = ({ route, navigation }) => {
   const { orderData } = route.params;
   const { uid } = useAuth();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [paymentIntent, setPaymentIntent] = useState(null);
   const [error, setError] = useState(null);
+  const [sdkInitialized, setSdkInitialized] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockInfo, setBlockInfo] = useState(null);
+  const [attemptStatus, setAttemptStatus] = useState(null);
 
   useEffect(() => {
-    createPaymentIntent();
+    checkPaymentBlockStatus();
   }, []);
 
-  const createPaymentIntent = async () => {
+  const checkPaymentBlockStatus = async () => {
+    try {
+      // Record navigation attempt (opening the payment screen)
+      await paymentAttemptTracker.recordNavigationAttempt(uid);
+      
+      const blockStatus = await paymentAttemptTracker.isUserBlocked(uid);
+      const attemptStatus = await paymentAttemptTracker.getAttemptStatus(uid);
+      
+      setIsBlocked(blockStatus.isBlocked);
+      setBlockInfo(blockStatus);
+      setAttemptStatus(attemptStatus);
+      
+      if (blockStatus.isBlocked) {
+        setLoading(false);
+        Alert.alert(
+          'Payment Temporarily Blocked',
+          `You have exceeded the maximum number of payment attempts. Please try again in ${blockStatus.remainingMinutes} minutes.`,
+          [
+            { text: 'OK', onPress: () => navigation.goBack() }
+          ]
+        );
+      } else {
+        initializeSDKAndCreatePayment();
+      }
+    } catch (error) {
+      console.error('Error checking payment block status:', error);
+      initializeSDKAndCreatePayment();
+    }
+  };
+
+  const initializeSDKAndCreatePayment = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      console.log('Creating payment intent for order:', orderData);
+      console.log('🔄 Initializing Airwallex SDK...');
       
-      // Check if Airwallex service has valid credentials configured
-      const hasCredentials = airwallexService.hasValidCredentials();
+      // Initialize Airwallex SDK
+      await AirwallexNative.initialize('demo', true);
+      setSdkInitialized(true);
+      console.log('✅ Airwallex SDK initialized successfully');
       
-      if (!hasCredentials) {
-        console.log('⚠️ Airwallex credentials not configured, using backend fallback');
-        
-        // Show setup instructions if backend also fails
-        const showSetupInstructions = () => {
-          Alert.alert(
-            '🔧 Airwallex Setup Required',
-            'To enable payments, you need to configure Airwallex credentials:\n\n1. Create sandbox account at airwallex.com\n2. Generate Client ID and API key\n3. Set environment variables:\n   - AIRWALLEX_CLIENT_ID\n   - AIRWALLEX_API_KEY\n\n📋 Alternative: Configure backend API with proper credentials',
-            [
-              { text: 'Continue with Backend', style: 'default' },
-              { text: 'Setup Guide', style: 'default', onPress: () => {
-                // Could navigate to setup instructions or open documentation
-                console.log('Opening setup guide...');
-              }}
-            ]
-          );
-        };
-        
-        // Try backend fallback first, show instructions only if that fails too
-        try {
-          const backendResult = await airwallexService.createPaymentIntent({
-            amount: orderData.amount,
-            currency: orderData.currency || 'HKD',
-            merchantOrderId: airwallexService.generateMerchantOrderId(`${orderData.type}_${orderData.addonId || orderData.subscriptionId}`),
-            returnUrl: 'matrixai://payment/result',
-            uid: uid || 'anonymous_user',
-            plan: orderData.name,
-          });
-          
-          if (!backendResult.success) {
-            showSetupInstructions();
-            return;
-          }
-          
-          console.log('✅ Payment intent created via backend:', backendResult);
-          setPaymentIntent(backendResult);
-          return;
-        } catch (backendError) {
-          console.error('Backend fallback failed:', backendError);
-          showSetupInstructions();
-          return;
-        }
-      }
+      console.log('🔄 Creating payment intent for order:', orderData);
       
-      // Use direct Airwallex API integration when credentials are configured
-      console.log('✅ Using direct Airwallex API integration');
-      
-      // Extract numeric value from amount (similar to web implementation)
+      // Extract numeric value from amount
       const numericAmount = typeof orderData.amount === 'string' 
         ? parseFloat(orderData.amount.replace(/[^0-9.]/g, ''))
         : orderData.amount;
       
       const paymentResponse = await airwallexService.createPaymentIntent({
-        amount: Math.round(numericAmount), // HKD amount as-is (no cents conversion)
+        amount: Math.round(numericAmount),
         currency: orderData.currency || 'HKD',
-        merchantOrderId: airwallexService.generateMerchantOrderId(`${orderData.type}_${orderData.addonId || orderData.subscriptionId}`),
+        merchantOrderId: airwallexService.generateMerchantOrderId(`${orderData.type}_${orderData.planId || orderData.addonId || 'unknown'}`),
         returnUrl: 'matrixai://payment/result',
         uid: uid || 'anonymous_user',
         plan: orderData.name,
@@ -102,114 +97,152 @@ const AirwallexPaymentScreen = ({ route, navigation }) => {
       }
       
       console.log('✅ Payment intent created successfully:', paymentResponse);
+      console.log('🔍 Payment intent data structure:', JSON.stringify(paymentResponse.data, null, 2));
       setPaymentIntent(paymentResponse);
+      
     } catch (error) {
-      console.error('Error creating payment intent:', error);
-      setError(error.message || 'Failed to create payment intent');
-      Alert.alert('Error', error.message || 'Failed to create payment intent');
+      console.error('❌ Error initializing SDK or creating payment intent:', error);
+      setError(error.message || 'Failed to initialize payment system');
+      Alert.alert(
+        'Payment Error', 
+        error.message || 'Failed to initialize payment system. Please try again.',
+        [
+          { text: 'Retry', onPress: initializeSDKAndCreatePayment },
+          { text: 'Cancel', onPress: () => navigation.goBack() }
+        ]
+      );
     } finally {
       setLoading(false);
     }
   };
 
   const handlePayment = async () => {
-    if (!paymentIntent) {
+    if (!paymentIntent || !paymentIntent.data) {
       Alert.alert('Error', 'Payment intent not created');
+      return;
+    }
+
+    if (!sdkInitialized) {
+      Alert.alert('Error', 'Payment system not initialized. Please try again.');
       return;
     }
 
     try {
       setLoading(true);
       
-      console.log('Starting payment process with intent:', paymentIntent.id);
-      console.log('Airwallex SDK initialize function:', { initialize });
-      console.log('Airwallex SDK initialize function:', initialize);
-      console.log('presentEntirePaymentFlow function:', typeof presentEntirePaymentFlow);
+      const paymentIntentId = paymentIntent.data?.id || paymentIntent.data?.payment_intent_id;
+      const clientSecret = paymentIntent.data?.client_secret;
+      const numericAmount = typeof orderData.amount === 'string' 
+        ? parseFloat(orderData.amount.replace(/[^0-9.]/g, ''))
+        : orderData.amount;
       
-      // Check if Airwallex SDK functions are available
-      if (!initialize || typeof initialize !== 'function' || !presentEntirePaymentFlow || typeof presentEntirePaymentFlow !== 'function') {
-        console.error('Airwallex SDK functions not properly loaded');
-        Alert.alert(
-          'Payment Error', 
-          'Payment system is not available. Please try again later or contact support.',
-          [{ text: 'OK', onPress: () => navigation.goBack() }]
-        );
-        return;
-      }
+      console.log('🚀 Starting Airwallex SDK payment flow...');
+      console.log('Payment Intent ID:', paymentIntentId);
+      console.log('Amount:', numericAmount);
+      console.log('Currency:', orderData.currency || 'HKD');
       
-      // Step 1: Initialize Airwallex SDK only
-      console.log('Payment intent created successfully:', paymentIntent);
-      console.log('Payment intent ID:', paymentIntent.data?.id);
-      console.log('Client secret exists:', !!paymentIntent.data?.client_secret);
+      // Use Airwallex SDK to present payment flow
+      const result = await AirwallexNative.presentEntirePaymentFlow(
+        clientSecret,
+        paymentIntentId,
+        numericAmount,
+        orderData.currency || 'HKD'
+      );
       
-      console.log('Step 1: Initializing Airwallex SDK...');
-      try {
-        await initialize({
-          enableLogging: true
-        });
-        console.log('✅ Step 1 SUCCESS: Airwallex SDK initialized successfully');
-         
-         // Step 2: Present the entire payment flow
-         console.log('Step 2: Presenting payment flow...');
-         
-         if (!paymentIntent.data || !paymentIntent.data.id || !paymentIntent.data.client_secret) {
-           throw new Error('Invalid payment intent data');
-         }
-         
-         // Create PaymentSession object according to Airwallex documentation
-         const session = {
-           type: 'OneOff',
-           paymentIntentId: paymentIntent.data.id,
-           currency: orderData.currency.toUpperCase(),
-           countryCode: 'HK',
-           amount: orderData.amount,
-           isBillingRequired: false,
-           isEmailRequired: false,
-           paymentMethods: ['card', 'alipay', 'alipayhk', 'wechatpay', 'googlepay', 'applepay'],
-           clientSecret: paymentIntent.data.client_secret
-         };
-         
-         console.log('Payment session created:', session);
-         
-         const result = await presentEntirePaymentFlow(session);
-         
-         console.log('✅ Step 2 SUCCESS: Payment flow completed:', result);
-         
-         // Handle payment result
-         if (result.status === 'success') {
-           console.log('Payment successful, navigating to success screen');
-           navigation.navigate('PaymentSuccess', {
-             paymentIntentId: paymentIntent.data.id,
-             amount: orderData.amount,
-             currency: orderData.currency,
-             orderData: orderData
-           });
-         } else {
-           console.log('Payment failed or cancelled:', result);
-           Alert.alert(
-             'Payment Status',
-             `Payment ${result.status}: ${result.message || 'Please try again'}`,
-             [{ text: 'OK', onPress: () => navigation.goBack() }]
-           );
-         }
-      } catch (initError) {
-        console.error('❌ Step 1 FAILED: SDK initialization error:', initError);
-        
-        // Check if it's an authentication error
-        const isAuthError = initError.message && initError.message.includes('Access denied, authentication failed');
+      console.log('✅ Payment flow completed:', result);
+      
+      // Handle payment result
+      if (result && result.status === 'success') {
+        // Record successful payment and reset attempts
+        await paymentAttemptTracker.recordSuccessfulPayment(uid);
         
         Alert.alert(
-          isAuthError ? '🔐 Authentication Required' : 'Payment System Error',
-          isAuthError 
-            ? 'Airwallex sandbox credentials are required for payments.\n\n📋 Setup Steps:\n1. Create account at airwallex.com\n2. Generate sandbox API keys\n3. Configure backend credentials\n4. Set useTestMode = false\n\n💡 Current: Test mode with mock data'
-            : `SDK initialization failed: ${initError.message || initError}`,
-          [{ text: 'OK', onPress: () => navigation.goBack() }]
+          'Payment Successful',
+          'Your payment has been processed successfully!',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Navigate to success screen or back to previous screen
+                navigation.navigate('PaymentSuccessScreen', {
+                  paymentResult: result,
+                  orderData: orderData
+                });
+              }
+            }
+          ]
         );
-        return;
+      } else {
+        // Record failed payment attempt
+        const newAttemptStatus = await paymentAttemptTracker.recordFailedAttempt(uid);
+        
+        // Handle payment failure or cancellation
+        let errorMessage = result?.error || 'Payment was cancelled or failed';
+        
+        if (newAttemptStatus.failedAttempts >= 3) {
+          errorMessage += `\n\nYou have reached the maximum number of payment attempts (${newAttemptStatus.failedAttempts}/3). You will be blocked from making payments for 30 minutes.`;
+        } else {
+          errorMessage += `\n\nAttempts: ${newAttemptStatus.failedAttempts}/3`;
+        }
+        
+        Alert.alert(
+          'Payment Failed',
+          errorMessage,
+          [
+            { 
+              text: 'Try Again', 
+              onPress: newAttemptStatus.failedAttempts < 3 ? handlePayment : undefined,
+              style: newAttemptStatus.failedAttempts >= 3 ? 'cancel' : 'default'
+            },
+            { 
+              text: 'Cancel', 
+              onPress: () => {
+                if (newAttemptStatus.failedAttempts >= 3) {
+                  navigation.goBack();
+                } else {
+                  navigation.goBack();
+                }
+              }
+            }
+          ]
+        );
       }
+      
     } catch (error) {
-      console.error('Payment error:', error);
-      Alert.alert('Error', 'Payment failed. Please try again.');
+      console.error('❌ Payment error:', error);
+      
+      // Record failed payment attempt for errors too
+      const newAttemptStatus = await paymentAttemptTracker.recordFailedAttempt(uid);
+      
+      let alertMessage = error.message || 'Payment failed. Please try again.';
+      
+      if (newAttemptStatus.failedAttempts >= 3) {
+        alertMessage += `\n\nYou have reached the maximum number of payment attempts (${newAttemptStatus.failedAttempts}/3). You will be blocked from making payments for 30 minutes.`;
+      } else {
+        alertMessage += `\n\nAttempts: ${newAttemptStatus.failedAttempts}/3`;
+      }
+      
+      Alert.alert(
+        'Payment Error',
+        alertMessage,
+        [
+          { 
+            text: 'Try Again', 
+            onPress: newAttemptStatus.failedAttempts < 3 ? handlePayment : undefined,
+            style: newAttemptStatus.failedAttempts >= 3 ? 'cancel' : 'default'
+          },
+          { 
+            text: 'Cancel', 
+            onPress: () => {
+              if (newAttemptStatus.failedAttempts >= 3) {
+                navigation.goBack();
+              } else {
+                navigation.goBack();
+              }
+            }
+          }
+        ]
+      );
     } finally {
       setLoading(false);
     }
@@ -217,9 +250,13 @@ const AirwallexPaymentScreen = ({ route, navigation }) => {
 
 
 
+
+
   const formatAmount = (amount) => {
     return `${amount}.00 HKD`;
   };
+
+
 
   return (
     <View style={styles.container}>
@@ -235,6 +272,41 @@ const AirwallexPaymentScreen = ({ route, navigation }) => {
       </SafeAreaView>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Blocked Status Warning */}
+        {isBlocked && blockInfo && (
+          <View style={styles.blockedContainer}>
+            <Icon name="warning" size={24} color="#FF6B6B" />
+            <View style={styles.blockedTextContainer}>
+              <Text style={styles.blockedTitle}>Payment Temporarily Blocked</Text>
+              <Text style={styles.blockedMessage}>
+                You have exceeded the maximum number of payment attempts. 
+                Please try again in {blockInfo.remainingMinutes} minutes.
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* Attempt Status Info */}
+        {!isBlocked && attemptStatus && (attemptStatus.failedAttempts > 0 || attemptStatus.navigationAttempts > 0) && (
+          <View style={styles.attemptWarningContainer}>
+            <Icon name="information-circle" size={20} color="#FF9500" />
+            <View style={styles.attemptWarningTextContainer}>
+              {attemptStatus.failedAttempts > 0 && (
+                <Text style={styles.attemptWarningText}>
+                  Failed payment attempts: {attemptStatus.failedAttempts}/3
+                  {attemptStatus.failedAttempts >= 2 && " - Be careful!"}
+                </Text>
+              )}
+              {attemptStatus.navigationAttempts > 0 && !attemptStatus.hasSuccessfulPayment && (
+                <Text style={styles.attemptWarningText}>
+                  Screen visits without payment: {attemptStatus.navigationAttempts}/3
+                  {attemptStatus.navigationAttempts >= 2 && " - Complete a payment to reset!"}
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
+
         {/* Order Summary */}
         <View style={styles.orderSummaryContainer}>
           <Text style={styles.sectionTitle}>Order Summary</Text>
@@ -255,6 +327,31 @@ const AirwallexPaymentScreen = ({ route, navigation }) => {
             </Text>
           </View>
         </View>
+
+        {error && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity 
+              style={styles.retryButton}
+              onPress={initializeSDKAndCreatePayment}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {paymentIntent && (
+          <View style={styles.paymentInfo}>
+            <Text style={styles.sectionTitle}>Payment Details</Text>
+            <Text style={styles.paymentId}>Payment ID: {paymentIntent.data.id}</Text>
+            <Text style={styles.paymentStatus}>Status: {paymentIntent.data.status}</Text>
+            
+            <View style={styles.securityInfo}>
+              <Icon name="shield-checkmark" size={20} color="#4CAF50" />
+              <Text style={styles.securityText}>Secured by Airwallex</Text>
+            </View>
+          </View>
+        )}
 
         {/* Payment Methods Available */}
         <View style={styles.paymentMethodsContainer}>
@@ -353,7 +450,14 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E0E0E0',
   },
   backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: 8,
+  },
+  backButtonText: {
+    fontSize: 16,
+    color: '#333',
+    marginLeft: 4,
   },
   headerTitle: {
     fontSize: 18,
@@ -418,6 +522,53 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#2274F0',
+  },
+  errorContainer: {
+    backgroundColor: '#ffebee',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#f44336',
+  },
+  errorText: {
+    color: '#c62828',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  retryButton: {
+    backgroundColor: '#f44336',
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    alignSelf: 'flex-start',
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  paymentInfo: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  paymentId: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  paymentStatus: {
+    fontSize: 12,
+    color: '#4CAF50',
+    fontWeight: '500',
+    marginBottom: 12,
   },
   paymentMethodsContainer: {
     backgroundColor: '#FFFFFF',
@@ -527,6 +678,51 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  blockedContainer: {
+    backgroundColor: '#FFEBEE',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF6B6B',
+  },
+  blockedTextContainer: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  blockedTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#D32F2F',
+    marginBottom: 4,
+  },
+  blockedMessage: {
+    fontSize: 14,
+    color: '#D32F2F',
+    lineHeight: 20,
+  },
+  attemptWarningContainer: {
+    backgroundColor: '#FFF3E0',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9500',
+  },
+  attemptWarningTextContainer: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  attemptWarningText: {
+    fontSize: 14,
+    color: '#E65100',
+    lineHeight: 18,
+    marginBottom: 2,
   },
 });
 

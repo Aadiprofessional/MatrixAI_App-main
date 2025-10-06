@@ -24,9 +24,17 @@ export class StreamingService {
    * @param {Function} onImageReady - Callback when image is ready to insert
    * @param {Function} onComplete - Callback when streaming is complete
    */
-  async startStreamingWithImages(userMessage, conversationHistory, responsePlan, onTextChunk, onImageReady, onComplete) {
+  async startStreamingWithImages(userMessage, conversationHistory, responsePlan, onTextChunk, onImageReady, onComplete, systemPrompt = null) {
     try {
-      console.log('Starting enhanced streaming with parallel images...');
+      console.log('🎯 StreamingService: Starting enhanced streaming...');
+      console.log('📊 StreamingService: Input params:', {
+        userMessage,
+        conversationHistoryLength: conversationHistory?.length || 0,
+        responsePlan,
+        hasOnTextChunk: typeof onTextChunk === 'function',
+        hasOnImageReady: typeof onImageReady === 'function',
+        hasOnComplete: typeof onComplete === 'function'
+      });
       
       // Initialize streaming state
       this.streamingState = {
@@ -37,6 +45,8 @@ export class StreamingService {
         isStreaming: true
       };
 
+      console.log('🔄 StreamingService: Initialized state:', this.streamingState);
+
       // Start the text streaming
       await this.streamTextWithImageCoordination(
         userMessage, 
@@ -44,11 +54,12 @@ export class StreamingService {
         responsePlan,
         onTextChunk, 
         onImageReady, 
-        onComplete
+        onComplete,
+        systemPrompt
       );
 
     } catch (error) {
-      console.error('Error in streaming with images:', error);
+      console.error('❌ StreamingService error:', error);
       onComplete(error);
     }
   }
@@ -56,25 +67,33 @@ export class StreamingService {
   /**
    * Streams text while coordinating image insertion
    */
-  async streamTextWithImageCoordination(userMessage, conversationHistory, responsePlan, onTextChunk, onImageReady, onComplete) {
+  async streamTextWithImageCoordination(userMessage, conversationHistory, responsePlan, onTextChunk, onImageReady, onComplete, systemPrompt = null) {
     try {
+      console.log('🎯 streamTextWithImageCoordination called');
       const streamingPrompt = this.buildStreamingPrompt(userMessage, conversationHistory, responsePlan);
+      console.log('📝 Built streaming prompt:', streamingPrompt.substring(0, 200) + '...');
       
       // Use XMLHttpRequest instead of fetch for React Native compatibility
       const xhr = new XMLHttpRequest();
+      console.log('🌐 Opening XHR connection...');
       xhr.open('POST', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', true);
       xhr.setRequestHeader('Authorization', `Bearer ${REACT_APP_ALIYUN_API_KEY}`);
       xhr.setRequestHeader('Content-Type', 'application/json');
+      console.log('✅ XHR headers set');
 
       let processedLength = 0;
 
       xhr.onreadystatechange = async () => {
+        console.log(`🔄 XHR State Change: ${xhr.readyState}, Status: ${xhr.status}`);
+        
         if (xhr.readyState === 3 || xhr.readyState === 4) {
           const responseText = xhr.responseText;
+          console.log(`📥 Response text length: ${responseText.length}`);
           
           // Only process new content that we haven't seen before
           const newContent = responseText.substring(processedLength);
           if (newContent) {
+            console.log(`📝 New content: ${newContent.substring(0, 100)}...`);
             processedLength = responseText.length;
             const lines = newContent.split('\n');
             
@@ -82,6 +101,7 @@ export class StreamingService {
               if (line.startsWith('data: ')) {
                 const data = line.slice(6).trim();
                 if (data === '[DONE]') {
+                  console.log('✅ Streaming completed with [DONE]');
                   this.streamingState.isStreaming = false;
                   break;
                 }
@@ -96,10 +116,11 @@ export class StreamingService {
                   const content = parsed.choices?.[0]?.delta?.content;
                   
                   if (content) {
+                    console.log(`📤 Processing chunk: ${content}`);
                     await this.processTextChunk(content, onTextChunk, onImageReady);
                   }
                 } catch (parseError) {
-                  console.warn('Error parsing streaming data:', parseError);
+                  console.warn('⚠️ Error parsing streaming data:', parseError, 'Data:', data);
                 }
               }
             }
@@ -107,6 +128,7 @@ export class StreamingService {
           
           // If request is complete
           if (xhr.readyState === 4) {
+            console.log(`🏁 Request complete with status: ${xhr.status}`);
             if (xhr.status === 200) {
               // Handle any remaining pending images
               await this.handleRemainingImages(onImageReady);
@@ -120,23 +142,25 @@ export class StreamingService {
       };
 
       xhr.onerror = () => {
-        console.error('XMLHttpRequest error in streamingService');
+        console.error('❌ XMLHttpRequest error in streamingService');
         onComplete(new Error('Failed to get response from AI. Please try again.'));
       };
 
       xhr.ontimeout = () => {
-        console.error('XMLHttpRequest timeout in streamingService');
+        console.error('⏰ XMLHttpRequest timeout in streamingService');
         onComplete(new Error('Request timed out. Please try again.'));
       };
 
       xhr.timeout = 60000; // 60 second timeout
 
+      const defaultSystemPrompt = 'You are a helpful AI assistant. Provide detailed, educational responses. When explaining concepts that benefit from visual aids, structure your response to naturally accommodate images at appropriate points.';
+      
       const requestBody = JSON.stringify({
         model: 'qwen-max',
         messages: [
           {
             role: 'system',
-            content: 'You are a helpful AI assistant. Provide detailed, educational responses. When explaining concepts that benefit from visual aids, structure your response to naturally accommodate images at appropriate points.'
+            content: systemPrompt || defaultSystemPrompt
           },
           {
             role: 'user',
@@ -149,6 +173,8 @@ export class StreamingService {
       });
 
       console.log('📊 Sending streaming request to API...');
+      console.log('🔑 API Key present:', REACT_APP_ALIYUN_API_KEY ? 'Yes' : 'No');
+      console.log('📝 Request body:', JSON.stringify(requestBody, null, 2));
       xhr.send(requestBody);
 
     } catch (error) {

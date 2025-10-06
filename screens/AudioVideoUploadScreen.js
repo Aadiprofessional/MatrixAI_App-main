@@ -855,9 +855,16 @@ const AudioVideoUploadScreen = () => {
                 const videoContent = await RNFS.readFile(decodedVideoUri, 'base64');
                 const videoContentType = file.type || getMimeTypeFromExtension(videoExtension);
                 
+                // Convert base64 to Uint8Array for proper binary upload
+                const binaryString = atob(videoContent);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
                 const { data: videoUploadData, error: videoUploadError } = await supabase.storage
                     .from('user-uploads')
-                    .upload(videoFilePath, decode(videoContent), {
+                    .upload(videoFilePath, bytes, {
                         contentType: videoContentType,
                         upsert: false
                     });
@@ -909,9 +916,16 @@ const AudioVideoUploadScreen = () => {
                                 const audioContent = await RNFS.readFile(decodedAudioUri, 'base64');
                                 const audioContentType = extractedAudioFile.type || getMimeTypeFromExtension(audioExtension);
                                 
+                                // Convert base64 to Uint8Array for proper binary upload
+                                const binaryString = atob(audioContent);
+                                const bytes = new Uint8Array(binaryString.length);
+                                for (let i = 0; i < binaryString.length; i++) {
+                                    bytes[i] = binaryString.charCodeAt(i);
+                                }
+
                                 const { data: audioUploadData, error: audioUploadError } = await supabase.storage
                                     .from('user-uploads')
-                                    .upload(audioFilePath, decode(audioContent), {
+                                    .upload(audioFilePath, bytes, {
                                         contentType: audioContentType,
                                         upsert: false
                                     });
@@ -972,10 +986,17 @@ const AudioVideoUploadScreen = () => {
                 // Determine content type from file or extension
                 const contentType = file.type || getMimeTypeFromExtension(fileExtension);
                 
+                // Convert base64 to Uint8Array for proper binary upload
+                const binaryString = atob(fileContent);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
                 // Upload to Supabase storage with sanitized filename
                 const { data: uploadData, error: uploadError } = await supabase.storage
                     .from('user-uploads')
-                    .upload(filePath, decode(fileContent), {
+                    .upload(filePath, bytes, {
                         contentType: contentType,
                         upsert: false
                     });

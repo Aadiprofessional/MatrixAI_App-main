@@ -9,8 +9,9 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
+import ChatHistorySkeleton from './ChatHistorySkeleton';
 
-const LeftNavbarBot = ({ chats, onSelectChat, onNewChat, onClose, onDeleteChat, currentChatId }) => {
+const LeftNavbarBot = ({ chats, onSelectChat, onNewChat, onClose, onDeleteChat, currentChatId, isLoading = false }) => {
   const { getThemeColors } = useTheme();
   const colors = getThemeColors();
   
@@ -131,7 +132,13 @@ const LeftNavbarBot = ({ chats, onSelectChat, onNewChat, onClose, onDeleteChat, 
         </TouchableOpacity>
       </View>
 
-      {chats.length > 0 ? (
+      {isLoading ? (
+        <View style={styles.skeletonContainer}>
+          {[...Array(6)].map((_, index) => (
+            <ChatHistorySkeleton key={index} />
+          ))}
+        </View>
+      ) : chats.length > 0 ? (
         <SectionList
           sections={groupedChats}
           renderItem={renderItem}
@@ -258,6 +265,10 @@ const styles = StyleSheet.create({
   emptyStateSubText: {
     fontSize: 14,
     color: '#666',
+  },
+  skeletonContainer: {
+    flex: 1,
+    paddingTop: 10,
   },
 });
 

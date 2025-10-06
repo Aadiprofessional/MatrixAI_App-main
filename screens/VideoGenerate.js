@@ -32,6 +32,8 @@ import { useLanguage } from '../context/LanguageContext';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useCoinsSubscription } from '../hooks/useCoinsSubscription';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import LinearGradient from 'react-native-linear-gradient';
+import * as Animatable from 'react-native-animatable';
 
 import Share from 'react-native-share';
 import Toast from 'react-native-toast-message';
@@ -66,6 +68,56 @@ const VideoGenerateScreen = () => {
   const [templateVideos, setTemplateVideos] = useState([]);
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
   const [templateModalVisible, setTemplateModalVisible] = useState(false);
+  
+  // Random template grid state
+  const [randomTemplates, setRandomTemplates] = useState([]);
+  
+  // Video playback state for grid
+  const [selectedVideoIndex, setSelectedVideoIndex] = useState(null);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  
+  // Loading state for prompt templates
+  const [isLoadingPromptTemplates, setIsLoadingPromptTemplates] = useState(true);
+  const [promptTemplates, setPromptTemplates] = useState([]);
+  
+  // Fallback prompt templates data - separate from existing templates
+  const fallbackPromptTemplates = [
+    {
+      id: 'pt1',
+      name: 'Sunset Beach',
+      videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+      thumbnail: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&h=300&fit=crop',
+      prompt: 'A beautiful sunset over a calm beach with gentle waves, golden hour lighting, peaceful atmosphere'
+    },
+    {
+      id: 'pt2', 
+      name: 'City Night',
+      videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+      thumbnail: 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=400&h=300&fit=crop',
+      prompt: 'Bustling city at night with neon lights, traffic flowing, urban energy, cinematic view'
+    },
+    {
+      id: 'pt3',
+      name: 'Forest Walk',
+      videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', 
+      thumbnail: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=400&h=300&fit=crop',
+      prompt: 'Walking through a lush green forest, sunlight filtering through trees, nature sounds, peaceful journey'
+    },
+    {
+      id: 'pt4',
+      name: 'Ocean Waves',
+      videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+      thumbnail: 'https://images.unsplash.com/photo-1505142468610-359e7d316be0?w=400&h=300&fit=crop', 
+      prompt: 'Powerful ocean waves crashing against rocks, dramatic seascape, blue water, natural force'
+    },
+    {
+      id: 'pt5',
+      name: 'Mountain View',
+      videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
+      thumbnail: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&h=300&fit=crop',
+      prompt: 'Majestic mountain landscape with snow-capped peaks, clear blue sky, breathtaking panoramic view'
+    }
+  ];
   
   // Available video generation options
   const videoOptions = [
@@ -192,6 +244,51 @@ const VideoGenerateScreen = () => {
       fetchVideoHistory(1);
     }
   }, [historyOpen]);
+
+  // Fetch prompt templates from API
+  useEffect(() => {
+    const fetchPromptTemplates = async () => {
+      try {
+        setIsLoadingPromptTemplates(true);
+        const response = await videoService.getAllVideoPrompts();
+        
+        console.log('=== API Response Debug ===');
+        console.log('Response:', response);
+        console.log('Response type:', typeof response);
+        console.log('Response data:', response?.data);
+        console.log('Data length:', response?.data?.length);
+        console.log('First item:', response?.data?.[0]);
+        console.log('========================');
+        
+        // Check if response has success flag and data array
+        if (response && response.success && response.data && response.data.length > 0) {
+          console.log('✅ Using API response data');
+          // Transform API data to match expected format
+          const transformedData = response.data.map(item => ({
+            id: item.id,
+            name: item.prompt?.substring(0, 30) + '...' || 'Video Template',
+            videoUrl: item.video_url?.trim() || '',
+            thumbnail: item.video_url?.trim() || '', // Use video URL as thumbnail for now
+            prompt: item.prompt || 'No description available'
+          }));
+          setPromptTemplates(transformedData);
+        } else {
+          console.log('❌ Using fallback data - API returned empty or invalid structure');
+          // Use fallback data if API returns empty or fails
+          setPromptTemplates(fallbackPromptTemplates);
+        }
+      } catch (error) {
+        console.error('❌ Error fetching prompt templates:', error);
+        console.log('❌ Using fallback data due to error');
+        // Use fallback data on error
+        setPromptTemplates(fallbackPromptTemplates);
+      } finally {
+        setIsLoadingPromptTemplates(false);
+      }
+    };
+
+    fetchPromptTemplates();
+  }, []);
 
   const fetchVideoHistory = async (page = 1) => {
     // Don't fetch if already loading or if we're trying to load a page we know doesn't exist
@@ -349,6 +446,12 @@ const VideoGenerateScreen = () => {
     if (text.trim().length > 0) {
       setSelectedTemplate(null);
     }
+  };
+
+  // Function to handle prompt template selection
+  const handlePromptTemplateSelect = (template) => {
+    setUserText(template.prompt);
+    setTranscription(template.prompt);
   };
   
   const uploadImageToSupabase = async (asset) => {
@@ -568,11 +671,27 @@ const VideoGenerateScreen = () => {
       await AsyncStorage.setItem('templateVideosTimestamp', currentTime.toString());
       
       setTemplateVideos(templates);
+      
+      // Select random templates for the 2x2 grid after templates are loaded
+      if (templates.length > 0) {
+        const shuffled = [...templates].sort(() => 0.5 - Math.random());
+        const selected = shuffled.slice(0, 4);
+        setRandomTemplates(selected);
+      }
     } catch (error) {
       console.error('Error fetching template videos:', error);
     } finally {
       setIsLoadingTemplates(false);
     }
+  };
+
+  // Function to randomly select 4 templates for the 2x2 grid
+  const selectRandomTemplates = () => {
+    if (templateVideos.length === 0) return;
+    
+    const shuffled = [...templateVideos].sort(() => 0.5 - Math.random());
+    const selected = shuffled.slice(0, 4);
+    setRandomTemplates(selected);
   };
 
   const handleTryAgain = () => {
@@ -688,6 +807,82 @@ const VideoGenerateScreen = () => {
           type: 'error',
           text1: 'Image upload required',
           text2: 'Please wait for image upload to complete',
+          position: 'bottom',
+          visibilityTime: 3000,
+        });
+      }
+    } else {
+      setRequiredCoins(requiredCoinsAmount);
+      setLowBalanceModalVisible(true);
+    }
+  };
+
+  const handleGenerateUltra = async () => {
+    // Check if we have both image and prompt
+    if (!selectedImage || !uploadedImageUrl) {
+      Toast.show({
+        type: 'error',
+        text1: 'Image Required',
+        text2: 'Please upload an image for Ultra generation',
+        position: 'bottom',
+        visibilityTime: 3000,
+      });
+      return;
+    }
+
+    if (!userText.trim()) {
+      Toast.show({
+        type: 'error',
+        text1: 'Prompt Required',
+        text2: 'Please enter a prompt for Ultra generation',
+        position: 'bottom',
+        visibilityTime: 3000,
+      });
+      return;
+    }
+
+    const requiredCoinsAmount = 55; // Ultra generation costs 55 coins
+
+    // Check if user has enough coins
+    if (coinCount >= requiredCoinsAmount) {
+      try {
+        console.log('Generating Ultra video with:', {
+          uid: user?.id,
+          promptText: userText.trim(),
+          imageUrl: uploadedImageUrl
+        });
+
+        // Call the createVideoUltraTest API
+        const response = await videoService.createVideoUltraTest(
+          user?.id,
+          userText.trim(),
+          uploadedImageUrl
+        );
+
+        console.log('Ultra video generation response:', response);
+
+        // Navigate to CreateVideoScreen with Ultra flag
+        navigation.navigate('CreateVideoScreen', { 
+          message: userText.trim(),
+          imageUrl: uploadedImageUrl,
+          isUltra: true,
+          videoResponse: response
+        });
+
+        Toast.show({
+          type: 'success',
+          text1: 'Ultra Generation Started',
+          text2: 'Your ultra video is being generated',
+          position: 'bottom',
+          visibilityTime: 3000,
+        });
+
+      } catch (error) {
+        console.error('Ultra video generation error:', error);
+        Toast.show({
+          type: 'error',
+          text1: 'Generation Failed',
+          text2: 'Failed to start ultra video generation',
           position: 'bottom',
           visibilityTime: 3000,
         });
@@ -1219,6 +1414,71 @@ const VideoGenerateScreen = () => {
     </View>
   );
 
+  const renderPromptTemplates = () => (
+    <View style={styles.promptTemplatesContainer}>
+      <Text style={[styles.promptTemplatesTitle, {color: colors.text}]}>Quick Prompts</Text>
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        style={styles.promptTemplatesScrollContainer}
+        contentContainerStyle={styles.promptTemplatesScrollContent}
+      >
+        {isLoadingPromptTemplates ? (
+          // Skeleton loading
+          Array.from({ length: 3 }).map((_, index) => (
+            <View
+              key={`skeleton-${index}`}
+              style={[styles.promptTemplateItem, styles.skeletonItem]}
+            >
+              <LinearGradient
+                colors={['rgba(19, 239, 151, 0.1)', 'rgba(19, 239, 151, 0.3)', 'rgba(19, 239, 151, 0.1)']}
+                start={{x: 0, y: 0}}
+                end={{x: 1, y: 1}}
+                style={[styles.promptTemplateVideoContainer, styles.skeletonVideo]}
+              >
+                <ActivityIndicator size="large" color="#13EF97" />
+              </LinearGradient>
+              <View style={[styles.promptTemplateInfo, styles.skeletonInfo]}>
+                <LinearGradient
+                  colors={['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.3)', 'rgba(255,255,255,0.1)']}
+                  start={{x: 0, y: 0}}
+                  end={{x: 1, y: 0}}
+                  style={styles.skeletonText}
+                />
+              </View>
+            </View>
+          ))
+        ) : (
+          promptTemplates.map((template, index) => (
+            <TouchableOpacity
+              key={index}
+              style={[styles.promptTemplateItem, {backgroundColor: colors.surface}]}
+              onPress={() => handlePromptTemplateSelect(template)}
+            >
+              <View style={styles.promptTemplateVideoContainer}>
+                <Video
+                  source={{ uri: template.videoUrl }}
+                  style={styles.promptTemplateVideo}
+                  paused={true}
+                  resizeMode="cover"
+                  poster={template.thumbnail}
+                />
+                <View style={styles.promptTemplateOverlay}>
+                  <MaterialIcons name="play-circle-filled" size={40} color="rgba(255,255,255,0.8)" />
+                </View>
+              </View>
+              <View style={styles.promptTemplateInfo}>
+                <Text style={[styles.promptTemplateName, {color: colors.text}]} numberOfLines={2}>
+                  {template.name}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
+      </ScrollView>
+    </View>
+  );
+
   return (
     <View style={{flex: 1}}>
       <Animated.View style={[styles.container, { opacity: fadeAnim, backgroundColor: colors.background}]}>
@@ -1233,7 +1493,7 @@ const VideoGenerateScreen = () => {
           >
             <MaterialIcons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, {color: colors.text}]}>{t('matrixAI')}</Text>
+          <Text style={[styles.headerTitle, {color: colors.text}]}>Video</Text>
           {!isFinished && (
             <TouchableOpacity 
               style={[styles.historyButton, {backgroundColor: colors.primary}]} 
@@ -1247,21 +1507,99 @@ const VideoGenerateScreen = () => {
           )}
         </Animated.View>
         
-        <Animated.View style={[styles.placeholderContainer, { opacity: fadeAnim }]}>
-          <Image   
-            source={require('../assets/matrix.png')}
-            style={[styles.placeholderImage, {tintColor: colors.text}]}
-          />
-          <Text style={[styles.placeholderText, {color: colors.text}]}>{t('welcomeToMatrixAI')}</Text>
-          <Text style={[styles.placeholderText2, {color: colors.text}]}>{t('whatCanIGenerateForYou')}</Text>
-        </Animated.View>
-        
-        <LottieView 
-          source={require('../assets/image2.json')}
-          autoPlay
-          loop
-          style={{width: '100%', height: 100, backgroundColor: 'transparent'}}
-        />
+        {/* Matrix Logo Placeholder - Show when template is selected */}
+        {selectedTemplate && (
+          <View style={styles.matrixLogoContainer}>
+            <View style={styles.matrixLogoWrapper}>
+              <Image 
+                source={require('../assets/matrix.png')} 
+                style={[styles.matrixLogoImage, {tintColor: '#FFFFFF'}]}
+                resizeMode="contain"
+              />
+              <Text style={styles.matrixSubText}>Video Generation</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Quick Prompt Templates Grid - 2 columns, full screen - Hide when template is selected */}
+        {!selectedTemplate && (
+          <View style={styles.fullScreenGridContainer}>
+            {isLoadingPromptTemplates ? (
+              <FlatList
+                data={Array.from({ length: 6 })} // Show 6 skeleton items
+                keyExtractor={(_, index) => `skeleton-${index}`}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.gridContentContainer}
+                numColumns={2}
+                renderItem={({ index }) => (
+                  <View style={[styles.gridPromptTemplateItem, styles.skeletonItem]}>
+                    <View style={styles.gridPromptTemplateVideoContainer}>
+                      <LinearGradient
+                        colors={['rgba(200, 200, 200, 0.1)', 'rgba(200, 200, 200, 0.3)', 'rgba(200, 200, 200, 0.1)']}
+                        start={{x: 0, y: 0}}
+                        end={{x: 1, y: 1}}
+                        style={[styles.gridPromptTemplateVideo, styles.skeletonVideo]}
+                      >
+                        <ActivityIndicator size="large" color="#999999" />
+                      </LinearGradient>
+                      <View style={styles.gridPromptTemplateOverlay}>
+                        <View style={styles.makeVideoButton}>
+                          <LinearGradient
+                            colors={['rgba(200, 200, 200, 0.1)', 'rgba(200, 200, 200, 0.3)', 'rgba(200, 200, 200, 0.1)']}
+                            start={{x: 0, y: 0}}
+                            end={{x: 1, y: 0}}
+                            style={[styles.skeletonText, {width: 80, height: 20, borderRadius: 10}]}
+                          />
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                )}
+              />
+            ) : (
+              <FlatList
+                data={promptTemplates}
+                numColumns={2}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.gridContentContainer}
+                renderItem={({ item, index }) => (
+                  <TouchableOpacity
+                    style={[styles.gridPromptTemplateItem, {backgroundColor: colors.surface}]}
+                    onPress={() => {
+                      // Clear existing text and replace with new video's prompt
+                      setUserText(item.prompt);
+                      
+                      // Set selected video for playback
+                      setSelectedVideoIndex(index);
+                      setIsVideoPlaying(true);
+                      
+                      // Don't auto-send, just populate the text input
+                    }}
+                  >
+                    <View style={styles.gridPromptTemplateVideoContainer}>
+                      <Video
+                        source={{ uri: item.videoUrl }}
+                        style={styles.gridPromptTemplateVideo}
+                        resizeMode="cover"
+                        repeat={true}
+                        muted={true}
+                        paused={selectedVideoIndex !== index || !isVideoPlaying}
+                        poster={item.thumbnail}
+                      />
+                      <View style={styles.gridPromptTemplateOverlay}>
+                        <View style={styles.makeVideoButton}>
+                          <MaterialIcons name="play-arrow" size={16} color="#fff" />
+                          <Text style={styles.makeVideoButtonText}>Make Video</Text>
+                        </View>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                )}
+                keyExtractor={(item, index) => index.toString()}
+              />
+            )}
+          </View>
+        )}
 
         {/* Buttons */}
         {isFinished && (
@@ -1292,15 +1630,23 @@ const VideoGenerateScreen = () => {
                       />
                     )}
                     {/* Re-select Template Button */}
-                    <TouchableOpacity 
+                    <LinearGradient
+                      colors={['#13EF97', '#0BC5EA']}
+                      start={{x: 0, y: 0}}
+                      end={{x: 1, y: 0}}
                       style={styles.reselectTemplateButton}
-                      onPress={() => {
-                        fetchTemplateVideos();
-                        setTemplateModalVisible(true);
-                      }}
                     >
-                      <Text style={styles.reselectTemplateButtonText}>{t('reselectTemplate')}</Text>
-                    </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.reselectTemplateButtonInner}
+                        onPress={() => {
+                          fetchTemplateVideos();
+                          setTemplateModalVisible(true);
+                        }}
+                      >
+                        <MaterialIcons name="refresh" size={16} color="#FFFFFF" style={styles.reselectTemplateIcon} />
+                        <Text style={styles.reselectTemplateButtonText}>{t('reselectTemplate')}</Text>
+                      </TouchableOpacity>
+                    </LinearGradient>
                   </View>
                 </View>
               </View>
@@ -1339,6 +1685,25 @@ const VideoGenerateScreen = () => {
                 <Image source={require('../assets/send2.png')} style={styles.icon} />
               </View>
             </TouchableOpacity>
+
+            {/* Generate Ultra button - only show when image is uploaded and prompt is entered */}
+            {uploadedImageUrl && userText.trim().length > 0 && (
+              <TouchableOpacity 
+                style={[styles.generateButton, { backgroundColor: '#FF6B35', marginTop: 10 }]} 
+                onPress={() => {
+                  handleGenerateUltra();
+                }}
+              >
+                <View style={styles.horizontalContent}>
+                  <Text style={styles.generateText}>Generate Ultra</Text>
+                  <View style={styles.coinContainer}>
+                    <Text style={styles.coinText}>-55</Text>
+                    <Image source={require('../assets/coin.png')} style={styles.coinIcon} />
+                  </View>
+                  <Image source={require('../assets/send2.png')} style={styles.icon} />
+                </View>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </Animated.View>
@@ -1383,29 +1748,20 @@ const VideoGenerateScreen = () => {
             {selectedImage && userText.trim().length === 0 && (
               <View style={styles.advancedOptionsContainer}>
                 <TouchableOpacity 
-                  style={[styles.templateSelectionButton, selectedTemplate && styles.selectedTemplateButton]}
                   onPress={() => {
                     // Open the template modal
                     fetchTemplateVideos();
                     setTemplateModalVisible(true);
                   }}
                 >
-                  <Text style={[styles.templateSelectionButtonText, selectedTemplate && styles.selectedTemplateButtonText]}>
-                    {selectedTemplate ? t('changeTemplate') : t('selectTemplate')}
-                  </Text>
-                  <MaterialIcons name="video-library" size={20} color={selectedTemplate ? "#FFFFFF" : "#999999"} />
-                </TouchableOpacity>
-                
-                {/* Selected Template Preview - only visible when a template is selected */}
-                {selectedTemplate && (
-                  <View style={styles.selectedTemplateInfo}>
-                    <View style={styles.infoContainer}>
-                      <Text style={[styles.infoText, {color: colors.text}]}>
-                        {t('templateModeInfo') || 'In template mode, no prompt text is needed. The video will be generated based on the selected template.'}
-                      </Text>
-                    </View>
+                  <View style={[styles.templateSelectionButton, {backgroundColor: '#007BFF'}]}>
+                    <Text style={styles.templateSelectionButtonText}>
+                      {selectedTemplate ? t('changeTemplate') : t('selectTemplate')}
+                    </Text>
+                    <MaterialIcons name="video-library" size={20} color="#FFFFFF" />
                   </View>
-                )}
+                </TouchableOpacity>
+
                 
                 {/* Negative Prompt Input - only visible when negative prompt option is selected and no template is selected */}
                 {selectedOption === 'negative' && !selectedTemplate && (
@@ -1422,6 +1778,8 @@ const VideoGenerateScreen = () => {
                 )}
               </View>
             )}
+
+            
             {/* Hide text input when template is selected */}
             {!selectedTemplate ? (
               <View style={styles.textInputContainer}>
@@ -1433,10 +1791,19 @@ const VideoGenerateScreen = () => {
                   onChangeText={handleTextInputChange}
                 />
                 <TouchableOpacity 
-                  style={styles.attachButton}
                   onPress={handleAttachImage}
                 >
-                  <MaterialIcons name="attach-file" size={24} color="#999999" />
+                  <View style={styles.attachButtonCircle}>
+                    <LinearGradient
+                      colors={['rgba(0,123,255,0.8)', 'rgba(0,123,255,0.6)']}
+                      style={styles.attachButtonGradient}
+                    >
+                      <Image
+                        source={require('../assets/upload.png')}
+                        style={[styles.attachIcon, {tintColor: 'white'}]}
+                      />
+                    </LinearGradient>
+                  </View>
                 </TouchableOpacity>
                 <TouchableOpacity 
                   style={styles.sendButton} 
@@ -1496,10 +1863,50 @@ const VideoGenerateScreen = () => {
         </View>
         
         {isLoading && historyPage === 1 ? (
-          <View style={styles.loaderContainer}>
-            <ActivityIndicator size="large" color="#007BFF" />
-            <Text style={styles.loaderText}>{t('loadingYourVideos')}</Text>
-          </View>
+          <FlatList
+            data={Array(4).fill({})} // Show 4 skeleton items
+            numColumns={1}
+            renderItem={() => (
+              <Animatable.View 
+                animation="pulse" 
+                iterationCount="infinite" 
+                duration={1500}
+                style={[styles.historyItem, styles.historySkeletonItem]}
+              >
+                <LinearGradient
+                  colors={['rgba(19, 239, 151, 0.1)', 'rgba(19, 239, 151, 0.3)', 'rgba(19, 239, 151, 0.1)']}
+                  start={{x: 0, y: 0}}
+                  end={{x: 1, y: 0}}
+                  style={[styles.videoThumbnail, styles.historySkeletonThumbnail]}
+                >
+                  <MaterialIcons name="play-circle-outline" size={30} color="rgba(255,255,255,0.5)" />
+                </LinearGradient>
+                <View style={[styles.historyItemContent, styles.historySkeletonContent]}>
+                  <LinearGradient
+                    colors={['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.3)', 'rgba(255,255,255,0.1)']}
+                    start={{x: 0, y: 0}}
+                    end={{x: 1, y: 0}}
+                    style={[styles.historySkeletonText, {width: '60%', marginBottom: 8}]}
+                  />
+                  <LinearGradient
+                    colors={['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.3)', 'rgba(255,255,255,0.1)']}
+                    start={{x: 0, y: 0}}
+                    end={{x: 1, y: 0}}
+                    style={[styles.historySkeletonText, {width: '90%', marginBottom: 8}]}
+                  />
+                  <LinearGradient
+                    colors={['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.3)', 'rgba(255,255,255,0.1)']}
+                    start={{x: 0, y: 0}}
+                    end={{x: 1, y: 0}}
+                    style={[styles.historySkeletonText, {width: '40%'}]}
+                  />
+                </View>
+              </Animatable.View>
+            )}
+            keyExtractor={(item, index) => `skeleton-${index}`}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.historyList}
+          />
         ) : error ? (
           <View style={styles.errorContainer}>
             <Text style={[styles.errorText, {color: colors.text}]}>{error}</Text>
@@ -1803,9 +2210,9 @@ const VideoGenerateScreen = () => {
             </View>
             
             {isLoadingTemplates ? (
-              <View style={styles.loaderContainer}>
-                <ActivityIndicator size="large" color="#007BFF" />
-                <Text style={styles.loaderText}>{t('loadingTemplates')}</Text>
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#13EF97" />
+                <Text style={[styles.loadingText, {color: colors.text}]}>{t('loadingTemplates')}</Text>
               </View>
             ) : templateVideos.length === 0 ? (
               <View style={styles.emptyContainer}>
@@ -1844,20 +2251,14 @@ const VideoGenerateScreen = () => {
                             muted={true}
                           />
                         )}
-                        {/* Play button overlay */}
-                        <View style={styles.templatePlayButtonOverlay}>
-                          <MaterialIcons 
-                            name="play-circle-filled" 
-                            size={40} 
-                            color="#FFFFFF" 
-                          />
-                        </View>
-                        {selectedTemplate === item.id && (
-                          <View style={styles.chooseVideoButtonContainer}>
-                            <View style={styles.chooseVideoButtonContent}>
-                              <MaterialIcons name="check-circle" size={16} color="#FFFFFF" style={styles.chooseVideoIcon} />
-                              <Text style={styles.chooseVideoButtonText}>{t('chooseThisVideo')}</Text>
-                            </View>
+                        {/* Play button overlay - only show when not selected */}
+                        {selectedTemplate !== item.id && (
+                          <View style={styles.templatePlayButtonOverlay}>
+                            <MaterialIcons 
+                              name="play-circle-filled" 
+                              size={40} 
+                              color="#FFFFFF" 
+                            />
                           </View>
                         )}
                       </View>
@@ -1912,40 +2313,47 @@ const VideoGenerateScreen = () => {
               </View>
             )}
             
-            <TouchableOpacity 
-              style={[styles.confirmTemplateButton, selectedTemplate ? styles.confirmTemplateButtonActive : styles.confirmTemplateButtonInactive]}
-              onPress={() => {
-                if (selectedTemplate) {
-                  setTemplateModalVisible(false);
-                  // Disable the prompt input when a template is selected
-                  setShowTemplateOptions(true);
-                  // Set the selected option to template
-                  setSelectedOption('template');
-                  // Set isFinished to true to show the generate button
-                  setIsFinished(true);
-                } else {
-                  // Show a message that no template is selected
-                  Toast.show({
-                    type: 'info',
-                    text1: t('selectTemplateFirst'),
-                    position: 'bottom',
-                  });
-                }
-              }}
-              disabled={!selectedTemplate}
+            <LinearGradient
+              colors={selectedTemplate ? ['#13EF97', '#1D8EC4'] : ['rgba(153,153,153,0.3)', 'rgba(153,153,153,0.3)']}
+              style={[styles.confirmTemplateButton]}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 0}}
             >
-              <View style={styles.confirmButtonContent}>
-                <MaterialIcons 
-                  name={selectedTemplate ? "check-circle" : "radio-button-unchecked"} 
-                  size={20} 
-                  color={selectedTemplate ? "#FFFFFF" : "#999999"} 
-                  style={styles.confirmButtonIcon} 
-                />
-                <Text style={[styles.confirmTemplateButtonText, selectedTemplate ? styles.confirmTemplateButtonTextActive : styles.confirmTemplateButtonTextInactive]}>
-                  {selectedTemplate ? t('chooseThisVideo') : t('selectTemplateFirst')}
-                </Text>
-              </View>
-            </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.confirmTemplateButtonInner}
+                onPress={() => {
+                  if (selectedTemplate) {
+                    setTemplateModalVisible(false);
+                    // Disable the prompt input when a template is selected
+                    setShowTemplateOptions(true);
+                    // Set the selected option to template
+                    setSelectedOption('template');
+                    // Set isFinished to true to show the generate button
+                    setIsFinished(true);
+                  } else {
+                    // Show a message that no template is selected
+                    Toast.show({
+                      type: 'info',
+                      text1: t('selectTemplateFirst'),
+                      position: 'bottom',
+                    });
+                  }
+                }}
+                disabled={!selectedTemplate}
+              >
+                <View style={styles.confirmButtonContent}>
+                  <MaterialIcons 
+                    name={selectedTemplate ? "check-circle" : "radio-button-unchecked"} 
+                    size={20} 
+                    color={selectedTemplate ? "#FFFFFF" : "#999999"} 
+                    style={styles.confirmButtonIcon} 
+                  />
+                  <Text style={[styles.confirmTemplateButtonText, selectedTemplate ? styles.confirmTemplateButtonTextActive : styles.confirmTemplateButtonTextInactive]}>
+                    {selectedTemplate ? t('chooseThisVideo') : t('selectTemplateFirst')}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </LinearGradient>
           </View>
         </View>
       </Modal>
@@ -1959,10 +2367,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#121212',
   },
   attachedImageContainer: {
-    marginHorizontal: 16,
+    marginLeft: 16,
+    marginRight: 16,
     marginBottom: 10,
-    height: 150,
-    borderRadius: 12,
+    height: 120,
+    width: 120,
+    alignSelf: 'flex-start',
+    borderRadius: 16,
     overflow: 'hidden',
     position: 'relative',
   },
@@ -2000,7 +2411,36 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   attachButton: {
-    padding: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 4,
+  },
+  attachIcon: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
+  },
+  attachButtonCircle: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+    shadowColor: '#007BFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  attachButtonGradient: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -2042,6 +2482,85 @@ const styles = StyleSheet.create({
   placeholderText2: {
     fontSize: 14,
     color: '#666',
+  },
+  randomTemplatesContainer: {
+    marginHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  randomTemplatesTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    textAlign: 'left',
+    paddingLeft: 5,
+  },
+  templatesScrollContainer: {
+    height: 220, // Fixed height for the scroll container
+  },
+  templatesScrollContent: {
+    paddingLeft: 5,
+    paddingRight: 5,
+    alignItems: 'center',
+  },
+  templatesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  gridTemplateItem: {
+    width: width * 0.6, // 60% of screen width for larger templates
+    aspectRatio: 0.75,
+    borderRadius: 16,
+    marginRight: 15,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  gridTemplateVideoContainer: {
+    flex: 1,
+    position: 'relative',
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  gridTemplateVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  gridTemplateOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  gridTemplateInfo: {
+    padding: 12,
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+  },
+  gridTemplateName: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 6,
+    lineHeight: 18,
+  },
+  gridTemplateBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  gridTemplateCost: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 4,
   },
   buttonContainer: {
     flexDirection: 'column',
@@ -2092,14 +2611,31 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(0,123,255,0.8)',
-    paddingVertical: 6,
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
+    shadowColor: '#13EF97',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  reselectTemplateButtonInner: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+  },
+  reselectTemplateIcon: {
+    marginRight: 6,
   },
   reselectTemplateButtonText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: 'bold',
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   keyboardAvoidView: {
     position: 'absolute',
@@ -2129,11 +2665,124 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333333',
   },
+  promptTemplatesContainer: {
+    marginHorizontal: 20,
+    marginBottom: 15,
+  },
+  promptTemplatesTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#333',
+  },
+  promptTemplatesScrollView: {
+    height: 120,
+  },
+  promptTemplateItem: {
+    width: 200,
+    height: 100,
+    marginRight: 15,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#f0f0f0',
+  },
+  promptTemplateVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  promptTemplateOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  promptTemplatePlayIcon: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{translateX: -12}, {translateY: -12}],
+  },
+  promptTemplateName: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    right: 8,
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  fullScreenGridContainer: {
+    flex: 1,
+    paddingHorizontal: 2,
+    paddingTop: 2,
+    paddingBottom: 100, // Space for text input at bottom
+  },
+  gridContentContainer: {
+    paddingBottom: 20,
+  },
+  gridPromptTemplateItem: {
+    width: (width - 6) / 2, // 2 columns with minimal spacing
+    aspectRatio: 0.75,
+    borderRadius: 0, // Remove rounded edges
+    margin: 1, // Minimal gap
+    overflow: 'hidden',
+  },
+  gridPromptTemplateVideoContainer: {
+    flex: 1,
+    position: 'relative',
+    borderRadius: 0, // Remove rounded edges
+    overflow: 'hidden',
+  },
+  gridPromptTemplateVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  gridPromptTemplateOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'flex-end',
+    alignItems: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    padding: 8,
+  },
+  makeVideoButton: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backdropFilter: 'blur(10px)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  makeVideoButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 6,
+  },
   sendButton: {
     backgroundColor: '#007BFF',
     padding: 10,
     borderRadius: 25,
-    marginLeft: 10,
+    marginLeft: 4,
   },
   sendIcon: {
     width: 20,
@@ -2431,24 +3080,26 @@ const styles = StyleSheet.create({
   // Modal styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContainer: {
     width: '95%',
-    backgroundColor: '#fff',
-    borderRadius: 15,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 20,
     padding: 20,
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: '#13EF97',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 8,
     },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowOpacity: 0.3,
+    shadowRadius: 15,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(19, 239, 151, 0.2)',
   },
   modalCoinImage: {
     width: 60,
@@ -2467,32 +3118,28 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   templateSelectionContainer: {
-    marginBottom: 10,
+    marginBottom: 15,
+    marginHorizontal: 20,
   },
   templateSelectionButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   templateSelectionButtonText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '500',
-  },
-  selectedTemplateButton: {
-    backgroundColor: '#007BFF',
-    borderColor: '#007BFF',
-  },
-  selectedTemplateButtonText: {
-    color: '#fff',
-    fontWeight: '600',
+    fontSize: 17,
+    color: '#FFFFFF',
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   templateSendContainer: {
     width: '100%',
@@ -2512,20 +3159,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  selectedTemplateInfo: {
-    marginBottom: 10,
-  },
-  infoContainer: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 10,
-  },
-  infoText: {
-    fontSize: 14,
-    color: '#fff',
-    fontStyle: 'italic',
-  },
+
   optionSelectionContainer: {
     marginBottom: 10,
   },
@@ -2604,9 +3238,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 10,
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 15,
+    color: '#13EF97',
+    textAlign: 'center',
   },
   modalMessage: {
     fontSize: 14,
@@ -2660,18 +3296,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   templateItem: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 10,
+    backgroundColor: 'rgba(26, 26, 26, 0.8)',
+    borderRadius: 15,
+    padding: 15,
+    marginBottom: 15,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    width: '48%',
-    aspectRatio: 1,
+    borderColor: 'rgba(19, 239, 151, 0.2)',
+    width: '47%', // Slightly reduced to accommodate larger padding
+    aspectRatio: 1.4, // Increased aspect ratio for much larger videos
+    shadowColor: '#1D8EC4',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
   },
   selectedTemplateItem: {
-    borderColor: '#007BFF',
-    backgroundColor: 'rgba(0,123,255,0.1)',
+    borderColor: '#13EF97',
+    backgroundColor: 'rgba(19, 239, 151, 0.15)',
+    borderWidth: 2,
+    shadowColor: '#13EF97',
+    shadowOpacity: 0.4,
   },
   templateItemContent: {
     flex: 1,
@@ -2679,10 +3323,10 @@ const styles = StyleSheet.create({
   },
   templateVideoContainer: {
     width: '100%',
-    height: '60%',
+    height: '75%', // Further increased height for larger videos
     borderRadius: 8,
     overflow: 'hidden',
-    marginBottom: 8,
+    marginBottom: 10,
     backgroundColor: 'rgba(0,0,0,0.2)',
     position: 'relative',
   },
@@ -2705,12 +3349,17 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(0,123,255,0.9)',
-    paddingVertical: 10,
+    backgroundColor: 'rgba(19, 239, 151, 0.95)', // Changed to green gradient color for better visibility
+    paddingVertical: 12, // Increased padding
     alignItems: 'center',
     justifyContent: 'center',
     borderBottomLeftRadius: 8,
     borderBottomRightRadius: 8,
+    shadowColor: '#13EF97',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   chooseVideoButtonContent: {
     flexDirection: 'row',
@@ -2722,39 +3371,47 @@ const styles = StyleSheet.create({
   },
   chooseVideoButtonText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 13, // Increased font size for better visibility
     fontWeight: 'bold',
     textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   confirmTemplateButton: {
-    paddingVertical: 15,
-    paddingHorizontal: 25,
     borderRadius: 25,
     marginTop: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+    marginHorizontal: 20, // Add horizontal margin for better positioning
+    shadowColor: '#13EF97',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 8,
+    minHeight: 60, // Increased minimum height for better text display
   },
-  confirmTemplateButtonActive: {
-    backgroundColor: '#007BFF',
-  },
-  confirmTemplateButtonInactive: {
-    backgroundColor: 'rgba(153,153,153,0.3)',
+  confirmTemplateButtonInner: {
+    paddingVertical: 20, // Increased padding for better text display
+    paddingHorizontal: 30, // Increased horizontal padding
+    borderRadius: 25,
+    width: '100%',
+    minHeight: 60, // Match parent minimum height
+    justifyContent: 'center', // Center content vertically
+    alignItems: 'center', // Center content horizontally
   },
   confirmButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    width: '100%', // Ensure full width
   },
   confirmButtonIcon: {
-    marginRight: 8,
+    marginRight: 10, // Increased margin for better spacing
   },
   confirmTemplateButtonText: {
-    fontSize: 16,
+    fontSize: 16, // Increased font size for better visibility
     fontWeight: '700',
     textAlign: 'center',
+    lineHeight: 20, // Added line height for better text rendering
   },
   confirmTemplateButtonTextActive: {
     color: '#FFFFFF',
@@ -3026,6 +3683,74 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
   },
+  // Matrix Logo Placeholder styles
+  matrixLogoContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingBottom: 100, // Space for text input at bottom
+  },
+  matrixLogoWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  matrixLogoImage: {
+    width: 120,
+    height: 80,
+    marginBottom: 16,
+  },
+  matrixSubText: {
+    fontSize: 16,
+    color: '#666666',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+
+  // Skeleton loading styles
+  skeletonItem: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(200, 200, 200, 0.2)',
+  },
+  skeletonVideo: {
+    backgroundColor: 'rgba(200, 200, 200, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  skeletonInfo: {
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 8,
+  },
+  skeletonText: {
+    height: 12,
+    backgroundColor: 'rgba(200, 200, 200, 0.3)',
+    borderRadius: 6,
+    width: '80%',
+  },
+  // History skeleton styles
+  historySkeletonItem: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(19, 239, 151, 0.2)',
+  },
+  historySkeletonThumbnail: {
+    backgroundColor: 'rgba(19, 239, 151, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  historySkeletonContent: {
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    padding: 8,
+  },
+  historySkeletonText: {
+    height: 14,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 7,
+  },
+
 });
 
 export default VideoGenerateScreen;

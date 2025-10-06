@@ -542,7 +542,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                     
                     if (cachedTranscription && !isPlaceholderMessage && cachedTranscription.trim() !== '') {
                         // Use the cached data
-                        console.log('Using cached transcription data');
+                        // console.log('Using cached transcription data');
                         setTranscription(cachedData.transcription || '');
                         setParagraphs(cachedData.paragraphs || []);
                         setAudioUrl(cachedData.audioUrl || '');
@@ -556,7 +556,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                         fetchAudioMetadata(uid, audioid);
                     } else {
                         // If cached data is invalid, fetch fresh data
-                        console.log('Cached transcription is empty or invalid, fetching fresh data');
+                        // console.log('Cached transcription is empty or invalid, fetching fresh data');
                         fetchAudioMetadata(uid, audioid);
                     }
                 } else {
@@ -1593,7 +1593,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
         Sound.setCategory('Playback');
         
         if (audioUrl) {
-            console.log('Initializing audio with URL:', audioUrl);
+            // Initializing audio with URL
             
             // Release previous sound if it exists
             if (sound) {
@@ -1608,7 +1608,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
             const loadAudioWithRetry = (attempt = 0) => {
                 const maxAttempts = 3;
                 
-                console.log(`Loading audio attempt ${attempt + 1}/${maxAttempts}`);
+                // Loading audio attempt ${attempt + 1}/${maxAttempts}
                 
                 // For local files, use empty string as the base path
                 // For remote URLs, use null to indicate it's a remote URL
@@ -1617,7 +1617,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                 try {
                     const newSound = new Sound(audioUrl, basePath, (error) => {
                 if (error) {
-                            console.error(`Audio loading error (attempt ${attempt + 1}):`, error);
+                            // Audio loading error (attempt ${attempt + 1})
                             
                             if (attempt < maxAttempts - 1) {
                                 // Wait a bit longer between retries
@@ -1627,7 +1627,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                             } else {
                                 // All attempts failed, try one last approach for remote URLs
                                 if (!isLocalFile) {
-                                    console.log('Trying alternative loading method...');
+                                    // Trying alternative loading method
                                     
                                     // Try downloading the file locally first
                                     const tempFilePath = `${RNFS.CachesDirectoryPath}/temp_audio_${Date.now()}.mp3`;
@@ -1638,19 +1638,15 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                                         background: true
                                     }).promise.then(result => {
                                         if (result.statusCode === 200) {
-                                            console.log('Downloaded audio to temp file:', tempFilePath);
+                                            // Downloaded audio to temp file
                                             
                                             // Now try to load from the local file
                                             const localSound = new Sound(`file://${tempFilePath}`, '', (localError) => {
                                                 if (localError) {
-                                                    console.error('Failed to load downloaded audio:', localError);
-                    Alert.alert(
-                        'Audio Error',
-                                                        'Could not load audio after multiple attempts.',
-                        [{ text: 'OK' }]
-                    );
+                                                    // Failed to load downloaded audio
+                                                    // Silently handle error - no alert or toast
                                                 } else {
-                                                    console.log('Successfully loaded audio from downloaded file');
+                                                    // Successfully loaded audio from downloaded file
                                                     localSound.setVolume(1.0);
                                                     
                                                     // Only update audioDuration if we don't already have a valid one
@@ -1667,34 +1663,34 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                                                 }
                                             });
                                         } else {
-                                            console.error('Failed to download audio file:', result);
-                                            Alert.alert(
-                                                'Audio Error',
-                                                'Could not download audio file.',
-                                                [{ text: 'OK' }]
-                                            );
+                                            // console.error('Failed to download audio file:', result);
+                                            // Alert.alert(
+                                            //     'Audio Error',
+                                            //     'Could not download audio file.',
+                                            //     [{ text: 'OK' }]
+                                            // );
                                         }
                                     }).catch(downloadError => {
-                                        console.error('Error downloading audio:', downloadError);
-                                        Alert.alert(
-                                            'Audio Error',
-                                            'Failed to download audio file.',
-                                            [{ text: 'OK' }]
-                                        );
+                                        // console.error('Error downloading audio:', downloadError);
+                                        // Alert.alert(
+                                        //     'Audio Error',
+                                        //     'Failed to download audio file.',
+                                        //     [{ text: 'OK' }]
+                                        // );
                                     });
                                 } else {
-                                    Alert.alert(
-                                        'Audio Error',
-                                        'Could not load audio after multiple attempts.',
-                                        [{ text: 'OK' }]
-                                    );
+                                    // Alert.alert(
+                                    //     'Audio Error',
+                                    //     'Could not load audio after multiple attempts.',
+                                    //     [{ text: 'OK' }]
+                                    // );
                                 }
                             }
                     return;
                 }
                 
                         // Audio loaded successfully
-                        console.log('Audio loaded successfully');
+                        // console.log('Audio loaded successfully');
                 newSound.setVolume(1.0);
                 
                         // Get duration with a delay to ensure it's properly loaded
@@ -1703,25 +1699,25 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                             if (!audioDuration || audioDuration <= 0 || audioDuration === 100) {
                                 // First try to use the API-provided duration
                                 if (duration && duration > 0) {
-                                    console.log('Using API-provided duration:', duration);
+                                    // console.log('Using API-provided duration:', duration);
                                     setAudioDuration(duration);
                                 } else {
                                     // Fall back to Sound.js duration
                                     const soundDuration = newSound.getDuration();
-                                    console.log('Using Sound.js duration:', soundDuration);
+                                    // console.log('Using Sound.js duration:', soundDuration);
                                     
                                     if (soundDuration && soundDuration > 0) {
                                         setAudioDuration(soundDuration);
                                     } else {
                                         // Try to get current time as fallback
                                         newSound.getCurrentTime((seconds) => {
-                                            console.log('Current time fallback:', seconds);
+                                            // console.log('Current time fallback:', seconds);
                                             setAudioDuration(seconds > 0 ? seconds : 30);
                                         });
                                     }
                                 }
                             } else {
-                                console.log('Using cached duration:', audioDuration);
+                                // console.log('Using cached duration:', audioDuration);
                             }
                             
                             // Always set the sound object regardless of duration source
@@ -1729,18 +1725,18 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                         }, 500);
                     });
                 } catch (e) {
-                    console.error('Exception during audio loading:', e);
+                    // console.error('Exception during audio loading:', e);
                     
                     if (attempt < maxAttempts - 1) {
                         setTimeout(() => {
                             loadAudioWithRetry(attempt + 1);
                         }, (attempt + 1) * 1000);
                     } else {
-                        Alert.alert(
-                            'Audio Error',
-                            'An unexpected error occurred while loading audio.',
-                            [{ text: 'OK' }]
-                        );
+                        // Alert.alert(
+                        //     'Audio Error',
+                        //     'An unexpected error occurred while loading audio.',
+                        //     [{ text: 'OK' }]
+                        // );
                     }
                 }
             };
@@ -2493,12 +2489,12 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                     console.log('Not caching data as transcription is empty or contains placeholder message');
                 }
             } else {
-                console.error('Error fetching audio metadata:', data.error_message || 'Unknown error');
-                Alert.alert('Error', 'Failed to load audio data');
+                // Silently handle the error without showing alerts or console logs
+                // This prevents unnecessary noise when audio files are still processing
             }
         } catch (error) {
-            console.error('Error in fetchAudioMetadata:', error);
-            Alert.alert('Error', 'An unexpected error occurred while loading audio data');
+            // Silently handle errors without showing alerts or console logs
+            // This prevents unnecessary noise when audio files are still processing or not found
         } finally {
             setIsLoading(false);
         }
@@ -3548,7 +3544,7 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                             )}
                             {isTranscriptionVisible && (
                                 translatedData[selectedLanguage] && translatedData[selectedLanguage].words ? (
-                                    <View style={styles.wordsContainer}>
+                                    <View style={index === currentWordIndex.paraIndex ? styles.activeTranslationContainer : styles.translationContainer}>
                                         {translatedData[selectedLanguage].words.map((wordData, wordIdx) => {
                                             const translatedWord = wordData.punctuated_word || wordData.word;
                                             return (
@@ -3581,7 +3577,9 @@ import Slider from '@react-native-community/slider'; // Import the Slider compon
                                         })}
                                     </View>
                                 ) : translations[index] ? (
-                                    <Text style={styles.translatedText}>{translations[index]}</Text>
+                                    <View style={index === currentWordIndex.paraIndex ? styles.activeTranslationContainer : styles.translationContainer}>
+                                        <Text style={styles.translatedText}>{translations[index]}</Text>
+                                    </View>
                                 ) : null
                             )}
                         </View>
@@ -4175,13 +4173,13 @@ const styles = StyleSheet.create({
         bottom: 80,
         left: 15,
         right: 15,
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        backgroundColor: 'transparent',
         borderRadius: 12,
         padding: 12,
         alignItems: 'center',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.5,
+        shadowOpacity: 0.4,
         shadowRadius: 4,
         elevation: 5,
     },
@@ -5378,6 +5376,30 @@ generateMindMapButton: {
         flexDirection: 'row',
         flexWrap: 'wrap',
         alignItems: 'center',
+    },
+    translationContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        borderWidth: 2,
+        borderRadius: 8,
+        padding: 8,
+        marginTop: 4,
+        marginBottom: 4,
+        borderColor: '#E0E0E0', // Default border color for inactive translations
+        backgroundColor: '#E8F4FD', // Light blue background
+    },
+    activeTranslationContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        borderWidth: 2,
+        borderRadius: 8,
+        padding: 8,
+        marginTop: 4,
+        marginBottom: 4,
+        borderColor: '#FF6B35', // Orange border color for active translation
+        backgroundColor: '#FFE5CC', // Light orange background
     },
     wordContainer: {
         flexDirection: 'row',

@@ -21,7 +21,6 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 // Import the component versions of the screens
-import DetectAIContent from './DetectAIContent';
 import HumaniseTextContent from './HumaniseTextContent';
 import ContentWriterContent from './ContentWriterContent';
 
@@ -125,22 +124,7 @@ const CombinedContentScreen = ({ route }) => {
                   </View>
                 </TouchableOpacity>
                 
-                <TouchableOpacity 
-                  style={styles.tabButtonWrapper}
-                  onPress={() => setActiveTab('detector')}
-                >
-                  <View 
-                    style={[styles.tabButton, styles.buttonShadow, { backgroundColor: activeTab === 'detector' ? '#FF5252' : colors.card }]} >
-                    <MaterialCommunityIcons 
-                      name="magnify" 
-                      size={22} 
-                      color={activeTab === 'detector' ? '#FFFFFF' : colors.text} 
-                    />
-                    <Text style={[styles.tabButtonText, { color: activeTab === 'detector' ? '#FFFFFF' : colors.text }]} numberOfLines={1} ellipsizeMode="tail">
-                      {t('aiDetector')}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
+
                 
                 <TouchableOpacity 
                   style={styles.tabButtonWrapper}
@@ -165,10 +149,7 @@ const CombinedContentScreen = ({ route }) => {
               <ContentWriterContent />
             )}
             
-            {/* AI Detector Tab */}
-            {activeTab === 'detector' && (
-              <DetectAIContent />
-            )}
+
             
             {/* Humanizer Tab */}
             {activeTab === 'humanizer' && (

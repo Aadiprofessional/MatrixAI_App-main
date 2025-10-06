@@ -20,7 +20,7 @@ import {
   Modal
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
-
+import { generateUniqueFileName } from '../utils/fileUploadUtils';
 import { supabase } from '../supabaseClient';
 
 import { imageService } from '../services/imageService';
@@ -36,6 +36,8 @@ import Share from 'react-native-share';
 import Toast from 'react-native-toast-message';
 import { PERMISSIONS, request, RESULTS } from 'react-native-permissions';
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
+import LinearGradient from 'react-native-linear-gradient';
+import * as Animatable from 'react-native-animatable';
 const { width, height } = Dimensions.get('window');
 
 const ImageGenerateScreen = () => {
@@ -80,6 +82,12 @@ const ImageGenerateScreen = () => {
   const [fullScreenImageId, setFullScreenImageId] = useState('');
   const [fullScreenPromptText, setFullScreenPromptText] = useState('');
   
+  // Add state for image templates
+  const [imageTemplates, setImageTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templatesError, setTemplatesError] = useState(null);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  
   // Run animations on mount
   useEffect(() => {
     // Start animations when component mounts
@@ -112,6 +120,29 @@ const ImageGenerateScreen = () => {
       fetchImageHistory(1);
     }
   }, [historyOpen, uid]);
+
+  // Fetch image templates when component mounts
+  useEffect(() => {
+    fetchImageTemplates();
+  }, []);
+
+  const fetchImageTemplates = async () => {
+    setTemplatesLoading(true);
+    setTemplatesError(null);
+    
+    try {
+      const result = await imageService.getAllImagePrompts();
+      if (result.success && result.data) {
+        // Take only the first 4 templates for the 2x2 grid
+        setImageTemplates(result.data.slice(0, 4));
+      }
+    } catch (err) {
+      console.error('Error fetching image templates:', err);
+      setTemplatesError(err.message);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
 
   const fetchImageHistory = async (page = 1) => {
     if (!uid) return;
@@ -203,7 +234,23 @@ const ImageGenerateScreen = () => {
       // Keep the uploadedImageUrls for API call but hide the UI
     }
   };
-  
+
+  // Check if send button should be disabled
+  const isSendDisabled = () => {
+    // Disable if no text is entered
+    if (userText.trim().length === 0) {
+      return true;
+    }
+    
+    // Disable if any image is still uploading
+    const hasUploadingImages = selectedImages.some(image => image.uploading === true);
+    if (hasUploadingImages) {
+      return true;
+    }
+    
+    return false;
+  };
+
   const handleAttachImage = async () => {
     // Check if we already have 5 images
     if (selectedImages.length >= 5) {
@@ -251,8 +298,10 @@ const ImageGenerateScreen = () => {
       // Get file extension from uri
       const fileExt = asset.uri.substring(asset.uri.lastIndexOf('.') + 1);
       
-      // Create file name with correct extension
-      const filePath = `user-uploads/${Date.now()}.${fileExt}`;
+      // Generate unique filename to prevent duplicates
+      const originalName = `image.${fileExt}`;
+      const uniqueFileName = generateUniqueFileName(originalName, uid);
+      const filePath = `user-uploads/${uniqueFileName}`;
 
       // For iOS, we need to handle the file:// protocol
       let imageUri = asset.uri;
@@ -521,6 +570,113 @@ const ImageGenerateScreen = () => {
     setFullScreenPromptText('');
   };
 
+  const handleTemplatePress = (template) => {
+    setUserText(template.prompt);
+    setTranscription(template.prompt);
+    // Don't set selectedTemplate here - templates should remain visible until send button is clicked
+  };
+
+  const renderImageTemplates = () => {
+    if (templatesLoading) {
+      return (
+        <View style={styles.fullScreenGridContainer}>
+          <FlatList
+            data={Array.from({ length: 6 })} // Show 6 skeleton items
+            keyExtractor={(_, index) => `skeleton-${index}`}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.gridContentContainer}
+            numColumns={2}
+            renderItem={({ index }) => (
+              <View style={[styles.gridImageTemplateItem, styles.skeletonItem]}>
+                <View style={styles.gridImageTemplateContainer}>
+                  <LinearGradient
+                    colors={['rgba(200, 200, 200, 0.1)', 'rgba(200, 200, 200, 0.3)', 'rgba(200, 200, 200, 0.1)']}
+                    start={{x: 0, y: 0}}
+                    end={{x: 1, y: 1}}
+                    style={[styles.gridImageTemplate, styles.skeletonImage]}
+                  >
+                    <ActivityIndicator size="large" color="#999999" />
+                  </LinearGradient>
+                  <View style={styles.gridImageTemplateOverlay}>
+                    <View style={styles.makeImageButton}>
+                      <LinearGradient
+                        colors={['rgba(200, 200, 200, 0.1)', 'rgba(200, 200, 200, 0.3)', 'rgba(200, 200, 200, 0.1)']}
+                        start={{x: 0, y: 0}}
+                        end={{x: 1, y: 0}}
+                        style={[styles.skeletonText, {width: 80, height: 20, borderRadius: 10}]}
+                      />
+                    </View>
+                  </View>
+                </View>
+              </View>
+            )}
+          />
+        </View>
+      );
+    }
+
+    if (templatesError || imageTemplates.length === 0) {
+      return null;
+    }
+
+    return (
+      <View style={styles.fullScreenGridContainer}>
+        <FlatList
+          data={imageTemplates}
+          numColumns={2}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.gridContentContainer}
+          renderItem={({ item, index }) => (
+            <TouchableOpacity
+              style={[styles.gridImageTemplateItem, {backgroundColor: colors.surface}]}
+              onPress={() => handleTemplatePress(item)}
+            >
+              <View style={styles.gridImageTemplateContainer}>
+                <Image
+                  source={{ uri: item.image_url }}
+                  style={styles.gridImageTemplate}
+                  resizeMode="cover"
+                  onError={(error) => {
+                    console.log('Image load error:', error);
+                  }}
+                />
+                <View style={styles.gridImageTemplateOverlay}>
+                  <View style={styles.makeImageButton}>
+                    <MaterialIcons name="image" size={16} color="#fff" />
+                    <Text style={styles.makeImageButtonText}>Make Image</Text>
+                  </View>
+                </View>
+              </View>
+            </TouchableOpacity>
+          )}
+          keyExtractor={(item, index) => item.id || index.toString()}
+        />
+      </View>
+    );
+  };
+
+  const renderHistorySkeleton = () => (
+    <Animatable.View animation="pulse" iterationCount="infinite" style={[styles.historyItem, styles.skeletonItem, {backgroundColor: colors.border}]}>
+      <View style={[styles.historyImage, styles.skeletonImage]}>
+        <LinearGradient
+          colors={['rgba(200, 200, 200, 0.1)', 'rgba(200, 200, 200, 0.3)', 'rgba(200, 200, 200, 0.1)']}
+          start={{x: 0, y: 0}}
+          end={{x: 1, y: 0}}
+          style={[styles.historyImage]}
+        />
+      </View>
+      <View style={[styles.historyItemContent, {backgroundColor: colors.border}]}>
+        <View style={[styles.skeletonText, {backgroundColor: colors.text + '30'}]} />
+        <View style={[styles.skeletonText, {backgroundColor: colors.text + '30', width: '60%', marginTop: 8}]} />
+        <View style={styles.historyActions}>
+          <View style={[styles.historyActionButton, {backgroundColor: colors.background2}]} />
+          <View style={[styles.historyActionButton, {backgroundColor: colors.background2}]} />
+          <View style={[styles.historyActionButton, {backgroundColor: colors.background2}]} />
+        </View>
+      </View>
+    </Animatable.View>
+  );
+
   const renderHistoryItem = ({ item }) => (
     <View style={[styles.historyItem, {backgroundColor: colors.border}]}>
       <TouchableOpacity 
@@ -581,7 +737,7 @@ const ImageGenerateScreen = () => {
         >
           <MaterialIcons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-          <Text style={[styles.headerTitle, {color: colors.text}]}>Matrix AI</Text>
+          <Text style={[styles.headerTitle, {color: colors.text}]}>Image</Text>
           {!isFinished && (
             <TouchableOpacity 
               style={[styles.historyButton, {backgroundColor: colors.primary}]} 
@@ -591,22 +747,25 @@ const ImageGenerateScreen = () => {
             </TouchableOpacity>
           )}
         </Animated.View>
-        
-        <Animated.View style={[styles.placeholderContainer, { opacity: fadeAnim }]}>
-          <Image   
-            source={require('../assets/matrix.png')}
-            style={[styles.placeholderImage, {tintColor: colors.text}]}
-          />
-          <Text style={[styles.placeholderText, {color: colors.text}]}>{t('hiWelcometoMatrixAI')}</Text>
-          <Text style={[styles.placeholderText2, {color: colors.text}]}>{t('whatcanigenerateforyoutoday')}</Text>
-        </Animated.View>
-        
-        <LottieView 
-          source={require('../assets/image2.json')}
-          autoPlay
-          loop
-          style={{width: '100%', height: 100, backgroundColor: 'transparent'}}
-        />
+
+
+        {/* Conditional rendering based on isFinished */}
+        {isFinished ? (
+          // Matrix logo placeholder when generation is finished
+          <View style={styles.matrixLogoContainer}>
+            <Image   
+              source={require('../assets/matrix.png')}
+              style={[styles.matrixLogo, {tintColor: '#FFFFFF'}]}
+            />
+            <Text style={[styles.matrixLogoText, {color: colors.text}]}>Image Generation</Text>
+          </View>
+        ) : (
+          // Original content when generation is not finished
+          <>
+            {/* Image Templates */}
+            {renderImageTemplates()}
+          </>
+        )}
 
         {/* Buttons */}
         {isFinished && (
@@ -641,6 +800,11 @@ const ImageGenerateScreen = () => {
       >
         {selectedImages.length > 0 && (
           <View style={styles.attachedImageContainer}>
+            <View style={styles.imageCounterContainer}>
+              <Text style={[styles.imageCounterText, {color: colors.text}]}>
+                {selectedImages.length}/5
+              </Text>
+            </View>
             <FlatList
               data={selectedImages}
               horizontal
@@ -678,21 +842,36 @@ const ImageGenerateScreen = () => {
               onChangeText={(text) => {
                 setUserText(text); // Update input
                 setTranscription(text || 'Start writing to generate Images (eg: generate tree with red apples)');
+                // Clear selected template when user starts typing
+                if (text && selectedTemplate) {
+                  setSelectedTemplate(null);
+                }
               }}
             />
             <TouchableOpacity
               style={styles.attachButton}
               onPress={handleAttachImage}
             >
-              <MaterialIcons name="attach-file" size={24} color={colors.primary} />
+              <View style={styles.attachButtonCircle}>
+                <LinearGradient
+                  colors={['rgba(0,123,255,0.8)', 'rgba(0,123,255,0.6)']}
+                  style={styles.attachButtonGradient}
+                >
+                  <Image
+                    source={require('../assets/upload.png')}
+                    style={styles.attachIcon}
+                  />
+                </LinearGradient>
+              </View>
             </TouchableOpacity>
             <TouchableOpacity 
-              style={styles.sendButton} 
-              onPress={handleSend}
+              style={[styles.sendButton, isSendDisabled() && styles.sendButtonDisabled]} 
+              onPress={isSendDisabled() ? null : handleSend}
+              disabled={isSendDisabled()}
             >
               <Image
                 source={require('../assets/send2.png')}
-                style={[styles.sendIcon, {tintColor: '#FFFFFF'}]}
+                style={[styles.sendIcon, {tintColor: isSendDisabled() ? '#CCCCCC' : '#FFFFFF'}]}
               />
             </TouchableOpacity>
           </View>
@@ -720,10 +899,13 @@ const ImageGenerateScreen = () => {
         </View>
         
         {isLoading && historyPage === 1 ? (
-          <View style={styles.loaderContainer}>
-            <ActivityIndicator size="large" color="#007BFF" />
-            <Text style={styles.loaderText}>Loading your images...</Text>
-          </View>
+          <FlatList
+            data={[1, 2, 3]} // Show 3 skeleton items
+            renderItem={renderHistorySkeleton}
+            keyExtractor={(item, index) => `skeleton-${index}`}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.historyList}
+          />
         ) : error ? (
           <View style={styles.errorContainer}>
             <Text style={[styles.errorText, {color: colors.text}]}>{error}</Text>
@@ -872,10 +1054,7 @@ const ImageGenerateScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingTop: 50,
-    paddingHorizontal: 20,
-    alignItems: 'center',
+    backgroundColor: '#121212',
   },
   header: {
     flexDirection: 'row',
@@ -883,6 +1062,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: '100%',
     paddingRight: 10,
+    paddingTop: 50,
+    paddingHorizontal: 20,
   },
   headerTitle:{
     fontSize: 20,
@@ -899,22 +1080,23 @@ const styles = StyleSheet.create({
     borderRadius: 20,
  
   },
-  placeholderContainer: {
+
+  matrixLogoContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
+    paddingBottom: 100, // Space for text input at bottom
   },
-  placeholderImage: { 
-    width: 100,
-    height: 100,
+  matrixLogo: {
+    width: 120,
+    height: 120,
     resizeMode: 'contain',
+    marginBottom: 20,
   },
-  placeholderText: {
-    fontSize: 16,
-    color: '#333',
-  },
-  placeholderText2: {
-    fontSize: 14,
-    color: '#666',
+  matrixLogoText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
   buttonContainer: {
     flexDirection: 'row',
@@ -951,6 +1133,15 @@ const styles = StyleSheet.create({
     width: '90%',
     alignSelf: 'center',
     marginBottom: 10,
+  },
+  imageCounterContainer: {
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  imageCounterText: {
+    fontSize: 12,
+    fontWeight: '500',
+    opacity: 0.7,
   },
   attachedImageWrapper: {
     width: 120,
@@ -999,6 +1190,33 @@ const styles = StyleSheet.create({
     padding: 8,
     marginRight: 5,
   },
+  attachIcon: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
+    tintColor:'#fff',
+  },
+  attachButtonCircle: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 0,
+    shadowColor: '#007BFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  attachButtonGradient: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   textInput: {
     flex: 1,
     fontSize: 16,
@@ -1008,7 +1226,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#007BFF',
     padding: 10,
     borderRadius: 25,
-    marginLeft: 10,
+    marginLeft: 0,
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#E0E0E0',
+    opacity: 0.6,
   },
   sendIcon: {
     width: 20,
@@ -1356,6 +1578,138 @@ const styles = StyleSheet.create({
   },
   historyImageContainer: {
     borderRadius: 8,
+  },
+  // Image Templates Styles
+  templatesContainer: {
+    padding: 15,
+    marginVertical: -20,
+  },
+  templatesTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: -550,
+    textAlign: 'left',
+    paddingLeft: 5,
+  },
+  templatesScrollContainer: {
+    height: 200, // Fixed height for the scroll container
+  },
+  templatesScrollContent: {
+    paddingLeft: 5,
+    paddingRight: 5,
+    alignItems: 'center',
+  },
+  templatesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  templateItem: {
+    marginBottom: 10,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#e0e0e0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  templateImage: {
+    resizeMode: 'cover',
+  },
+  templateOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    padding: 12,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+  },
+  templateText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'left',
+    color: '#ffffff',
+    lineHeight: 16,
+  },
+  fullScreenGridContainer: {
+    flex: 1,
+    paddingHorizontal: 2,
+    paddingTop: 2,
+    paddingBottom: 100, // Space for text input at bottom
+  },
+  gridContentContainer: {
+    paddingBottom: 20,
+  },
+  gridImageTemplateItem: {
+    width: (width - 6) / 2, // 2 columns with minimal spacing
+    aspectRatio: 0.75,
+    borderRadius: 0, // Remove rounded edges
+    margin: 1, // Minimal gap
+    overflow: 'hidden',
+  },
+  gridImageTemplateContainer: {
+    flex: 1,
+    position: 'relative',
+    borderRadius: 0, // Remove rounded edges
+    overflow: 'hidden',
+  },
+  gridImageTemplate: {
+    width: '100%',
+    height: '100%',
+  },
+  gridImageTemplateOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'flex-end',
+    alignItems: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    padding: 8,
+  },
+  makeImageButton: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backdropFilter: 'blur(10px)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  makeImageButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 6,
+  },
+  skeletonItem: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(200, 200, 200, 0.2)',
+  },
+  skeletonImage: {
+    backgroundColor: 'rgba(200, 200, 200, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  skeletonText: {
+    height: 12,
+    backgroundColor: 'rgba(200, 200, 200, 0.3)',
+    borderRadius: 6,
+    width: '80%',
   },
 });
 

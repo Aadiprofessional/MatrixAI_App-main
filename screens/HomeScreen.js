@@ -13,6 +13,7 @@ import {
   FlatList,
   Easing,
   SafeAreaView,
+  Linking,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
@@ -420,9 +421,26 @@ const HomeScreen = () => {
                     </>
                 )}
           <ThemedView style={styles.endTextContainer}>
-            <ThemedText style={styles.crossBee}>MatrixAI❤️</ThemedText>
-            <ThemedText style={styles.AppYard3}>{t('worldsBestAITools')}</ThemedText>
-            <ThemedText style={styles.AppYard4}>{t('allRightsReserved')}</ThemedText>
+            <View style={styles.footerLogoContainer}>
+              <Image 
+                source={require('../assets/logo7.png')} 
+                style={[styles.footerLogo, { tintColor: colors.primary }]}
+                resizeMode="contain"
+              />
+              <TouchableOpacity 
+                onPress={() => Linking.openURL('https://matrixai.asia')}
+                style={styles.websiteTextButton}
+              >
+                <View style={styles.websiteTextContainer}>
+                  <Text style={[styles.websiteText, { color: '#FFFFFF' }]}>matrix</Text>
+                  <Text style={[styles.websiteText, { color: '#FF0000' }]}>.</Text>
+                  <Text style={[styles.websiteText, { color: '#FFFFFF' }]}>asia</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+            <ThemedText style={[styles.AppYard4]}>
+              Copyright © 2025 MatrixAI. All rights reserved.
+            </ThemedText>
           </ThemedView>
         </View>
       </ScrollView>
@@ -564,25 +582,38 @@ const styles = StyleSheet.create({
   },
   endTextContainer: {
     flexDirection: 'column',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
     marginTop: 10,
+    paddingHorizontal: 16,
   },
-  crossBee: {
-    fontSize: 28,
-    color: '#95959527',
-    fontWeight: 'bold',
+  footerLogoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
   },
-  AppYard3: { 
-    fontSize: 20,
-    color: '#95959527',
-    fontWeight: 'bold',
+  footerLogo: {
+    width: 32,
+    height: 32,
+    marginRight: 6,
+  },
+  websiteTextButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+  },
+  websiteTextContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   AppYard4: { 
     fontSize: 12,
     color: '#9595957D',
     fontWeight: 'bold',
-    marginTop: 20,
-    alignSelf: 'center',
+    textAlign: 'left',
+  },
+  websiteText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
   
   sectionHeader: {

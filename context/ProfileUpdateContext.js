@@ -1,16 +1,21 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useMemo, useCallback } from 'react';
 
 const ProfileUpdateContext = createContext();
 
 export const ProfileUpdateProvider = ({ children }) => {
   const [lastUpdate, setLastUpdate] = useState(Date.now());
 
-  const triggerUpdate = () => {
+  const triggerUpdate = useCallback(() => {
     setLastUpdate(Date.now());
-  };
+  }, []);
+
+  const value = useMemo(() => ({
+    lastUpdate,
+    triggerUpdate
+  }), [lastUpdate, triggerUpdate]);
 
   return (
-    <ProfileUpdateContext.Provider value={{ lastUpdate, triggerUpdate }}>
+    <ProfileUpdateContext.Provider value={value}>
       {children}
     </ProfileUpdateContext.Provider>
   );
@@ -22,4 +27,4 @@ export const useProfileUpdate = () => {
     throw new Error('useProfileUpdate must be used within a ProfileUpdateProvider');
   }
   return context;
-}; 
+};

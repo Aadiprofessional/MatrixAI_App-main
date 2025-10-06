@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import { StatusBar, Platform } from 'react-native';
 import { getPreferredTheme, setPreferredTheme, DEFAULT_THEME, THEMES, getStatusBarStyle } from '../utils/themeUtils';
 
@@ -34,7 +34,7 @@ export const ThemeProvider = ({ children }) => {
   }, [currentTheme, loading]);
 
   // Function to change theme
-  const changeTheme = async (theme) => {
+  const changeTheme = useCallback(async (theme) => {
     try {
       // Set the StatusBar style immediately before state changes
       StatusBar.setBarStyle(getStatusBarStyle(theme), true);
@@ -46,29 +46,29 @@ export const ThemeProvider = ({ children }) => {
       console.error('Error changing theme:', error);
       return false;
     }
-  };
+  }, []);
 
   // Get current theme colors
-  const getThemeColors = () => {
+  const getThemeColors = useCallback(() => {
     return THEMES[currentTheme].colors;
-  };
+  }, [currentTheme]);
 
   // Get current status bar style based on theme
-  const getCurrentStatusBarStyle = () => {
+  const getCurrentStatusBarStyle = useCallback(() => {
     return getStatusBarStyle(currentTheme);
-  };
+  }, [currentTheme]);
+
+  const value = useMemo(() => ({
+    currentTheme,
+    changeTheme,
+    getThemeColors,
+    loading,
+    themes: THEMES,
+    statusBarStyle: getCurrentStatusBarStyle()
+  }), [currentTheme, changeTheme, getThemeColors, loading, getCurrentStatusBarStyle]);
 
   return (
-    <ThemeContext.Provider
-      value={{
-        currentTheme,
-        changeTheme,
-        getThemeColors,
-        loading,
-        themes: THEMES,
-        statusBarStyle: getCurrentStatusBarStyle()
-      }}
-    >
+    <ThemeContext.Provider value={value}>
       {children}
     </ThemeContext.Provider>
   );
@@ -81,4 +81,4 @@ export const useTheme = () => {
     throw new Error('useTheme must be used within a ThemeProvider');
   }
   return context;
-}; 
+};

@@ -1,4 +1,10 @@
 {
     "java.compile.nullAnalysis.mode": "automatic",
-    "java.configuration.updateBuildConfiguration": "automatic"
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "i18n-ally.localesPaths": [
+        "ios/Pods/RCT-Folly/folly/lang",
+        "ios/Pods/boost/boost/predef/language",
+        "ios/Pods/Headers/Private/RCT-Folly/folly/lang",
+        "ios/Pods/Headers/Public/RCT-Folly/folly/lang"
+    ]
 }

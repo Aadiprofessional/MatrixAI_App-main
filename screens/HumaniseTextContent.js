@@ -18,7 +18,8 @@ import {
   SafeAreaView,
   Keyboard,
   StatusBar,
-  PixelRatio
+  PixelRatio,
+  Modal
 } from 'react-native';
 import LottieView from 'lottie-react-native';
 import * as Animatable from 'react-native-animatable';
@@ -33,6 +34,8 @@ import Share from 'react-native-share';
 import Clipboard from '@react-native-clipboard/clipboard';
 import axios from 'axios';
 import { useAuthUser } from '../hooks/useAuthUser';
+import { useCoinsSubscription } from '../hooks/useCoinsSubscription';
+import { supabase } from '../supabaseClient';
 
 const { width, height } = Dimensions.get('window');
 const scale = Math.min(width / 375, height / 812); // Base scale on iPhone X dimensions for consistency
@@ -53,18 +56,34 @@ const HumaniseTextContent = ({ route }) => {
   const { t } = useLanguage();
   const navigation = useNavigation();
   const { uid } = useAuthUser();
+  const coinCount = useCoinsSubscription(uid);
+  
+  // Function to format text with proper paragraph breaks
+  const formatText = (text) => {
+    if (!text) return '';
+    
+    return text
+      .trim()
+      .replace(/\.\s+/g, '.\n\n') // Add double line breaks after sentences
+      .replace(/\n{3,}/g, '\n\n') // Limit to maximum double line breaks
+      .replace(/^\s+|\s+$/g, ''); // Trim whitespace
+  };
   
   // State variables
   const [inputText, setInputText] = useState('');
   const [outputText, setOutputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
-  const [selectedTone, setSelectedTone] = useState('professional');
-  const [selectedDetector, setSelectedDetector] = useState('ZeroGPT.com');
+  const [selectedTone, setSelectedTone] = useState('College');
+  const [selectedMode, setSelectedMode] = useState('High');
+  const [selectedDetector, setSelectedDetector] = useState('turnitin');
  
   const [historyOpen, setHistoryOpen] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  const [fullScreenModalVisible, setFullScreenModalVisible] = useState(false);
+  
+  const requiredCoins = 40;
   
   // Animated values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -237,9 +256,71 @@ const HumaniseTextContent = ({ route }) => {
     outputRange: ['0deg', '360deg']
   });
   
+  // Function to check user subscription status
+  const checkUserCoins = async (uid, requiredCoins) => {
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("subscription_active")
+        .eq("uid", uid)
+        .single();
+
+      if (error) {
+        console.error('Error checking user subscription:', error);
+        return { isProActive: false };
+      }
+
+      const isProActive = data && data.subscription_active === true;
+
+      return { isProActive };
+    } catch (error) {
+      console.error('Error in checkUserCoins:', error);
+      return { isProActive: false };
+    }
+  };
+  
   const handleSend = async () => {
     if (inputText.trim() === '') {
       Alert.alert(t('error'), t('pleaseEnterSomeTextToHumanise'));
+      return;
+    }
+
+    // Check if user has enough coins using real-time coin count
+    const { isProActive } = await checkUserCoins(uid, requiredCoins);
+    const hasEnoughCoins = coinCount >= requiredCoins;
+    
+    console.log('🪙 Current coin count:', coinCount);
+    console.log('🪙 Required coins:', requiredCoins);
+    console.log('🪙 Has enough coins:', hasEnoughCoins);
+    console.log('🪙 Is Pro active:', isProActive);
+    
+    if (!isProActive) {
+      console.log('❌ No Pro plan - blocking API call');
+      Alert.alert(
+        "Pro Plan Required",
+        "You need a Pro plan to humanize text. Upgrade to Pro for unlimited access.",
+        [
+          {
+            text: "Get Pro",
+            onPress: () => navigation.navigate("SubscriptionScreen"),
+          },
+          { text: "Cancel", style: "cancel" },
+        ]
+      );
+      return;
+    } else if (!hasEnoughCoins) {
+      console.log('❌ Insufficient coins - blocking API call');
+      Alert.alert(
+        "Insufficient Coins",
+        `You need ${requiredCoins} coins to humanize text. You currently have ${coinCount} coins.`,
+        [
+          {
+            text: "Buy Coins",
+            onPress: () => navigation.navigate("TransactionScreen"),
+          },
+          { text: "Cancel", style: "cancel" },
+        ]
+      );
       return;
     }
     
@@ -253,16 +334,17 @@ const HumaniseTextContent = ({ route }) => {
     resultTranslateY.setValue(20);
     
     try { 
-      // Create request payload with all settings 
+      // Create request payload with StealthGPT API format 
       const requestPayload = { 
-        uid: uid, // Use default UID if not available 
+        uid: uid, 
         prompt: inputText, 
-        ai_detector: selectedDetector, 
+        title: `Humanized Text - ${new Date().toLocaleDateString()}`, 
         tone: selectedTone, 
-        level: 'medium' 
+        mode: selectedMode, 
+        detector: selectedDetector 
       }; 
       
-      // Make API request to the new humanization API 
+      // Make API request to the new StealthGPT humanization API 
       const response = await axios.post( 
         'https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/humanize/createHumanization', 
         requestPayload, 
@@ -278,7 +360,7 @@ const HumaniseTextContent = ({ route }) => {
         // Extract the response
         const result = response.data.humanization.humanized_text.trim();
         
-        setOutputText(result);
+        setOutputText(formatText(result));
         
         // Add to history
         const newHistoryItem = {
@@ -524,31 +606,35 @@ const HumaniseTextContent = ({ route }) => {
     }
   }, [uid]);
   
-  // List of supported AI detectors
-  const supportedDetectors = [
-    "ZeroGPT.com",
-    "Originality.ai",
-    "Originality.ai (Legacy)",
-    "Winston AI",
-    "Winston AI (Legacy)",
-    "Turnitin",
-    "Turnitin (Legacy)",
-    "ZeroGPT.com (Legacy)",
-    "Sapling.ai",
-    "GPTZero.me",
-    "GPTZero.me (Legacy)",
-    "CopyLeaks.com",
-    "CopyLeaks.com (Legacy)",
-    "Writer.me",
-    "Universal Mode (Beta)"
-  ];
-  
-  // List of supported tones
-  const supportedTones = [
-    "professional",
-    "formal",
-    "friendly",
-    "casual"
+  // StealthGPT Tone options 
+  const toneOptions = [ 
+    { id: 'Standard', name: 'Standard' }, 
+    { id: 'HighSchool', name: 'High School' }, 
+    { id: 'College', name: 'College' }, 
+    { id: 'PhD', name: 'PhD' }, 
+  ]; 
+
+  // StealthGPT Mode options (Undetectability levels) 
+  const modeOptions = [ 
+    { id: 'Low', name: 'Low' }, 
+    { id: 'Medium', name: 'Medium' }, 
+    { id: 'High', name: 'High' }, 
+  ]; 
+
+  // StealthGPT Detector options 
+  const detectorOptions = [ 
+    { id: 'zerogpt', name: 'ZeroGPT' }, 
+    { id: 'turnitin', name: 'Turnitin' }, 
+    { id: 'gptzero', name: 'GPTZero' }, 
+    { id: 'originality', name: 'Originality.ai' }, 
+    { id: 'winston', name: 'Winston AI' }, 
+    { id: 'copyleaks', name: 'Copyleaks' }, 
+    { id: 'crossplag', name: 'Crossplag' }, 
+    { id: 'scribbr', name: 'Scribbr' }, 
+    { id: 'quillbot', name: 'Quillbot' }, 
+    { id: 'sapling', name: 'Sapling' }, 
+    { id: 'writer', name: 'Writer' }, 
+    { id: 'contentatscale', name: 'Content at Scale' }, 
   ];
   
 
@@ -823,14 +909,64 @@ const HumaniseTextContent = ({ route }) => {
                   </View>
                 </View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.toneSelector}>
-                  {supportedTones.map((tone) => (
+                  {toneOptions.map((tone) => (
                     <TouchableOpacity
-                      key={tone}
-                      style={[styles.toneOption, selectedTone === tone && styles.toneOptionSelected]}
-                      onPress={() => setSelectedTone(tone)}
+                      key={tone.id}
+                      style={[styles.toneOption, selectedTone === tone.id && styles.toneOptionSelected]}
+                      onPress={() => setSelectedTone(tone.id)}
                     >
-                      <Text style={[styles.toneText, selectedTone === tone && styles.toneTextSelected]}>
-                        {t(`${tone}`)}
+                      <Text style={[styles.toneText, selectedTone === tone.id && styles.toneTextSelected]}>
+                        {tone.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+
+            {/* Mode Selection Section */}
+            <View style={styles.standardContainer}>
+              <View style={[styles.toneContainer, { backgroundColor: currentTheme === 'dark' ? 'rgba(30, 30, 40, 0.6)' : 'rgba(255, 255, 255, 0.8)', borderColor: colors.border }]}>
+                <View style={styles.sectionHeaderContainer}>
+                  <View style={styles.sectionTitleContainer}>
+                    <MaterialCommunityIcons name="shield-check-outline" size={normalize(20)} color={colors.primary} />
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>Undetectability Level</Text>
+                  </View>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.toneSelector}>
+                  {modeOptions.map((mode) => (
+                    <TouchableOpacity
+                      key={mode.id}
+                      style={[styles.toneOption, selectedMode === mode.id && styles.toneOptionSelected]}
+                      onPress={() => setSelectedMode(mode.id)}
+                    >
+                      <Text style={[styles.toneText, selectedMode === mode.id && styles.toneTextSelected]}>
+                        {mode.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+
+            {/* Detector Selection Section */}
+            <View style={styles.standardContainer}>
+              <View style={[styles.toneContainer, { backgroundColor: currentTheme === 'dark' ? 'rgba(30, 30, 40, 0.6)' : 'rgba(255, 255, 255, 0.8)', borderColor: colors.border }]}>
+                <View style={styles.sectionHeaderContainer}>
+                  <View style={styles.sectionTitleContainer}>
+                    <MaterialCommunityIcons name="radar" size={normalize(20)} color={colors.primary} />
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>AI Detector</Text>
+                  </View>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.toneSelector}>
+                  {detectorOptions.map((detector) => (
+                    <TouchableOpacity
+                      key={detector.id}
+                      style={[styles.toneOption, selectedDetector === detector.id && styles.toneOptionSelected]}
+                      onPress={() => setSelectedDetector(detector.id)}
+                    >
+                      <Text style={[styles.toneText, selectedDetector === detector.id && styles.toneTextSelected]}>
+                        {detector.name}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -1002,16 +1138,25 @@ const HumaniseTextContent = ({ route }) => {
                       <MaterialCommunityIcons name="text-box-check-outline" size={normalize(20)} color={colors.primary} />
                       <Text style={[styles.sectionTitle, { color: colors.text }]}>Humanised Result</Text>
                     </View>
-                    <TouchableOpacity 
-                      style={[styles.resetButton, isSmallScreen && { marginTop: responsiveSpacing(8) }]}
-                      onPress={handleReset}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <MaterialIcons name="refresh" size={normalize(20)} color={colors.primary} />
-                      <Text style={[styles.resetButtonText, { color: colors.primary }]}>
-                        New Text
-                      </Text>
-                    </TouchableOpacity>
+                    <View style={[styles.resultHeaderActions, isSmallScreen && { marginTop: responsiveSpacing(8) }]}>
+                      <TouchableOpacity 
+                        style={styles.resetButton}
+                        onPress={handleReset}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <MaterialIcons name="refresh" size={normalize(20)} color={colors.primary} />
+                        <Text style={[styles.resetButtonText, { color: colors.primary }]}>
+                          New Text
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.fullScreenIcon}
+                        onPress={() => setFullScreenModalVisible(true)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <MaterialIcons name="fullscreen" size={normalize(24)} color={colors.primary} />
+                      </TouchableOpacity>
+                    </View>
                   </View>
                   
                   <View style={[styles.resultBox, {
@@ -1141,6 +1286,71 @@ const HumaniseTextContent = ({ route }) => {
           )}
         </SafeAreaView>
       </Animated.View>
+
+      {/* Full Screen Modal */}
+      <Modal
+        visible={fullScreenModalVisible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        statusBarTranslucent={true}
+      >
+        <SafeAreaView style={[styles.fullScreenModalContainer, { backgroundColor: colors.background }]}>
+          <View style={[styles.fullScreenModalHeader, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+            <TouchableOpacity
+              style={styles.fullScreenModalCloseButton}
+              onPress={() => setFullScreenModalVisible(false)}
+            >
+              <Ionicons name="close" size={24} color={colors.text} />
+            </TouchableOpacity>
+            <Text style={[styles.fullScreenModalTitle, { color: colors.text }]}>
+              Humanised Result
+            </Text>
+            <View style={{ width: 40 }} />
+          </View>
+          
+          <ScrollView style={styles.fullScreenModalContent} contentContainerStyle={styles.fullScreenModalContentContainer}>
+            <View style={[styles.fullScreenModalContentBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.resultText, { color: colors.text }]}>
+                {outputText}
+              </Text>
+            </View>
+          </ScrollView>
+
+          <View style={[styles.fullScreenModalActionButtons, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: colors.primary }]}
+              onPress={() => {
+                Clipboard.setString(outputText);
+                Alert.alert('Copied!', 'Text copied to clipboard');
+              }}
+            >
+              <Ionicons name="copy-outline" size={18} color="#FFFFFF" />
+              <Text style={[styles.actionButtonText, { color: '#FFFFFF' }]}>Copy</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: colors.secondary }]}
+              onPress={() => {
+                Share.open({
+                  message: outputText,
+                  title: 'Humanised Text',
+                })
+                .then((res) => {
+                  console.log(res);
+                })
+                .catch((err) => {
+                  err && console.log(err);
+                });
+              }}
+            >
+              <Ionicons name="share-outline" size={18} color="#FFFFFF" />
+              <Text style={[styles.actionButtonText, { color: '#FFFFFF' }]}>Share</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+
     </SafeAreaView>
   );
 };
@@ -1692,6 +1902,69 @@ const styles = StyleSheet.create({
     padding: responsiveSpacing(8),
     borderRadius: responsiveSpacing(8),
   },
+  resultHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  fullScreenIcon: {
+    padding: responsiveSpacing(8),
+    marginLeft: responsiveSpacing(8),
+  },
+  fullScreenModalContainer: {
+    flex: 1,
+  },
+  fullScreenModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: responsiveSpacing(16),
+    paddingVertical: responsiveSpacing(16),
+    borderBottomWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  fullScreenModalCloseButton: {
+    padding: responsiveSpacing(8),
+    borderRadius: responsiveSpacing(20),
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  fullScreenModalTitle: {
+    fontSize: normalize(18),
+    fontWeight: '600',
+  },
+  fullScreenModalContent: {
+    flex: 1,
+  },
+  fullScreenModalContentContainer: {
+    padding: responsiveSpacing(16),
+  },
+  fullScreenModalContentBox: {
+    borderRadius: responsiveSpacing(16),
+    borderWidth: 1,
+    padding: responsiveSpacing(20),
+    minHeight: 200,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  fullScreenModalActionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: responsiveSpacing(16),
+    paddingVertical: responsiveSpacing(16),
+    borderTopWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+
 });
 
 export default HumaniseTextContent;

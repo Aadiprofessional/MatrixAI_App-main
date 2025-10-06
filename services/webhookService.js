@@ -50,24 +50,102 @@ export const processImageUnderstanding = async (imageUrl, prompt = "Can you see 
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    // Handle streaming response
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let result = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      const chunk = decoder.decode(value);
-      result += chunk;
+    // Check if response.body exists and has getReader method (React Native compatibility)
+    if (!response.body || typeof response.body.getReader !== 'function') {
+      // Fallback for React Native - use response.text() instead
+      const result = await response.text();
+      return parseWebhookResponse(result);
     }
 
-    return result;
+    // Handle streaming response for environments that support it
+    try {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let result = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value);
+        result += chunk;
+      }
+
+      return parseWebhookResponse(result);
+    } catch (streamError) {
+      console.warn('Streaming failed, falling back to text response:', streamError);
+      // Fallback to regular text response
+      const result = await response.text();
+      return parseWebhookResponse(result);
+    }
   } catch (error) {
     console.error('Error processing image understanding:', error);
     throw error;
   }
+};
+
+/**
+ * Parse webhook response to extract content from JSON lines
+ * @param {string} rawResponse - Raw response from webhook
+ * @returns {string} - Parsed content
+ */
+const parseWebhookResponse = (rawResponse) => {
+  if (!rawResponse) return '';
+  
+  let fullContent = '';
+  const lines = rawResponse.split('\n');
+  
+  for (const line of lines) {
+    if (line.trim()) {
+      try {
+        const jsonData = JSON.parse(line);
+        
+        if (jsonData.type === 'item' && jsonData.content) {
+          let content = jsonData.content;
+          
+          // Filter out common system messages and static content
+          const systemPatterns = [
+            /^(Processing|Analyzing|Loading|Uploading|Please wait|System:|Assistant:)/i,
+            /^(I'm analyzing|I'm processing|Let me analyze|Let me process)/i,
+            /^(Starting|Initializing|Preparing)/i
+          ];
+          
+          // Check if this content contains only system messages
+          const isSystemMessage = systemPatterns.some(pattern => 
+            pattern.test(content.trim())
+          );
+          
+          // Only add content that's not a system message
+          if (!isSystemMessage) {
+            fullContent += content;
+          }
+        } else if (jsonData.type === 'end') {
+          break;
+        }
+      } catch (parseError) {
+        // Handle non-JSON lines or other formats
+        if (line.includes('data: ')) {
+          const content = line.replace('data: ', '').trim();
+          if (content && content !== '[DONE]') {
+            try {
+              const parsed = JSON.parse(content);
+              if (parsed.content) {
+                fullContent += parsed.content;
+              }
+            } catch {
+              // If it's not JSON, treat as plain text
+              fullContent += content;
+            }
+          }
+        } else if (!line.startsWith('{') && line.trim().length > 0) {
+          // Handle plain text responses
+          fullContent += line + '\n';
+        }
+      }
+    }
+  }
+  
+  return fullContent.trim() || rawResponse; // Fallback to raw response if no content extracted
 };
 
 /**
@@ -105,20 +183,34 @@ export const processDocument = async (documentUrl, prompt = "Can you perform as 
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    // Handle streaming response
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let result = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      const chunk = decoder.decode(value);
-      result += chunk;
+    // Check if response.body exists and has getReader method (React Native compatibility)
+    if (!response.body || typeof response.body.getReader !== 'function') {
+      // Fallback for React Native - use response.text() instead
+      const result = await response.text();
+      return parseWebhookResponse(result);
     }
 
-    return result;
+    // Handle streaming response for environments that support it
+    try {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let result = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value);
+        result += chunk;
+      }
+
+      return parseWebhookResponse(result);
+    } catch (streamError) {
+      console.warn('Streaming failed, falling back to text response:', streamError);
+      // Fallback to regular text response
+      const result = await response.text();
+      return parseWebhookResponse(result);
+    }
   } catch (error) {
     console.error('Error processing document:', error);
     throw error;
@@ -158,20 +250,34 @@ export const generateImage = async (prompt) => {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    // Handle streaming response
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let result = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      const chunk = decoder.decode(value);
-      result += chunk;
+    // Check if response.body exists and has getReader method (React Native compatibility)
+    if (!response.body || typeof response.body.getReader !== 'function') {
+      // Fallback for React Native - use response.text() instead
+      const result = await response.text();
+      return parseWebhookResponse(result);
     }
 
-    return result;
+    // Handle streaming response for environments that support it
+    try {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let result = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value);
+        result += chunk;
+      }
+
+      return parseWebhookResponse(result);
+    } catch (streamError) {
+      console.warn('Streaming failed, falling back to text response:', streamError);
+      // Fallback to regular text response
+      const result = await response.text();
+      return parseWebhookResponse(result);
+    }
   } catch (error) {
     console.error('Error generating image:', error);
     throw error;
@@ -213,7 +319,7 @@ export const generateXLSX = async (prompt) => {
 
     // Handle simple text response
     const result = await response.text();
-    return result;
+    return parseWebhookResponse(result);
   } catch (error) {
     console.error('Error generating XLSX:', error);
     throw error;
@@ -255,7 +361,7 @@ export const generateDOC = async (prompt) => {
 
     // Handle simple text response
     const result = await response.text();
-    return result;
+    return parseWebhookResponse(result);
   } catch (error) {
     console.error('Error generating DOC:', error);
     throw error;

@@ -555,7 +555,8 @@ export const videoService = {
    * @returns {Promise<VideoRemoveResponse>} The video removal response
    */
   removeVideo: async ({ uid, videoId }) => {
-    const response = await fetch(`${API_BASE_URL}/api/video/removeVideo`, {
+    console.log('Removing video with timeout and retry logic...');
+    const response = await fetchWithTimeoutAndRetry(`${API_BASE_URL}/api/video/removeVideo`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -572,6 +573,71 @@ export const videoService = {
     }
 
     return response.json();
+  },
+
+  /**
+   * Create ultra quality video with image and prompt
+   * @param {string} uid - User ID
+   * @param {string} promptText - Text prompt for video generation
+   * @param {string} imageUrl - URL of the image to use
+   * @returns {Promise<VideoGenerationResponse>} Video generation response
+   */
+  createVideoUltraTest: async (uid, promptText, imageUrl) => {
+    try {
+      console.log('Creating ultra video with:', { uid, promptText, imageUrl });
+      
+      const response = await fetchWithTimeoutAndRetry(`${API_BASE_URL}/api/video/createVideoUltra`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          uid,
+          promptText,
+          imageUrl
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || 'Failed to create ultra video');
+      }
+
+      const data = await response.json();
+      console.log('Ultra video creation response:', data);
+      return data;
+    } catch (error) {
+      console.error('Error creating ultra video:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get all video prompt templates
+   * @returns {Promise<Array>} Array of video prompt templates
+   */
+  getAllVideoPrompts: async () => {
+    try {
+      console.log('Fetching video prompts from API...');
+      const response = await fetchWithTimeoutAndRetry('https://main-matrixai-server-lujmidrakh.cn-hangzhou.fcapp.run/api/video-prompt/getAllVideoPrompts', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || 'Failed to fetch video prompts');
+      }
+
+      const data = await response.json();
+      console.log('Video prompts fetched successfully:', data);
+      return data;
+    } catch (error) {
+      console.error('Error fetching video prompts:', error);
+      throw error;
+    }
   }
 };
 
